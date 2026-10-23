@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:ping": "tsx src/db/ping.ts"
   },
   "dependencies": {
     "@google/genai": "^2.31.0",
     "@monsoonwatch/shared": "workspace:*",
     "fastify": "^5.12.7",
+    "mongodb": "^7.7.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
