@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies & builds
+node_modules/
+dist/
+.vite/
+*.log

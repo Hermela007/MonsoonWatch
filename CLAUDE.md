@@ -3,8 +3,8 @@
 Context for AI coding agents (Claude Code and others) working in this repo.
 
 ## Read first
-1. `GUIDELINES.md` — what MonsoonWatch is, the sponsor features we must use, data sources, video plans.
-2. `IMPLEMENTATION.md` — workstreams, shared contracts, checkpoints.
+1. `docs/GUIDELINES.md` — what MonsoonWatch is, the sponsor features we must use, data sources, video plans.
+2. `docs/IMPLEMENTATION.md` — workstreams, shared contracts, checkpoints.
 
 If these files and the code disagree, ask the human before changing either.
 
@@ -52,7 +52,7 @@ Prefer `pnpm dev:mock` when working on UI or agent flow without live services.
 - JPS endpoints return **HTML tables**, not JSON — parse with `cheerio`. `-9999.0` means missing. Check `Last Updated` for stale stations.
 - GloFAS discharge (m³/s) ≠ JPS water level (m). Any conversion is an approximation and must be labelled.
 - Cache external data in MongoDB; the demo must work if external sites are down.
-- URLs and verified details are in `GUIDELINES.md` §4.
+- URLs and verified details are in `docs/GUIDELINES.md` §4.
 
 ## Code style
 - TypeScript strict. Shared types from `@monsoonwatch/shared`. Units in names where ambiguous (`levelM`, `rainMm`, `etaHours`).
