@@ -1,9 +1,11 @@
 import Fastify from "fastify";
+import { registerErrorHandlers } from "./errors";
 import { healthRoutes } from "./routes/health";
 import { streamRoutes } from "./routes/stream";
 
 export function buildServer() {
   const app = Fastify({ logger: true });
+  registerErrorHandlers(app);
   app.register(
     async (api) => {
       await api.register(healthRoutes);

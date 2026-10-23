@@ -1,9 +1,17 @@
-// Shared contract — DRAFT copied from docs/IMPLEMENTATION.md §1.2.
-// Agree changes with all three workstreams first, and update fixtures in the same change.
+// Shared contract — docs/IMPLEMENTATION.md §1.2, plus the decisions in §1.6.
+// This file is the source of truth. Agree changes with all three workstreams first,
+// and update fixtures in the same change.
 // Units: metres, mm, m³/s, ISO timestamps (UTC), GeoJSON [lon, lat].
 // TODO (after contracts are agreed): add zod schemas and derive these types from them.
 
 export type LngLat = [number, number];
+
+// Minimal GeoJSON (no extra dependency). Always [lon, lat].
+export interface PointGeom { type: "Point"; coordinates: LngLat }
+export interface LineStringGeom { type: "LineString"; coordinates: LngLat[] }
+export interface PolygonGeom { type: "Polygon"; coordinates: LngLat[][] }
+export interface Feature<G, P> { type: "Feature"; id: string; geometry: G; properties: P }
+export interface FeatureCollection<G, P> { type: "FeatureCollection"; features: Feature<G, P>[] }
 
 export interface Region {
   _id: string; // "kelantan"
@@ -14,6 +22,13 @@ export interface Region {
   terrain: { heightmapUrl: string; widthPx: number; heightPx: number; metresPerPx: number; minElev: number; maxElev: number };
   glofasCells: { id: string; lngLat: LngLat; label: string }[];
   replay?: { label: string; start: string; end: string }; // "Dec 2014"
+  // Landslide screening config (B fills from Deep Research, §1.6 decision 6).
+  // Risk is raised when slope ≥ slopeMinDeg AND rain over `days` ≥ mm for any entry.
+  landslide?: {
+    slopeMinDeg: number;
+    rainThresholdsMm: { days: number; mm: number }[];
+    citations: { title: string; url: string }[];
+  };
 }
 
 export type StationKind = "river" | "rain";
@@ -88,6 +103,9 @@ export interface VerificationResult {
   detail: string;
 }
 
+// One alert = one group of people from one village going to one centre.
+// If a village must be split across centres, the agent creates one Alert per centre
+// (same runId + villageId), each with its own `people` count (§1.6 decision 5).
 export interface Alert {
   _id: string;
   regionId: string;
@@ -97,12 +115,24 @@ export interface Alert {
   hazard: "flood" | "landslide";
   etaHours?: number;
   evacCentreId: string;
+  people: number; // how many people this alert sends to evacCentreId (capacity check uses this)
   route: { type: "LineString"; coordinates: LngLat[] };
   messages: { lang: string; text: string }[];
   verification: VerificationResult[];
   status: "draft" | "verified" | "approved" | "rejected" | "sent";
   approvedBy?: string;
   approvedAt?: string;
+}
+
+// One agent run (collection `agent_runs`). Its HUD lines are AgentSteps in `agent_steps`.
+export interface AgentRun {
+  _id: string; // = runId
+  regionId: string;
+  trigger: { type: "risk_event" | "manual"; riskEventId?: string };
+  status: "running" | "done" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  error?: string;
 }
 
 export interface AgentStep {
@@ -134,5 +164,39 @@ export interface Hazards {
   mode: "live" | "replay";
   water: { likelyLevelM: number; worstLevelM: number; byCell?: { id: string; levelM: number }[] };
   landslide: { cells: { lngLat: LngLat; risk: number }[]; runouts: { type: "LineString"; coordinates: LngLat[]; risk: number }[] };
-  blockedRoads: { type: "MultiLineString"; coordinates: LngLat[][] };
+  blockedRoads: { type: "MultiLineString"; coordinates: LngLat[][] }; // for drawing
+  blockedRoadIds: string[]; // RoadFeature ids, for B's route planner + route check
+}
+
+// ---- Map data from OSM: GET /regions/:id/geo (§1.6 decision 4) ----
+// Roads are split at junctions by scripts/load-osm.ts: one feature = one segment between
+// two junction nodes, so B can build a routing graph directly from `from`/`to`.
+export interface RoadProps {
+  id: string; // "<osmWayId>:<segmentIndex>", stable across reloads; same as Feature.id
+  from: string; // OSM node id at the start of the segment
+  to: string; // OSM node id at the end of the segment
+  name?: string;
+  highway: string; // OSM highway tag: "primary", "residential", ...
+  lengthM: number;
+}
+export type RoadFeature = Feature<LineStringGeom, RoadProps>;
+export type RiverFeature = Feature<LineStringGeom, { id: string; name?: string; waterway: string }>;
+export type BuildingFeature = Feature<PointGeom, { id: string; kind?: string }>; // centroid only, to keep it small
+
+export interface GeoLayers {
+  regionId: string;
+  roads: FeatureCollection<LineStringGeom, RoadProps>;
+  rivers: FeatureCollection<LineStringGeom, RiverFeature["properties"]>;
+  buildings: FeatureCollection<PointGeom, BuildingFeature["properties"]>;
+}
+
+// ---- Knowledge chunks (collection `knowledge`): post-mortems, plans, Deep Research briefs ----
+export interface KnowledgeChunk {
+  _id: string;
+  regionId: string;
+  kind: "postmortem" | "plan" | "deep_research" | "other";
+  title: string;
+  sourceUrl?: string;
+  chunk: string; // the text that gets embedded
+  // embeddings are added by Atlas automated embedding / Voyage — never sent to the client
 }

@@ -56,6 +56,7 @@ Prefer `pnpm dev:mock` when working on UI or agent flow without live services.
 
 ## Code style
 - TypeScript strict. Shared types from `@monsoonwatch/shared`. Units in names where ambiguous (`levelM`, `rainMm`, `etaHours`).
+- MongoDB collection names only via `COLLECTIONS` from `@monsoonwatch/shared`. API errors only via `HttpError` (shape `ApiError`). Contract decisions: `docs/IMPLEMENTATION.md` §1.6.
 - Small, focused files; pure functions for verification and landslide logic (easy to test).
 - Three.js: dispose geometries/materials on layer removal; keep 60 fps on a laptop; all lng/lat ↔ world conversion through the shared helpers.
 
