@@ -1,4 +1,5 @@
 import type { Town } from '../geo/region';
+import { searchPlaces } from '../api/client';
 import type { HomeRisk } from '../terrain/homeRisk';
 import type { SafeRoute } from '../terrain/route';
 import { replayDate } from '../mock/replay2014';
@@ -41,13 +42,19 @@ export function describe(v: ResultView) {
   if (risk.level === 'low') lines.push(t('safe'));
 
   const action =
-    route && route.cells.length > 1 ? t('goTo', { d: fmtDistance(route.distanceKm) }) : route ? t('stay') : t('noRoute');
+    route && route.cells.length > 1
+      ? route.targetName
+        ? t('goToCentre', { name: route.targetName, d: fmtDistance(route.distanceKm) })
+        : t('goTo', { d: fmtDistance(route.distanceKm) })
+      : route
+        ? t('stay')
+        : t('noRoute');
   const level = risk.level === 'high' ? t('riskHigh') : risk.level === 'medium' ? t('riskMedium') : t('riskLow');
   return { level, lines, action, canRoute: !!route && route.cells.length > 1 };
 }
 
 export function createResidentUi(
-  towns: Town[],
+  initialPlaces: Town[],
   h: {
     onPick: (town: Town) => void;
     onLocate: () => void;
@@ -62,10 +69,15 @@ export function createResidentUi(
   const listen = $<HTMLButtonElement>('btn-listen');
   let current: ReturnType<typeof describe> | null = null;
   let speaking = false;
+  let places = initialPlaces;
+  let remote: Town[] = [];
+  let searchTimer = 0;
 
   const renderSuggestions = () => {
     const q = input.value.trim();
-    const matches = q ? matchPlaces(q, towns) : towns;
+    const local = q ? matchPlaces(q, places) : places.slice(0, 8);
+    const seen = new Set(local.map((p) => p.name.toLowerCase()));
+    const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, 6);
     suggestions.innerHTML = '';
     for (const town of matches) {
       const b = document.createElement('button');
@@ -77,10 +89,24 @@ export function createResidentUi(
     }
     note.textContent = q && !matches.length ? t('noMatch') : '';
   };
-  input.addEventListener('input', renderSuggestions);
+  input.addEventListener('input', () => {
+    remote = [];
+    renderSuggestions();
+    // Atlas Search (via the API) adds villages we don't have locally; silently skipped if the API is down.
+    clearTimeout(searchTimer);
+    const q = input.value.trim();
+    if (q.length < 2) return;
+    searchTimer = window.setTimeout(async () => {
+      const hits = await searchPlaces(q);
+      if (input.value.trim() === q && hits.length) {
+        remote = hits;
+        renderSuggestions();
+      }
+    }, 200);
+  });
   $('place-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const first = matchPlaces(input.value, towns)[0];
+    const first = matchPlaces(input.value, places)[0] ?? remote[0];
     if (first) h.onPick(first);
     else note.textContent = t('noMatch');
   });
@@ -113,6 +139,10 @@ export function createResidentUi(
   renderSuggestions();
 
   return {
+    setPlaces(list: Town[]) {
+      places = list;
+      renderSuggestions();
+    },
     showLanding() {
       stopSpeaking();
       document.body.dataset.view = 'landing';

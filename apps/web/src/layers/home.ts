@@ -24,7 +24,7 @@ void main() {
 }
 `;
 
-function makeBeam(color: number, text: string, cls: string) {
+function makeBeam(color: number, text: string, cls: string, anchorX: number) {
   const root = new THREE.Group();
   const beamGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 16, 1, true).translate(0, 0.5, 0);
   const beamMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
@@ -36,7 +36,7 @@ function makeBeam(color: number, text: string, cls: string) {
   el.className = `place-label ${cls}`;
   el.textContent = text;
   const label = new CSS2DObject(el);
-  label.center.set(0.5, 1);
+  label.center.set(anchorX, 1); // home label leans left, safe label right, so they don't collide
   label.position.y = 1.08;
   root.add(label);
   root.visible = false;
@@ -61,8 +61,8 @@ function makeBeam(color: number, text: string, cls: string) {
 /** "Your home" and "Higher ground" beams, and the glowing route between them. */
 export function createHomeLayer() {
   const group = new THREE.Group();
-  const home = makeBeam(0xffffff, '', 'home');
-  const safe = makeBeam(0x2ee59d, '', 'safe');
+  const home = makeBeam(0xffffff, '', 'home', 0.85);
+  const safe = makeBeam(0x2ee59d, '', 'safe', 0.15);
   group.add(home.root, safe.root);
 
   const routeMat = new THREE.ShaderMaterial({

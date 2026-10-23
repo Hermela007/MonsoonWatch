@@ -7,6 +7,8 @@ export interface SafeRoute {
   /** Cells from home to safe ground. Length 1 if home is already safe. */
   cells: number[];
   distanceKm: number;
+  /** Name of the evacuation centre reached, when centres were supplied. */
+  targetName?: string;
 }
 
 /**
@@ -20,6 +22,8 @@ export function routeToSafeGround(
   home: number,
   avoid: Uint8Array,
   maxKm = 25,
+  /** If given, only these cells (evacuation centres) count as destinations. */
+  named?: Map<number, string>,
 ): SafeRoute | null {
   const { cols, rows } = hm;
   const n = cols * rows;
@@ -33,7 +37,9 @@ export function routeToSafeGround(
   cost[home] = 0;
   heap.push(home);
 
-  const isTarget = (i: number) => !avoid[i] && isSafeGround(hm, hy, i);
+  const isTarget = named
+    ? (i: number) => named.has(i) && !avoid[i] && depthAt(hm, hy, i, worstPeak) < 0
+    : (i: number) => !avoid[i] && isSafeGround(hm, hy, i);
   let target = -1;
   while (heap.length) {
     const cur = heap.pop();
@@ -80,5 +86,5 @@ export function routeToSafeGround(
     const rb = Math.floor(b / cols);
     distanceM += Math.hypot((a - ra * cols - (b - rb * cols)) * hm.cellXM, (ra - rb) * hm.cellYM);
   }
-  return { cells, distanceKm: distanceM / 1000 };
+  return { cells, distanceKm: distanceM / 1000, targetName: named?.get(target) };
 }

@@ -20,6 +20,7 @@ const COPY = {
   landslide: 'The slope near you could slide after this much rain. Stay away from steep ground.',
   safe: 'Your area is not expected to flood.',
   goTo: 'Go to higher ground: {d} away',
+  goToCentre: 'Go to {name}: {d} away',
   stay: 'You are on higher ground. Stay inside and keep listening for updates.',
   noRoute: 'No safe ground found nearby. Follow official instructions.',
   showWay: 'Show me the way',

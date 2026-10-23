@@ -18,6 +18,8 @@ import { createHomeLayer } from './layers/home';
 import { createResidentUi } from './ui/resident';
 import { t } from './ui/copy';
 import { connectStream } from './api/stream';
+import { fetchEvacCentres, fetchVillages } from './api/client';
+import type { EvacCentre } from '@monsoonwatch/shared';
 import { NOW_HOUR, REPLAY_HOURS, rainAccumulated, rainIntensity, stageM } from './mock/replay2014';
 
 const params = new URLSearchParams(location.search);
@@ -55,6 +57,8 @@ async function main() {
   home.setLabels(t('yourHome'), t('higherGround'));
   scene.add(valley.mesh, flood.mesh, rain.object, home.group);
   let slides: ReturnType<typeof createLandslides> | null = null;
+
+  const timer = new THREE.Timer();
 
   // ---- State -------------------------------------------------------------
   let hour = NOW_HOUR;
@@ -109,13 +113,20 @@ async function main() {
     for (const s of local) for (const c of s.path) for (const i of neighbourhood(hm, c, 1)) avoid[i] = 1;
     // If the home area is at risk, "higher ground" must be outside it.
     if (risk.level !== 'low') for (const i of neighbourhood(hm, cell, 2)) avoid[i] = 1;
-    const route = routeToSafeGround(hm, hy, cell, avoid);
+    const named = new Map<number, string>();
+    for (const c of centres ?? []) {
+      const ci = nearestCell(hm, c.location.coordinates);
+      if (ci !== null) named.set(ci, c.name);
+    }
+    // Prefer a named evacuation centre; otherwise any safe higher ground.
+    const route = (named.size ? routeToSafeGround(hm, hy, cell, avoid, 25, named) : null) ?? routeToSafeGround(hm, hy, cell, avoid);
+    home.setLabels(t('yourHome'), route?.targetName ?? t('higherGround'));
 
     homePos = cellWorld(cell);
     const routePts = route && route.cells.length > 1
       ? route.cells.filter((_, k) => k % 2 === 0 || k === route.cells.length - 1).map((c) => cellWorld(c, 0.05))
       : null;
-    home.set(homePos, routePts, route?.distanceKm ?? 0, clock.elapsedTime);
+    home.set(homePos, routePts, route?.distanceKm ?? 0, timer.getElapsed());
 
     if (slides) {
       scene.remove(slides.group);
@@ -141,7 +152,7 @@ async function main() {
   };
 
   const backToLanding = () => {
-    home.set(null, null, 0, clock.elapsedTime);
+    home.set(null, null, 0, timer.getElapsed());
     if (slides) {
       scene.remove(slides.group);
       slides.dispose();
@@ -211,13 +222,18 @@ async function main() {
   layoutShift();
   ui.ready();
   connectStream();
+
+  // Workstream C's data, when the API is up. Until then: local stand-ins.
+  let centres: EvacCentre[] | null = null;
+  void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces(v));
+  void fetchEvacCentres(KELANTAN.id).then((c) => (centres = c));
   director.flyTo(overview, 4000, () => (controls.autoRotate = !homePos));
 
   // ---- Frame loop --------------------------------------------------------
-  const clock = new THREE.Clock();
-  stage.renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.1);
-    const time = clock.elapsedTime;
+  stage.renderer.setAnimationLoop((now) => {
+    timer.update(now);
+    const dt = Math.min(timer.getDelta(), 0.1);
+    const time = timer.getElapsed();
     director.update(performance.now());
     controls.update();
 
