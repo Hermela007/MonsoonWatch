@@ -1,0 +1,22 @@
+{
+  "_id": "kelantan",
+  "name": "Kelantan River Valley, Malaysia",
+  "bbox": [101.6, 4.6, 102.65, 6.3],
+  "languages": ["ms", "en"],
+  "timezone": "Asia/Kuala_Lumpur",
+  "terrain": {
+    "heightmapUrl": "/terrain/kelantan.png",
+    "widthPx": 0,
+    "heightPx": 0,
+    "metresPerPx": 0,
+    "minElev": 0,
+    "maxElev": 0
+  },
+  "glofasCells": [
+    { "id": "glofas-5.775-102.125", "lngLat": [102.125, 5.775], "label": "Main channel near Kuala Krai" },
+    { "id": "glofas-5.875-102.125", "lngLat": [102.125, 5.875], "label": "Main channel near Tanah Merah" },
+    { "id": "glofas-5.975-102.175", "lngLat": [102.175, 5.975], "label": "Main channel near Pasir Mas" },
+    { "id": "glofas-6.075-102.175", "lngLat": [102.175, 6.075], "label": "Main channel near Kota Bharu" }
+  ],
+  "replay": { "label": "December 2014 floods (reconstructed)", "start": "2014-12-10T00:00:00+08:00", "end": "2015-01-10T23:59:59+08:00" }
+}
