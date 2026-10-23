@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
+import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -10,15 +10,15 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 export function createStage(container: HTMLElement, opts: { bloom: boolean; maxPixelRatio: number }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, opts.maxPixelRatio));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1.0;
   container.appendChild(renderer.domElement);
 
   const labels = new CSS2DRenderer();
   labels.domElement.className = 'label-layer';
   container.appendChild(labels.domElement);
 
-  const fogColor = new THREE.Color(0x05080e);
+  const fogColor = new THREE.Color(0xebe8e2);
   const scene = new THREE.Scene();
   scene.background = fogColor;
 
@@ -30,13 +30,16 @@ export function createStage(container: HTMLElement, opts: { bloom: boolean; maxP
   controls.dampingFactor = 0.08;
   controls.maxPolarAngle = Math.PI * 0.46;
   controls.minDistance = 1.5;
-  controls.maxDistance = 320;
+  controls.maxDistance = 420;
   controls.screenSpacePanning = false;
   controls.autoRotateSpeed = 0.35;
 
   const composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-  if (opts.bloom) composer.addPass(new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.5, 0.85));
+  const renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
+  const bloom = opts.bloom ? new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.5, 0.85) : null;
+  if (bloom) composer.addPass(bloom);
+  let active: THREE.Scene = scene;
   composer.addPass(new OutputPass());
 
   // Shift the rendered scene so the subject isn't hidden behind the card (in CSS px).
@@ -75,9 +78,20 @@ export function createStage(container: HTMLElement, opts: { bloom: boolean; maxP
       applyShift();
       camera.updateProjectionMatrix();
     },
+    /** Swap which scene is drawn (valley ↔ street). Bloom is only for the night-time valley. */
+    setScene(next: THREE.Scene) {
+      if (next === active) return;
+      // CSS2DRenderer leaves labels of scenes it no longer renders on screen; hide them.
+      active.traverse((o) => {
+        if (o instanceof CSS2DObject) o.element.style.display = 'none';
+      });
+      active = next;
+      renderPass.scene = next;
+      if (bloom) bloom.enabled = next === scene;
+    },
     render() {
       composer.render();
-      labels.render(scene, camera);
+      labels.render(active, camera);
     },
   };
 }

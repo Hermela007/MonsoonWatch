@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#05080e" />
+    <meta name="theme-color" content="#ebe8e2" />
     <title>MonsoonWatch · Is my home safe?</title>
   </head>
   <body data-view="landing">
@@ -40,7 +40,15 @@
       <div id="risk-level" class="risk-level"></div>
       <div id="risk-lines" class="risk-lines"></div>
       <div id="risk-action" class="risk-action"></div>
+      <div id="street-info" class="street-info">
+        <div id="street-stats" class="street-stats"></div>
+        <div class="roof-key"><span data-copy="roofKey"></span>
+          <i style="--c:#9aa3ad"></i>Dry <i style="--c:#f3e66b"></i>&lt;0.5 m <i style="--c:#f5b13d"></i>0.5–1.5 m <i style="--c:#e8483a"></i>&gt;1.5 m
+        </div>
+        <div id="street-source" class="street-source"></div>
+      </div>
       <div class="actions">
+        <button id="btn-street" class="btn btn-street" type="button" data-copy="seeStreet"></button>
         <button id="btn-way" class="btn btn-primary" type="button" data-copy="showWay"></button>
         <button id="btn-whatif" class="btn" type="button" data-copy="whatIf"></button>
         <button id="btn-listen" class="btn btn-ghost" type="button"></button>

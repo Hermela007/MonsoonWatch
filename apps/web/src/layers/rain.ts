@@ -27,7 +27,7 @@ const fragmentShader = /* glsl */ `
 uniform vec3 uColor;
 varying float vAlpha;
 void main() {
-  gl_FragColor = vec4(uColor * vAlpha * 0.16, 1.0);
+  gl_FragColor = vec4(uColor, vAlpha * 0.35);
 }
 `;
 
@@ -52,13 +52,12 @@ export function createRain() {
     fragmentShader,
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
     uniforms: {
       uCentre: { value: new THREE.Vector3() },
       uSize: { value: 40 },
       uTime: { value: 0 },
       uIntensity: { value: 0 },
-      uColor: { value: new THREE.Color(0x9fd8ff) },
+      uColor: { value: new THREE.Color(0x6f7a80) },
     },
   });
   const lines = new THREE.LineSegments(geometry, material);

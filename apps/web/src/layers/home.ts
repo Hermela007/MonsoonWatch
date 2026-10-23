@@ -19,7 +19,7 @@ void main() {
   // Chevrons moving from home towards safety, ~one every 250 m.
   float s = fract(vUv.x * uLengthKm * 4.0 - uTime * 1.2);
   float chevron = smoothstep(0.0, 0.15, s) * smoothstep(0.55, 0.35, s);
-  vec3 base = vec3(0.12, 0.85, 0.55);
+  vec3 base = vec3(0.1, 0.55, 0.32);
   gl_FragColor = vec4(base * (0.75 + 0.9 * chevron), 1.0);
 }
 `;
@@ -27,7 +27,7 @@ void main() {
 function makeBeam(color: number, text: string, cls: string, anchorX: number) {
   const root = new THREE.Group();
   const beamGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 16, 1, true).translate(0, 0.5, 0);
-  const beamMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
+  const beamMat = new THREE.MeshBasicMaterial({ color });
   const ringGeo = new THREE.RingGeometry(0.12, 0.17, 40).rotateX(-Math.PI / 2);
   const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false });
   const ring = new THREE.Mesh(ringGeo, ringMat);
@@ -61,8 +61,8 @@ function makeBeam(color: number, text: string, cls: string, anchorX: number) {
 /** "Your home" and "Higher ground" beams, and the glowing route between them. */
 export function createHomeLayer() {
   const group = new THREE.Group();
-  const home = makeBeam(0xffffff, '', 'home', 0.85);
-  const safe = makeBeam(0x2ee59d, '', 'safe', 0.15);
+  const home = makeBeam(0x23302f, '', 'home', 0.85);
+  const safe = makeBeam(0x2e9e6b, '', 'safe', 0.15);
   group.add(home.root, safe.root);
 
   const routeMat = new THREE.ShaderMaterial({

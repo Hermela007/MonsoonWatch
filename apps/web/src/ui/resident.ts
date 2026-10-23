@@ -61,6 +61,7 @@ export function createResidentUi(
     onShowWay: () => void;
     onWhatIf: () => void;
     onChange: () => void;
+    onStreet: () => void;
   },
 ) {
   const input = $<HTMLInputElement>('place-input');
@@ -114,6 +115,7 @@ export function createResidentUi(
   $('btn-way').addEventListener('click', h.onShowWay);
   $('btn-whatif').addEventListener('click', h.onWhatIf);
   $('btn-change').addEventListener('click', h.onChange);
+  $('btn-street').addEventListener('click', h.onStreet);
 
   const stopSpeaking = () => {
     window.speechSynthesis?.cancel();
@@ -169,6 +171,16 @@ export function createResidentUi(
     },
     setWhatIf(active: boolean) {
       $('btn-whatif').textContent = active ? t('backNow') : t('whatIf');
+    },
+    setStreet(state: 'off' | 'loading' | 'on', stats?: { wet: number; total: number; osm: number; illustrative: number }) {
+      const btn = $<HTMLButtonElement>('btn-street');
+      btn.disabled = state === 'loading';
+      btn.textContent = state === 'loading' ? t('loadingStreet') : state === 'on' ? t('backValley') : t('seeStreet');
+      document.body.classList.toggle('street', state === 'on');
+      if (stats) {
+        $('street-stats').textContent = stats.wet ? t('homesWet', { n: stats.wet, total: stats.total }) : t('homesDry');
+        $('street-source').textContent = t('housesSource', { osm: stats.osm, ill: stats.illustrative });
+      }
     },
     note(text: string) {
       note.textContent = text;

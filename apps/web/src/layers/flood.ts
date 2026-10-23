@@ -1,33 +1,23 @@
 import * as THREE from 'three';
 import type { GeoFrame } from '../geo/region';
 import { cellLngLat, type Heightmap } from '../terrain/heightmap';
-import type { Hydrology } from '../terrain/hydrology';
+import { NO_DRAIN_M, type Hydrology } from '../terrain/hydrology';
 import type { Focus } from './valley';
 
-/** Vertical scale of the water rise relative to the terrain exaggeration (1 = true to the model). */
-export const LEVEL_EXAG = 1;
-const STEP = 1; // full grid: rivers are one cell wide
-
 const vertexShader = /* glsl */ `
-attribute float aElev;
-attribute float aFill;
-attribute float aDrain;
-attribute float aScale;
-attribute float aSea;
+uniform sampler2D uField; // r: filled elev (m), g: HAND (m), b: stage scale, a: sea
 uniform float uStage;
 uniform float uExag;
-uniform float uLevelExag;
-varying float vDepth;
-varying float vSea;
+varying vec2 vUv;
 varying vec3 vWorld;
 varying float vViewDist;
 
 void main() {
-  float rise = uStage * aScale;
-  vDepth = aDrain + rise - aFill;
-  vSea = aSea;
-  float shownM = aSea > 0.5 ? 0.0 : (vDepth > 0.0 ? aDrain + rise * uLevelExag + 0.5 : aElev - 8.0);
-  vec4 world = modelMatrix * vec4(position.x, shownM * uExag * 0.001, position.z, 1.0);
+  vUv = uv;
+  vec4 f = texture2D(uField, uv);
+  float surf = f.r - f.g + uStage * f.b;
+  float y = f.a > 0.5 ? 0.0 : max(f.r, surf);
+  vec4 world = modelMatrix * vec4(position.x, y * uExag * 0.001, position.z, 1.0);
   vWorld = world.xyz;
   vec4 mv = viewMatrix * world;
   vViewDist = -mv.z;
@@ -36,8 +26,10 @@ void main() {
 `;
 
 const fragmentShader = /* glsl */ `
+uniform sampler2D uField;
 uniform vec3 uSunDir;
 uniform float uTime;
+uniform float uStage;
 uniform vec3 uShallow;
 uniform vec3 uDeep;
 uniform vec3 uSeaCol;
@@ -46,13 +38,19 @@ uniform float uFogDensity;
 uniform vec3 uFocus;
 uniform float uFocusR;
 uniform float uFocusOn;
-varying float vDepth;
-varying float vSea;
+varying vec2 vUv;
 varying vec3 vWorld;
 varying float vViewDist;
 
 void main() {
-  if (vDepth <= 0.0 && vSea < 0.5) discard;
+  // Depth per pixel from bilinearly filtered fields → smooth shorelines instead of grid stairs.
+  vec4 f = texture2D(uField, vUv);
+  float sea = f.a;
+  float depth = uStage * f.b - f.g;
+  float aa = max(fwidth(depth), 1e-3);
+  float cover = sea > 0.5 ? 1.0 : smoothstep(-aa, aa, depth);
+  if (cover < 0.01) discard;
+
   vec2 q = vWorld.xz * 3.0;
   vec3 n = normalize(vec3(
     sin(q.x * 1.7 + uTime * 1.3) * 0.05 + sin(q.y * 2.9 - uTime * 0.8) * 0.03,
@@ -63,39 +61,93 @@ void main() {
   float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
   vec3 col;
   float alpha;
-  if (vSea > 0.5) {
-    col = uSeaCol + spec * 0.2;
-    alpha = 0.92;
+  if (sea > 0.5) {
+    col = uSeaCol + spec * 0.15;
+    alpha = 1.0;
   } else {
-    float t = 1.0 - exp(-vDepth / 3.0);
-    col = mix(uShallow * 0.8, uDeep, 0.35 + 0.65 * t);
-    col += fres * 0.18 * uShallow + spec * 0.8;
-    alpha = 0.55 + 0.35 * smoothstep(0.0, 1.5, vDepth);
+    float t = 1.0 - exp(-max(depth, 0.0) / 3.0);
+    col = mix(uShallow, uDeep, t) + fres * 0.1 + spec * 0.4;
+    alpha = (0.72 + 0.23 * smoothstep(0.0, 1.5, depth)) * cover;
   }
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
-  col *= mix(1.0, mix(0.4, 1.0, inFocus), uFocusOn);
+  col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.45);
   float fog = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
   gl_FragColor = vec4(mix(col, uFogCol, fog), alpha);
 }
 `;
 
-/** Flood element: a separate transparent water sheet that rises and spreads with the river stage. */
+/** Separable box blur, `passes` times (≈ Gaussian). Cells where `skip` is set keep their value. */
+function blur(src: Float32Array, cols: number, rows: number, radius: number, passes: number, skip?: Uint8Array) {
+  let a = Float32Array.from(src);
+  let b = new Float32Array(a.length);
+  const w = 2 * radius + 1;
+  for (let p = 0; p < passes; p++) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let sum = 0;
+        for (let k = -radius; k <= radius; k++) sum += a[r * cols + Math.min(cols - 1, Math.max(0, c + k))];
+        b[r * cols + c] = sum / w;
+      }
+    }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let sum = 0;
+        for (let k = -radius; k <= radius; k++) sum += b[Math.min(rows - 1, Math.max(0, r + k)) * cols + c];
+        a[r * cols + c] = sum / w;
+      }
+    }
+  }
+  if (skip) for (let i = 0; i < a.length; i++) if (skip[i]) a[i] = src[i];
+  return a;
+}
+
+/**
+ * Half-float RGBA field texture (filterable in WebGL2). Row 0 of the texture = southern edge.
+ * HAND and stage scale are smoothed so flood edges follow organic contours, not 150 m cells.
+ */
+function fieldTexture(hm: Heightmap, hy: Hydrology) {
+  const { cols, rows } = hm;
+  const n = cols * rows;
+  const handRaw = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const drain = hy.drainElevM[i];
+    handRaw[i] = hy.seaMask[i] ? 0 : drain === NO_DRAIN_M ? 60 : Math.min(60, Math.max(0, hy.filledM[i] - drain));
+  }
+  const hand = blur(handRaw, cols, rows, 1, 3);
+  const scale = blur(hy.stageScale, cols, rows, 1, 3);
+  const data = new Uint16Array(n * 4);
+  const h = THREE.DataUtils.toHalfFloat;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      const o = ((rows - 1 - r) * cols + c) * 4;
+      data[o] = h(Math.max(hy.filledM[i], 0));
+      data[o + 1] = h(hy.seaMask[i] ? 0 : hand[i]);
+      data[o + 2] = h(scale[i]);
+      data[o + 3] = h(hy.seaMask[i]);
+    }
+  }
+  const tex = new THREE.DataTexture(data, cols, rows, THREE.RGBAFormat, THREE.HalfFloatType);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Flood element: a transparent water sheet that rises and spreads with the river stage. */
 export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogColor: THREE.Color) {
-  const cols = Math.floor((hm.cols - 1) / STEP) + 1;
-  const rows = Math.floor((hm.rows - 1) / STEP) + 1;
+  const { cols, rows } = hm;
   const n = cols * rows;
   const pos = new Float32Array(n * 3);
-  const fields = { aElev: hm.elevM, aFill: hy.filledM, aDrain: hy.drainElevM, aScale: hy.stageScale, aSea: hy.seaMask };
-  const attrs = Object.fromEntries(Object.keys(fields).map((k) => [k, new Float32Array(n)])) as Record<keyof typeof fields, Float32Array>;
+  const uv = new Float32Array(n * 2);
   const v = new THREE.Vector3();
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const j = r * cols + c;
-      const i = r * STEP * hm.cols + c * STEP;
-      frame.lngLatToWorld(cellLngLat(hm, c * STEP, r * STEP), 0, v);
+      frame.lngLatToWorld(cellLngLat(hm, c, r), 0, v);
       pos[j * 3] = v.x;
       pos[j * 3 + 2] = v.z;
-      for (const k of Object.keys(fields) as (keyof typeof fields)[]) attrs[k][j] = fields[k][i];
+      uv.set([(c + 0.5) / cols, (rows - 1 - r + 0.5) / rows], j * 2);
     }
   }
   const index = new Uint32Array((cols - 1) * (rows - 1) * 6);
@@ -109,24 +161,29 @@ export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogCo
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geometry.setIndex(new THREE.BufferAttribute(index, 1));
-  for (const [name, arr] of Object.entries(attrs)) geometry.setAttribute(name, new THREE.BufferAttribute(arr, 1));
 
+  const field = fieldTexture(hm, hy);
   const material = new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     transparent: true,
+    // Near the shore the sheet lies on the ground; pull it forward to avoid z-fighting.
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -4,
     uniforms: {
+      uField: { value: field },
       uStage: { value: 0 },
       uExag: { value: frame.exag },
-      uLevelExag: { value: LEVEL_EXAG },
       uTime: { value: 0 },
       uSunDir: { value: new THREE.Vector3(-0.55, 0.75, -0.4).normalize() },
-      uShallow: { value: new THREE.Color(0x6ff3ff) },
-      uDeep: { value: new THREE.Color(0x0a47c9) },
-      uSeaCol: { value: new THREE.Color(0x0b1622) },
+      uShallow: { value: new THREE.Color(0xc9b386) },
+      uDeep: { value: new THREE.Color(0x8a6f48) },
+      uSeaCol: { value: new THREE.Color(0xa9c6bf) },
       uFogCol: { value: fogColor },
-      uFogDensity: { value: 0.0065 },
+      uFogDensity: { value: 0.0022 },
       uFocus: { value: new THREE.Vector3() },
       uFocusR: { value: 6 },
       uFocusOn: { value: 0 },
@@ -149,6 +206,7 @@ export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogCo
     dispose() {
       geometry.dispose();
       material.dispose();
+      field.dispose();
     },
   };
 }
