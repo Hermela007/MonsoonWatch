@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GeoFrame } from '../geo/region';
 import { cellLngLat, type Heightmap } from '../terrain/heightmap';
 import type { Hydrology } from '../terrain/hydrology';
+import { THEME } from '../theme';
 
 const vertexShader = /* glsl */ `
 attribute float aElev;
@@ -28,17 +29,14 @@ void main() {
 `;
 
 const fragmentShader = /* glsl */ `
-uniform sampler2D uImagery;
-uniform float uHasImagery;
-uniform sampler2D uDetail;
-uniform vec4 uDetailRect; // uv rect (u0, v0, u1, v1) covered by uDetail
-uniform float uDetailOn;
 uniform vec3 uSunDir;
 uniform float uTime;
 uniform float uRainAcc;
-uniform vec3 uLow;
-uniform vec3 uHigh;
+uniform vec3 uPaper;
+uniform vec3 uLine;
+uniform vec3 uLineStrong;
 uniform vec3 uRiskCol;
+uniform vec3 uRiverCol;
 uniform vec3 uFogCol;
 uniform float uFogDensity;
 uniform vec3 uFocus;
@@ -51,39 +49,43 @@ varying vec3 vNormalW;
 varying vec3 vWorld;
 varying float vViewDist;
 
+// Anti-aliased grid line of period p (world km), width w (px).
+float gridLine(vec2 p, float period, float w) {
+  vec2 c = p / period;
+  vec2 g = abs(fract(c - 0.5) - 0.5) / max(fwidth(c), vec2(1e-4));
+  return 1.0 - min(min(g.x, g.y) / w, 1.0);
+}
+
 void main() {
   vec3 n = normalize(vNormalW);
   float diff = clamp(dot(n, uSunDir), 0.0, 1.0);
-  // Satellite image, lifted a little (S2 forest is very dark) and hill-shaded softly.
-  vec3 img = texture2D(uImagery, vUv).rgb;
-  vec2 d = (vUv - uDetailRect.xy) / (uDetailRect.zw - uDetailRect.xy);
-  if (uDetailOn > 0.0 && d.x > 0.0 && d.y > 0.0 && d.x < 1.0 && d.y < 1.0) {
-    float edge = smoothstep(0.0, 0.08, min(min(d.x, d.y), min(1.0 - d.x, 1.0 - d.y)));
-    img = mix(img, texture2D(uDetail, d).rgb, edge * uDetailOn);
-  }
-  img = pow(img, vec3(0.85)) * 1.15;
-  vec3 hyps = mix(uLow, uHigh, smoothstep(0.0, 900.0, vElev));
-  vec3 base = mix(hyps, img, uHasImagery);
-  vec3 col = base * (0.4 + 0.8 * diff) * vec3(1.04, 1.0, 0.95);
+  // Off-white model surface, soft hill-shading in neutral greys.
+  vec3 col = uPaper * (0.78 + 0.26 * diff);
+
+  // Grid: 1 km minor, 5 km major, fading with distance.
+  float fade = 1.0 - smoothstep(60.0, 260.0, vViewDist);
+  col = mix(col, uLine, gridLine(vWorld.xz, 1.0, 1.0) * 0.55 * fade);
+  col = mix(col, uLineStrong, gridLine(vWorld.xz, 5.0, 1.2) * 0.6 * fade);
+  // Faint 100 m contours.
+  float ce = vElev / 100.0;
+  float cl = abs(fract(ce - 0.5) - 0.5) / max(fwidth(ce), 1e-4);
+  col = mix(col, uLine, (1.0 - min(cl, 1.0)) * 0.35 * step(5.0, vElev) * (1.0 - smoothstep(20.0, 120.0, vViewDist)));
 
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
 
-  // Landslide screening tint (slope x accumulated rain), only around the home.
+  // Landslide susceptibility (slope x accumulated rain): the only warm colour on the terrain.
   float risk = smoothstep(18.0, 35.0, vSlope) * smoothstep(0.15, 0.9, uRainAcc) * step(40.0, vElev);
-  float pulse = 0.8 + 0.2 * sin(uTime * 2.4 - vWorld.z * 0.5);
-  col = mix(col, uRiskCol * (0.6 + 0.4 * diff) * pulse, risk * 0.6 * inFocus * uFocusOn);
+  float pulse = 0.85 + 0.15 * sin(uTime * 2.0 - vWorld.z * 0.5);
+  col = mix(col, uRiskCol, risk * 0.55 * pulse * mix(0.6, inFocus, uFocusOn));
 
-  // Outside the home's area: wash out towards paper instead of darkening.
-  float grey = dot(col, vec3(0.299, 0.587, 0.114));
-  vec3 washed = mix(vec3(grey), uFogCol, 0.55);
-  col = mix(col, washed, (1.0 - inFocus) * uFocusOn * 0.85);
+  // Outside the home's area: recede into paper.
+  col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.55);
 
   float fog = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
   gl_FragColor = vec4(mix(col, uFogCol, fog), 1.0);
 }
 `;
 
-const color = (hex: number) => new THREE.Color(hex);
 
 export interface Focus {
   centre: THREE.Vector3;
@@ -93,7 +95,7 @@ export interface Focus {
 }
 
 /** Terrain slab: satellite imagery on the DEM, earthy sides, spotlight around the resident's home. */
-export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogColor: THREE.Color, imagery: THREE.Texture | null) {
+export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogColor: THREE.Color) {
   const { cols, rows } = hm;
   const n = cols * rows;
   const pos = new Float32Array(n * 3);
@@ -129,8 +131,6 @@ export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogC
     vertexShader,
     fragmentShader,
     uniforms: {
-      uImagery: { value: imagery },
-      uHasImagery: { value: imagery ? 1 : 0 },
       uDetail: { value: null as THREE.Texture | null },
       uDetailRect: { value: new THREE.Vector4(0, 0, 0, 0) },
       uDetailOn: { value: 0 },
@@ -138,9 +138,11 @@ export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogC
       uRainAcc: { value: 0 },
       uTime: { value: 0 },
       uSunDir: { value: new THREE.Vector3(-0.55, 0.75, -0.4).normalize() },
-      uLow: { value: color(0x8d9a6a) },
-      uHigh: { value: color(0x5f6f45) },
-      uRiskCol: { value: color(0xd9502e) },
+      uPaper: { value: THEME.paper },
+      uLine: { value: THEME.line },
+      uLineStrong: { value: THEME.lineStrong },
+      uRiskCol: { value: THEME.slide },
+      uRiverCol: { value: THEME.floodLight },
       uFogCol: { value: fogColor },
       uFogDensity: { value: 0.0022 },
       uFocus: { value: new THREE.Vector3() },
@@ -196,9 +198,9 @@ export function createSkirt(hm: Heightmap, frame: GeoFrame, topPos: Float32Array
 
   const verts: number[] = [];
   const colors: number[] = [];
-  const top = new THREE.Color(0xb59a76);
-  const mid = new THREE.Color(0x9a7c5a);
-  const bottom = new THREE.Color(0x7c6247);
+  const top = new THREE.Color(0xe4e1db);
+  const mid = new THREE.Color(0xdcd8d1);
+  const bottom = new THREE.Color(0xcfcac2);
   const v = new THREE.Vector3();
   const corner = (i: number) => {
     if (topPos) return v.set(topPos[i * 3], topPos[i * 3 + 1], topPos[i * 3 + 2]);

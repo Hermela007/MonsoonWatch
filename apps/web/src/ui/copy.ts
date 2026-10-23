@@ -47,7 +47,7 @@ const COPY = {
   homesDry: 'No homes around you have water yet',
   homesBuried: '{n} homes hit by the landslide',
   housesSource: 'Houses: {osm} from OpenStreetMap, {ill} illustrative. Water level from the terrain model.',
-  roofKey: 'Roof colour = water at the house (brown = hit by landslide)',
+  roofKey: 'Roof colour = water at the house',
   slopeWarn: 'Slope may fail',
   slopeActive: 'Landslide',
   now: 'Now',

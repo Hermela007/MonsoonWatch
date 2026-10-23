@@ -74,13 +74,16 @@ async function main() {
     ictx.imageSmoothingEnabled = true;
     ictx.filter = 'blur(3px)';
     ictx.drawImage(mask, 0, 0, imageryCanvas.width, imageryCanvas.height);
+    // Neutral, low-contrast photo: colour is reserved for risk.
+    ictx.filter = 'grayscale(1) contrast(0.75) brightness(1.25)';
+    ictx.drawImage(imageryCanvas, 0, 0);
     ictx.filter = 'none';
     imagery = new THREE.CanvasTexture(imageryCanvas);
     imagery.colorSpace = THREE.SRGBColorSpace;
     imagery.anisotropy = stage.renderer.capabilities.getMaxAnisotropy();
   }
   const SLAB_DEPTH = 2.2;
-  const valley = createValley(hm, hy, frame, stage.fogColor, imagery);
+  const valley = createValley(hm, hy, frame, stage.fogColor);
   // Valley-wide landslide hotspots: always shown, amber until enough rain has fallen.
   const hotspotSources = findSlideSources(hm, hy, { minSlopeDeg: 26, minElevM: 150, spacingKm: 7, max: 28 });
   const stack = createStack(hm, hy, frame, imagery, -SLAB_DEPTH, hotspotSources.map((h) => h.path));
@@ -168,29 +171,6 @@ async function main() {
     disposeStreet();
     homeLngLat = lngLat;
     homeCell = cell;
-    // Sharper imagery (~10 m/px) for the area around the home.
-    valley.setDetail(null);
-    const DETAIL_KM = 4;
-    const dLon = DETAIL_KM / frame.kmPerDegLon;
-    const dLat = DETAIL_KM / frame.kmPerDegLat;
-    const dBox: [number, number, number, number] = [lngLat[0] - dLon, lngLat[1] - dLat, lngLat[0] + dLon, lngLat[1] + dLat];
-    const forCell = cell;
-    void loadImagery(dBox, isPhone ? 13 : 14, isPhone ? 512 : 1024, isPhone ? 512 : 1024).then((cv) => {
-      if (!cv || homeCell !== forCell) return;
-      const tex = new THREE.CanvasTexture(cv);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = stage.renderer.capabilities.getMaxAnisotropy();
-      const [minLon, minLat, maxLon, maxLat] = KELANTAN.bbox;
-      valley.setDetail(
-        tex,
-        new THREE.Vector4(
-          (dBox[0] - minLon) / (maxLon - minLon),
-          (dBox[1] - minLat) / (maxLat - minLat),
-          (dBox[2] - minLon) / (maxLon - minLon),
-          (dBox[3] - minLat) / (maxLat - minLat),
-        ),
-      );
-    });
     // Start fetching houses now so "See my street" opens fast.
     housesFor = fetchOsmHouses(lngLat, 450, 5000).then((osm) => {
       const k = illustrativeTown(cell, osm);
@@ -330,7 +310,6 @@ async function main() {
     homeLngLat = null;
     homeCell = -1;
     housesFor = null;
-    valley.setDetail(null);
     home.set(null, null, 0, timer.getElapsed());
     if (slides) {
       scene.remove(slides.group);
@@ -421,11 +400,15 @@ async function main() {
     const r = Math.floor(foot / hm.cols);
     return [{ name: `Below the hills near ${name}`, lngLat: cellLngLat(hm, foot - r * hm.cols, r) }];
   });
-  ui.setPlaces([...KELANTAN.towns, ...hillPlaces]);
+  // Lead with one flood place and one landslide place; everything else is searchable.
+  const byName = (n: string) => KELANTAN.towns.find((t) => t.name === n)!;
+  const ordered = [byName('Kuala Krai'), ...hillPlaces.slice(0, 1), byName('Dabong'), byName('Tanah Merah'), byName('Kota Bharu')];
+  const allPlaces = [...ordered, ...KELANTAN.towns.filter((t) => !ordered.includes(t)), ...hillPlaces.slice(1)];
+  ui.setPlaces(allPlaces);
 
   // Workstream C's data, when the API is up. Until then: local stand-ins.
   let centres: EvacCentre[] | null = null;
-  void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...v, ...hillPlaces]));
+  void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...allPlaces, ...v]));
   void fetchEvacCentres(KELANTAN.id).then((c) => (centres = c));
   director.flyTo(overview, 4000, () => (controls.autoRotate = !homePos));
 

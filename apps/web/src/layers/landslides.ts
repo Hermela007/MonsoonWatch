@@ -7,8 +7,8 @@ import { REPLAY_HOURS, rainAccumulated } from '../mock/replay2014';
 
 const REVEAL_HOURS = 5; // debris path draws out over this many replay hours once a slope is flagged
 const PARTICLES_PER_PATH = 14;
-const WATCH = 0xe0a030; // flagged as susceptible, not yet triggered
-const ACTIVE = 0xd9502e; // enough rain has fallen
+const WATCH = 0xe8a28a; // flagged as susceptible, not yet triggered
+const ACTIVE = 0xd4542b; // enough rain has fallen
 
 const tubeVertex = /* glsl */ `
 varying vec2 vUv;
@@ -31,11 +31,11 @@ varying vec2 vUv;
 varying float vViewDist;
 void main() {
   if (vUv.x > uReveal) discard;
-  vec3 watch = vec3(0.88, 0.63, 0.19);
+  vec3 watch = vec3(0.91, 0.64, 0.54);
   float flow = fract(vUv.x * 10.0 - uTime * 1.2);
   float band = smoothstep(0.0, 0.25, flow) * smoothstep(1.0, 0.55, flow);
-  vec3 failing = mix(vec3(0.55, 0.22, 0.1), vec3(0.95, 0.42, 0.16), band); // ('active' is reserved in GLSL)
-  failing += smoothstep(uReveal - 0.08, uReveal, vUv.x) * vec3(0.4, 0.25, 0.1);
+  vec3 failing = mix(vec3(0.68, 0.24, 0.12), vec3(0.88, 0.36, 0.2), band); // ('active' is reserved in GLSL)
+  failing += smoothstep(uReveal - 0.08, uReveal, vUv.x) * vec3(0.12, 0.08, 0.05);
   vec3 col = mix(watch, failing, uActive);
   float fog = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
   gl_FragColor = vec4(mix(col, uFogCol, fog), mix(0.75, 1.0, uActive));
@@ -114,7 +114,7 @@ export function createLandslides(
   const particlePos = new Float32Array(slides.length * PARTICLES_PER_PATH * 3);
   const particleGeo = new THREE.BufferGeometry();
   particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
-  const particleMat = new THREE.PointsMaterial({ color: 0x7a4a26, size: 0.16, sizeAttenuation: true, transparent: true, depthWrite: false });
+  const particleMat = new THREE.PointsMaterial({ color: 0xa8401f, size: 0.16, sizeAttenuation: true, transparent: true, depthWrite: false });
   owned.push(particleGeo, particleMat);
   const particles = new THREE.Points(particleGeo, particleMat);
   particles.frustumCulled = false;
@@ -126,9 +126,9 @@ export function createLandslides(
     c.width = c.height = 128;
     const g = c.getContext('2d')!;
     const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
-    grad.addColorStop(0, 'rgba(150,118,84,0.85)');
-    grad.addColorStop(0.6, 'rgba(150,118,84,0.35)');
-    grad.addColorStop(1, 'rgba(150,118,84,0)');
+    grad.addColorStop(0, 'rgba(212,84,43,0.55)');
+    grad.addColorStop(0.6, 'rgba(212,84,43,0.18)');
+    grad.addColorStop(1, 'rgba(212,84,43,0)');
     g.fillStyle = grad;
     g.fillRect(0, 0, 128, 128);
     return new THREE.CanvasTexture(c);

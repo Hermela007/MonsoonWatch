@@ -20,7 +20,7 @@ export function createStage(container: HTMLElement, opts: { bloom: boolean; maxP
   labels.domElement.className = 'label-layer';
   container.appendChild(labels.domElement);
 
-  const fogColor = new THREE.Color(0xebe8e2);
+  const fogColor = new THREE.Color(0xf4f2ee);
   const scene = new THREE.Scene();
   scene.background = fogColor;
 

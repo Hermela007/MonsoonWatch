@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { House } from '../data/buildings';
+import { THEME } from '../theme';
 
 const SIZE_M = 900;
 const SEGMENTS = 220; // ~4 m vertex spacing: enough for the shortest wave below
@@ -92,8 +93,10 @@ void main() {
   float fres = 0.2 * pow(1.0 - max(dot(n, viewDir), 0.0), 5.0);
   float spec = pow(max(dot(reflect(-uSunDir, n), viewDir), 0.0), 70.0);
 
-  vec3 col = mix(uDeep, uShallow, smoothstep(-0.35, 0.5, vHeight));
-  col = mix(col, uSky * 0.8, fres) + spec * 0.35;
+  // Clear water: barely tinted when shallow, the flood blue deepening with depth; sky reflection at grazing angles.
+  float depthK = 1.0 - exp(-max(vDepth, 0.0) / 3.5);
+  vec3 col = mix(uShallow, uDeep, depthK * 0.85) * (0.92 + 0.12 * smoothstep(-0.4, 0.5, vHeight));
+  col = mix(col, uSky, fres * 2.5) + spec * 0.6;
 
   // Foam: on wave crests, and where water laps against walls.
   // Streaky foam: stretched noise along the main wave direction, only near crests.
@@ -105,10 +108,13 @@ void main() {
   float lap = smoothstep(0.6, 0.95, wall) * smoothstep(0.15, 1.0, vDepth) * (1.0 - smoothstep(2.5, 3.4, vDepth)) * smoothstep(0.4, 0.8, noise(vWorld.xz * 1.5 - uTime * 1.2) + 0.25 * sin(uTime * 3.0 + wall * 6.0));
   // Shoreline: a thin foam line where the water meets dry ground.
   float shore = 1.0 - smoothstep(0.0, 0.08, vDepth);
-  col = mix(col, uFoam, clamp(crest * 0.5 + lap * 0.45 + shore * 0.7, 0.0, 1.0));
+  // A crisp waterline at the shore and a whisper of white on the biggest crests.
+  col = mix(col, uDeep, shore * 0.8);
+  col = mix(col, vec3(1.0), clamp(crest * 0.25 + lap * 0.2, 0.0, 1.0));
 
   float fog = smoothstep(uFogNear, uFogFar, dist);
-  gl_FragColor = vec4(mix(col, uSky, fog), 0.9 + 0.1 * fres);
+  float alpha = 0.28 + 0.5 * depthK + 0.4 * fres + shore * 0.5;
+  gl_FragColor = vec4(mix(col, uSky, fog), clamp(alpha, 0.0, 0.95));
 }
 `;
 
@@ -167,8 +173,8 @@ export function createStreetWater(
       uCalm: { value: 0 },
       uLevel: { value: 0 },
       uGround: { value: groundTex },
-      uDeep: { value: new THREE.Color(0x5a4528) },
-      uShallow: { value: new THREE.Color(0x8c7346) },
+      uDeep: { value: THEME.flood },
+      uShallow: { value: THEME.floodLight },
       uSky: { value: sky },
       uFoam: { value: new THREE.Color(0xeee6d2) },
       uSunDir: { value: new THREE.Vector3(-0.5, 0.8, 0.35).normalize() },

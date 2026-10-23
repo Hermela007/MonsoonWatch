@@ -1,16 +1,17 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rng, type House } from '../data/buildings';
-import { breezeBlockTexture, clayTileTexture, grilleWindowTexture, louvreTexture, plankTexture, plasterTexture, zincTexture } from '../data/textures';
+import { addUnderwater } from './underwater';
 
 type MatKey = 'timber' | 'trim' | 'zinc' | 'tile' | 'plaster' | 'louvre' | 'glazed' | 'breeze' | 'car';
 type RoofKey = 'zinc' | 'tile';
 
-const KAMPUNG_PAINT = ['#8a5a36', '#7a4e2e', '#9b6a40', '#8f6440', '#7fb3a8', '#a9c79a', '#e6d8b5', '#a8c9cf', '#dcb0a0', '#c9d6a3'];
-const MODERN_PAINT = ['#efe6d2', '#e6ecd9', '#f1d9c8', '#f4efe3', '#dfe8e6', '#f0e2b8', '#e8dccb', '#d9e4d4', '#f2e8d8', '#e9d6c0'];
-const CAR_PAINT = ['#ecebe7', '#c3c6c7', '#8f1f1a', '#2b2c2d', '#cdc6b6', '#6f7b72'];
-const DARK_TIMBER = '#3a2a1d';
-const WHITE_TRIM = '#f3efe6';
+// Architectural-model palette: everything off-white, openings a touch darker. Colour is reserved for risk.
+const KAMPUNG_PAINT = ['#f3f1ec', '#efede8', '#f6f4f0'];
+const MODERN_PAINT = ['#f6f4f0', '#f2f0eb', '#f8f7f3', '#efece6'];
+const CAR_PAINT = ['#e9e7e2'];
+const DARK_TIMBER = '#d8d4cc';
+const WHITE_TRIM = '#fbfaf7';
 
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
@@ -123,7 +124,7 @@ function kampungHouse(b: Builder, h: House, rand: () => number) {
   const floorT = 0.2;
   const wallH = 2.6;
   const paint = KAMPUNG_PAINT[Math.floor(rand() * KAMPUNG_PAINT.length)];
-  const stiltCol = rand() < 0.5 ? '#9d9a92' : '#5b4331';
+  const stiltCol = rand() < 0.5 ? '#e2dfd9' : '#d8d4cc';
   const id = new THREE.Matrix4();
   const floorY = stiltH + floorT;
 
@@ -175,11 +176,11 @@ function kampungHouse(b: Builder, h: House, rand: () => number) {
   const steps = Math.max(3, Math.ceil(stairTop / 0.22));
   for (let k = 0; k < steps; k++) {
     const y = stairTop - ((k + 1) * stairTop) / (steps + 0.5);
-    b.add('trim', box(1.05, 0.06, 0.3), m(0, y, stairZ + 0.15 + k * 0.26), '#6b4a30');
+    b.add('trim', box(1.05, 0.06, 0.3), m(0, y, stairZ + 0.15 + k * 0.26), '#cfcac2');
   }
   for (const x of [-0.55, 0.55]) {
     const len = Math.hypot(stairTop, steps * 0.26);
-    b.add('trim', box(0.06, 0.22, len), m(x, stairTop / 2, stairZ + (steps * 0.26) / 2, Math.atan2(stairTop, steps * 0.26)), '#5b4331');
+    b.add('trim', box(0.06, 0.22, len), m(x, stairTop / 2, stairZ + (steps * 0.26) / 2, Math.atan2(stairTop, steps * 0.26)), '#d8d4cc');
   }
 
   b.gableRoof(id, L, W, floorY + wallH, 0.72, 0.75, 'zinc', 'timber', paint, true);
@@ -260,7 +261,7 @@ function modernHouse(b: Builder, h: House, rand: () => number) {
   b.add('plaster', box(L + 0.04, 0.85, W + 0.04), m(0, base + 0.42, 0), shade(paint, 0.85)); // dado
   // Front: door in the middle, windows either side.
   const doorX = -L * 0.12;
-  b.add('trim', box(1.7, 2.35, 0.08), m(doorX, base + 1.18, W / 2 + 0.03), '#6b4a30');
+  b.add('trim', box(1.7, 2.35, 0.08), m(doorX, base + 1.18, W / 2 + 0.03), '#cfcac2');
   b.add('trim', box(1.95, 2.55, 0.06), m(doorX, base + 1.28, W / 2 + 0.01), WHITE_TRIM);
   for (const x of [doorX - 2.6, doorX + 2.4, doorX + 4.6]) if (Math.abs(x) < L / 2 - 1) windowUnit(b, x, base + 1.75, W / 2 + 0.03, 0);
   for (let i = 0; i < Math.max(2, Math.floor(L / 3.6)); i++) windowUnit(b, -L / 2 + 2 + i * 3.6, base + 1.75, -W / 2 - 0.03, Math.PI);
@@ -277,7 +278,7 @@ function modernHouse(b: Builder, h: House, rand: () => number) {
   for (const z of [-1.9, 3.7]) b.add('plaster', box(0.3, 2.95, 0.3), m(cx + 1.6, 1.47, z), WHITE_TRIM);
   b.add('plaster', box(3.6, 0.1, 6.2), m(cx, 0.03, 0.9), '#b7b1a5');
   b.add('breeze', box(0.15, 2.0, 2.4), m(cx + 1.65, 1.0, -0.6), '#ffffff');
-  if (rand() < 0.7) car(b, cx, 0.08, 1.0, rand() < 0.5 ? 0 : Math.PI, rand);
+
   compoundWall(b, L + 8.5, W + 12, 1.6, cx, 4.2, rand() < 0.5 ? '#f0ece3' : shade(paint, 0.95));
   return roofTop;
 }
@@ -299,13 +300,13 @@ function terraceRow(b: Builder, h: House, rand: () => number) {
     const paint = rand() < 0.3 ? MODERN_PAINT[Math.floor(rand() * MODERN_PAINT.length)] : rowPaint;
     b.add('plaster', box(uw - 0.02, wallH, D), m(x, base + wallH / 2, 0), paint);
     b.add('plaster', box(uw, 0.8, D + 0.04), m(x, base + 0.4, 0), shade(paint, 0.86));
-    b.add('trim', box(1.0, 2.2, 0.08), m(x - uw * 0.22, base + 1.1, D / 2 + 0.03), '#6b4a30');
+    b.add('trim', box(1.0, 2.2, 0.08), m(x - uw * 0.22, base + 1.1, D / 2 + 0.03), '#cfcac2');
     windowUnit(b, x + uw * 0.18, base + 1.7, D / 2 + 0.03, 0, 1.8, 1.3);
     windowUnit(b, x, base + 1.7, -D / 2 - 0.03, Math.PI, 1.4, 1.2);
     // Porch roof and floor.
     b.add('plaster', box(uw - 0.1, 0.14, 3.0), m(x, base + wallH - 0.3, D / 2 + 1.5), WHITE_TRIM);
     b.add('plaster', box(uw - 0.1, 0.1, 5.4), m(x, 0.05, D / 2 + 2.7), '#bfb9ac');
-    if (rand() < 0.55) car(b, x + 0.6, 0.1, D / 2 + 2.8, 0, rand);
+
     // Front wall with gate, side walls between units.
     b.add('plaster', box(uw * 0.28, 1.2, 0.15), m(x - uw * 0.36, 0.5, D / 2 + 5.5), '#f0ece3');
     const gw = uw * 0.68;
@@ -343,26 +344,24 @@ export function createHouses(houses: House[], groundY: (x: number, z: number) =>
     }
   });
 
-  const plank = plankTexture();
-  const zinc = zincTexture();
-  const tile = clayTileTexture();
-  const plaster = plasterTexture();
-  const louvre = louvreTexture();
-  const glazed = grilleWindowTexture();
-  const breeze = breezeBlockTexture();
+  const matte = (extra: THREE.MeshStandardMaterialParameters = {}) =>
+    addUnderwater(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, ...extra }));
+  const roofBase = new THREE.Color(0xe9e6e0);
   const mats: Record<MatKey, THREE.MeshStandardMaterial> = {
-    timber: new THREE.MeshStandardMaterial({ map: plank, vertexColors: true, roughness: 0.85 }),
-    trim: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }),
-    zinc: new THREE.MeshStandardMaterial({ map: zinc, vertexColors: true, roughness: 0.42, metalness: 0.55, side: THREE.DoubleSide }),
-    tile: new THREE.MeshStandardMaterial({ map: tile, vertexColors: true, roughness: 0.75, side: THREE.DoubleSide }),
-    plaster: new THREE.MeshStandardMaterial({ map: plaster, vertexColors: true, roughness: 0.95 }),
-    louvre: new THREE.MeshStandardMaterial({ map: louvre, vertexColors: true, roughness: 0.8 }),
-    glazed: new THREE.MeshStandardMaterial({ map: glazed, vertexColors: true, roughness: 0.25, metalness: 0.1 }),
-    breeze: new THREE.MeshStandardMaterial({ map: breeze, vertexColors: true, roughness: 0.9 }),
-    car: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.45 }),
+    timber: matte(),
+    trim: matte(),
+    zinc: matte({ color: roofBase, side: THREE.DoubleSide }),
+    tile: matte({ color: roofBase, side: THREE.DoubleSide }),
+    plaster: matte(),
+    louvre: matte({ color: 0xb9b5ae }),
+    glazed: matte({ color: 0xbcc0c2, roughness: 0.35 }),
+    breeze: matte({ color: 0xdedad3 }),
+    car: matte(),
   };
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x9d978e, transparent: true, opacity: 0.55 });
 
   const group = new THREE.Group();
+  const edgeGeos: THREE.BufferGeometry[] = [];
   const merged = new Map<MatKey, THREE.BufferGeometry>();
   for (const [key, geos] of b.buckets) {
     const g = mergeGeometries(geos, false);
@@ -372,6 +371,10 @@ export function createHouses(houses: House[], groundY: (x: number, z: number) =>
     const mesh = new THREE.Mesh(g, mats[key]);
     mesh.castShadow = mesh.receiveShadow = true;
     group.add(mesh);
+    // Model-maker's edge lines.
+    const edges = new THREE.EdgesGeometry(g, 28);
+    edgeGeos.push(edges);
+    group.add(new THREE.LineSegments(edges, edgeMat));
   }
 
   const white = new THREE.Color(1, 1, 1);
@@ -380,7 +383,7 @@ export function createHouses(houses: House[], groundY: (x: number, z: number) =>
     group,
     roofTop,
     /** Tint a house's roof (null = natural material). */
-    setRoofTint(house: number, color: THREE.Color | null, amount = 0.6) {
+    setRoofTint(house: number, color: THREE.Color | null, amount = 0.9) {
       tint.copy(white);
       if (color) tint.lerp(color, amount);
       for (const r of b.roofRanges) {
@@ -393,7 +396,8 @@ export function createHouses(houses: House[], groundY: (x: number, z: number) =>
     dispose() {
       merged.forEach((g) => g.dispose());
       Object.values(mats).forEach((mt) => mt.dispose());
-      [plank, zinc, tile, plaster, louvre, glazed, breeze].forEach((t) => t.dispose());
+      edgeGeos.forEach((g) => g.dispose());
+      edgeMat.dispose();
     },
   };
 }

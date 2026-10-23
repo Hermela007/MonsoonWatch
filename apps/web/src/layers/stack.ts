@@ -4,6 +4,7 @@ import type { GeoFrame } from '../geo/region';
 import type { Heightmap } from '../terrain/heightmap';
 import { depthAt, type Hydrology } from '../terrain/hydrology';
 import { REPLAY_HOURS, worstStageM } from '../mock/replay2014';
+import { THEME } from '../theme';
 
 const GAP = 24; // world km between layers when fully exploded
 
@@ -17,11 +18,11 @@ function floodMapTexture(hm: Heightmap, hy: Hydrology, slidePaths: number[][]) {
   const img = ctx.createImageData(cols, rows);
   const worst = worstStageM(REPLAY_HOURS);
   for (let i = 0; i < cols * rows; i++) {
-    const relief = 1 - Math.min(1, hy.slopeDeg[i] / 45) * 0.22;
-    let rgb: [number, number, number] = [244 * relief, 239 * relief, 228 * relief];
-    if (hy.seaMask[i]) rgb = [214, 228, 222];
-    else if (hy.riverMask[i]) rgb = [86, 150, 98];
-    else if (depthAt(hm, hy, i, worst) > 0.3) rgb = [166, 207, 157];
+    const relief = 1 - Math.min(1, hy.slopeDeg[i] / 45) * 0.1;
+    let rgb: [number, number, number] = [246 * relief, 244 * relief, 240 * relief];
+    if (hy.seaMask[i]) rgb = [228, 236, 240];
+    else if (hy.riverMask[i]) rgb = [47, 140, 204];
+    else if (depthAt(hm, hy, i, worst) > 0.3) rgb = [169, 216, 240];
     img.data.set([rgb[0], rgb[1], rgb[2], 255], i * 4);
   }
   ctx.putImageData(img, 0, 0);
@@ -36,9 +37,15 @@ function floodMapTexture(hm: Heightmap, hy: Hydrology, slidePaths: number[][]) {
   bctx.filter = 'blur(2px)';
   bctx.drawImage(canvas, 0, 0, big.width, big.height);
   bctx.filter = 'none';
+  // Fine grid, like drafting paper: every ~1 km.
+  bctx.strokeStyle = 'rgba(160,152,140,0.35)';
+  bctx.lineWidth = 1;
+  const step = big.width / 80;
+  for (let x = 0; x < big.width; x += step) { bctx.beginPath(); bctx.moveTo(x, 0); bctx.lineTo(x, big.height); bctx.stroke(); }
+  for (let y = 0; y < big.height; y += step) { bctx.beginPath(); bctx.moveTo(0, y); bctx.lineTo(big.width, y); bctx.stroke(); }
   // Landslide hotspots: orange runouts with a dot at the source.
-  bctx.strokeStyle = '#e0812f';
-  bctx.fillStyle = '#d9502e';
+  bctx.strokeStyle = '#d4542b';
+  bctx.fillStyle = '#d4542b';
   bctx.lineWidth = 2 * S;
   bctx.lineJoin = bctx.lineCap = 'round';
   for (const path of slidePaths) {
@@ -65,8 +72,8 @@ function softShadowTexture() {
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
   const grad = g.createRadialGradient(64, 64, 10, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(60,50,40,0.45)');
-  grad.addColorStop(1, 'rgba(60,50,40,0)');
+  grad.addColorStop(0, 'rgba(40,36,30,0.22)');
+  grad.addColorStop(1, 'rgba(40,36,30,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 128, 128);
   return new THREE.CanvasTexture(c);
@@ -93,7 +100,7 @@ export function createStack(hm: Heightmap, hy: Hydrology, frame: GeoFrame, image
 
   const plane = new THREE.PlaneGeometry(w, h).rotateX(-Math.PI / 2);
   const edge = new THREE.BoxGeometry(w, 0.8, h).translate(0, -0.4, 0);
-  const edgeMat = new THREE.MeshBasicMaterial({ color: 0xc9a982, transparent: true });
+  const edgeMat = new THREE.MeshBasicMaterial({ color: THEME.paperDark, transparent: true });
   owned.push(plane, edge, edgeMat);
 
   const mapTex = floodMapTexture(hm, hy, slidePaths);
@@ -102,7 +109,7 @@ export function createStack(hm: Heightmap, hy: Hydrology, frame: GeoFrame, image
   top.add(new THREE.Mesh(plane, topMat), new THREE.Mesh(edge, edgeMat));
   owned.push(mapTex, topMat);
 
-  const bottomMat = new THREE.MeshBasicMaterial({ map: imagery ?? null, color: imagery ? 0xffffff : 0xb9b39a, transparent: true });
+  const bottomMat = new THREE.MeshBasicMaterial({ map: imagery ?? null, color: imagery ? 0xffffff : 0xdcd8d1, transparent: true });
   const bottom = new THREE.Group();
   bottom.add(new THREE.Mesh(plane, bottomMat), new THREE.Mesh(edge, edgeMat));
   owned.push(bottomMat);

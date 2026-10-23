@@ -42,7 +42,7 @@ void main() {
     // Predicted runout: translucent amber band with dashes flowing downhill.
     float dash = step(0.5, fract(vUv.y * 18.0 - uTime * 0.6));
     float border = smoothstep(0.0, 0.12, edge) * (1.0 - smoothstep(0.12, 0.25, edge));
-    vec3 c = vec3(0.92, 0.62, 0.18);
+    vec3 c = vec3(0.83, 0.33, 0.17);
     float a = border * dash * 0.9 + smoothstep(0.0, 0.3, edge) * 0.18;
     if (a < 0.02) discard;
     gl_FragColor = vec4(c, a);
@@ -53,9 +53,10 @@ void main() {
   if (vUv.y > front) discard;
   if (edge < 0.08 * noise(vWorld.xz * 0.2)) discard;
   float flow = noise(vec2(vAcross * 6.0, vUv.y * 40.0 - uTime * 3.0 * (1.0 - smoothstep(0.98, 1.0, uReveal) * 0.9)));
-  vec3 mud = mix(vec3(0.33, 0.24, 0.15), vec3(0.47, 0.35, 0.22), flow);
-  mud = mix(mud, vec3(0.25, 0.15, 0.09), smoothstep(0.1, 0.0, vUv.y)); // raw scar at the head scarp
-  mud += pow(flow, 6.0) * 0.25; // wet sheen
+  // Debris in the landslide risk colour: matte, with flow streaks moving downhill.
+  vec3 mud = mix(vec3(0.70, 0.27, 0.13), vec3(0.86, 0.40, 0.23), flow);
+  mud = mix(mud, vec3(0.55, 0.2, 0.1), smoothstep(0.1, 0.0, vUv.y)); // head scarp
+  mud += pow(flow, 6.0) * 0.12;
   mud *= 0.75 + 0.25 * smoothstep(0.0, 0.4, edge);
   float fog = smoothstep(uFogNear, uFogFar, length(cameraPosition - vWorld));
   gl_FragColor = vec4(mix(mud, uSky, fog), 1.0);
@@ -131,11 +132,11 @@ export function createStreetSlide(opts: {
   const rand = rng(Math.round(lengthM));
   const NB = 46;
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
-  const rockMat = new THREE.MeshStandardMaterial({ color: 0x7b7266, roughness: 0.95, flatShading: true });
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0xb5452a, roughness: 0.9, flatShading: true });
   const rocks = new THREE.InstancedMesh(rockGeo, rockMat, NB);
   rocks.castShadow = true;
   const rockData = Array.from({ length: NB }, () => ({ lag: rand() * 0.22, off: (rand() - 0.5) * 0.8, size: 0.35 + Math.pow(rand(), 2) * 1.6, spin: rand() * 6, axis: new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).normalize() }));
-  const NT = 7;
+  const NT = 0;
   const logGeo = new THREE.CylinderGeometry(0.22, 0.3, 7, 6).rotateZ(Math.PI / 2);
   const logMat = new THREE.MeshStandardMaterial({ color: 0x6a5240, roughness: 0.95 });
   const logs = new THREE.InstancedMesh(logGeo, logMat, NT);

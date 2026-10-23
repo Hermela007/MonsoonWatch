@@ -17,10 +17,10 @@ varying vec2 vUv;
 void main() {
   if (vUv.x > uReveal) discard;
   // Chevrons moving from home towards safety, ~one every 250 m.
-  float s = fract(vUv.x * uLengthKm * 4.0 - uTime * 1.2);
-  float chevron = smoothstep(0.0, 0.15, s) * smoothstep(0.55, 0.35, s);
-  vec3 base = vec3(0.1, 0.55, 0.32);
-  gl_FragColor = vec4(base * (0.75 + 0.9 * chevron), 1.0);
+  // Ink dashes marching from home towards safety.
+  float s = fract(vUv.x * uLengthKm * 6.0 - uTime * 1.2);
+  if (s > 0.6) discard;
+  gl_FragColor = vec4(0.11, 0.11, 0.1, 1.0);
 }
 `;
 
@@ -61,8 +61,8 @@ function makeBeam(color: number, text: string, cls: string, anchorX: number) {
 /** "Your home" and "Higher ground" beams, and the glowing route between them. */
 export function createHomeLayer() {
   const group = new THREE.Group();
-  const home = makeBeam(0x23302f, '', 'home', 0.85);
-  const safe = makeBeam(0x2e9e6b, '', 'safe', 0.15);
+  const home = makeBeam(0x1d1d1b, '', 'home', 0.85);
+  const safe = makeBeam(0x1d1d1b, '', 'safe', 0.15);
   group.add(home.root, safe.root);
 
   const routeMat = new THREE.ShaderMaterial({
@@ -96,7 +96,7 @@ export function createHomeLayer() {
       if (route && route.length > 1) {
         safe.root.position.copy(route[route.length - 1]);
         curve = new THREE.CatmullRomCurve3(route, false, 'centripetal');
-        routeMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(24, route.length * 3), 0.05, 6, false), routeMat);
+        routeMesh = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(24, route.length * 3), 0.035, 6, false), routeMat);
         routeMesh.renderOrder = 2;
         group.add(routeMesh);
         routeMat.uniforms.uLengthKm.value = Math.max(0.5, routeKm);

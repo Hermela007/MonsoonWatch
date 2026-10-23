@@ -95,7 +95,7 @@ export function createResidentUi(
 
   const renderSuggestions = () => {
     const q = input.value.trim();
-    const local = q ? matchPlaces(q, places) : places.slice(0, 10);
+    const local = q ? matchPlaces(q, places) : places.slice(0, 5);
     const seen = new Set(local.map((p) => p.name.toLowerCase()));
     const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, 10);
     suggestions.innerHTML = '';
@@ -181,7 +181,7 @@ export function createResidentUi(
       $('risk-lines').innerHTML = current.hazards
         .map(
           (hz) =>
-            `<div class="hazard hz-${hz.level}"><div class="hz-head"><span class="hz-icon hz-${hz.key}"></span><span class="hz-name">${hz.name}</span><span class="hz-level">${hz.levelText}</span></div>${hz.lines.map((l) => `<p>${l}</p>`).join('')}</div>`,
+            `<div class="hazard hz-${hz.key}-row hz-${hz.level}"><div class="hz-head"><span class="hz-icon hz-${hz.key}"></span><span class="hz-name">${hz.name}</span><span class="hz-level">${hz.levelText}</span></div>${hz.lines.map((l) => `<p>${l}</p>`).join('')}</div>`,
         )
         .join('');
       $('risk-action').textContent = current.action;

@@ -13,6 +13,8 @@ import { createStreetWater } from './streetWater';
 import { createHouses } from './houses';
 import { createVegetation } from './vegetation';
 import { createStreetSlide } from './streetSlide';
+import { addUnderwater, waterUniforms } from './underwater';
+import { THEME } from '../theme';
 
 const GROUND_M = 1400;
 const SLIDE_MAX_M = 900; // show a landslide in the street if its path passes this close to home
@@ -21,66 +23,46 @@ const SLIDE_CLIP_M = 650; // ...drawing the part of it within this distance
 // Roof tint = water at the house (m).
 export const DEPTH_BANDS = [
   { max: 0.05, color: null, label: 'Dry' },
-  { max: 0.5, color: new THREE.Color(0xf3e05a), label: 'Up to 0.5 m' },
-  { max: 1.5, color: new THREE.Color(0xf29a2e), label: '0.5–1.5 m' },
-  { max: Infinity, color: new THREE.Color(0xe23d2d), label: 'Over 1.5 m' },
+  { max: 0.5, color: new THREE.Color(0xd4ecf8), label: 'Up to 0.5 m' },
+  { max: 1.5, color: new THREE.Color(0x8fc9ea), label: '0.5–1.5 m' },
+  { max: Infinity, color: THEME.flood, label: 'Over 1.5 m' },
 ] as const;
 
-/** Lawns, concrete driveways and porches, asphalt roads with kerbs and centre lines. */
-function groundTexture(houses: House[], lanes: Lane[], seed: number) {
+/** Plan drawing: off-white ground, plots outlined, roads as slightly darker bands. */
+function groundTexture(houses: House[], lanes: Lane[]) {
   const N = 4096;
   const c = document.createElement('canvas');
   c.width = c.height = N;
   const g = c.getContext('2d')!;
   const s = N / GROUND_M;
   const X = (x: number) => (x / GROUND_M + 0.5) * N;
-  const rand = rng(seed + 5);
-  g.fillStyle = '#86995a';
+  g.fillStyle = '#f1efea';
   g.fillRect(0, 0, N, N);
-  for (let k = 0; k < 7000; k++) {
-    g.fillStyle = `hsla(${72 + rand() * 20}, ${26 + rand() * 16}%, ${34 + rand() * 14}%, 0.16)`;
-    g.beginPath();
-    g.arc(rand() * N, rand() * N, 4 + rand() * 30, 0, Math.PI * 2);
-    g.fill();
-  }
-  // Plots: mown lawn, concrete apron/driveway in front of each house.
+  g.strokeStyle = 'rgba(150,143,133,0.55)';
+  g.lineWidth = 1.2;
   for (const h of houses) {
     const L = h.kind === 'terrace' ? h.w : Math.max(h.w, h.d);
     const W = h.kind === 'terrace' ? Math.min(h.d, 12) : Math.min(h.w, h.d);
     g.save();
     g.translate(X(h.x), X(h.z));
     g.rotate(-h.angle);
-    g.fillStyle = '#93a865';
+    g.fillStyle = '#f6f5f1';
     g.fillRect((-L / 2 - 4) * s, (-W / 2 - 4) * s, (L + 12) * s, (W + 10) * s);
-    g.fillStyle = '#cbc6bb';
-    if (h.kind === 'terrace') g.fillRect((-L / 2) * s, (W / 2) * s, L * s, 6 * s);
-    else {
-      g.fillRect((L / 2 + 0.1) * s, (-2.2) * s, 3.6 * s, (W / 2 + 9) * s); // driveway
-      g.fillRect((-L * 0.12 - 1.8) * s, (W / 2) * s, 3.6 * s, 2.4 * s); // porch
-    }
+    g.strokeRect((-L / 2 - 4) * s, (-W / 2 - 4) * s, (L + 12) * s, (W + 10) * s);
     g.restore();
   }
-  // Roads: kerb, asphalt, dashed centre line.
-  for (const [w, col, dash] of [
-    [10.4, '#c9c4b8', null],
-    [9, '#5f605d', null],
-    [0.25, '#ece8dc', [3 * s, 3 * s]],
+  for (const [w, col] of [
+    [9.6, 'rgba(150,143,133,0.6)'],
+    [9, '#e6e3dd'],
   ] as const) {
     g.strokeStyle = col;
     g.lineWidth = w * s;
     g.lineCap = 'butt';
-    g.setLineDash(dash ? [...dash] : []);
     for (const lane of lanes) {
       g.beginPath();
       lane.forEach((p, k) => (k ? g.lineTo(X(p.x), X(p.z)) : g.moveTo(X(p.x), X(p.z))));
       g.stroke();
     }
-  }
-  g.setLineDash([]);
-  // Asphalt grain.
-  for (let k = 0; k < 4000; k++) {
-    g.fillStyle = `rgba(${rand() < 0.5 ? '30,30,30' : '200,200,200'},0.04)`;
-    g.fillRect(rand() * N, rand() * N, 2, 2);
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -94,7 +76,7 @@ function createSkyDome(horizon: THREE.Color) {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
-    uniforms: { uTime: { value: 0 }, uHorizon: { value: horizon }, uTop: { value: new THREE.Color(0x6f716f) } },
+    uniforms: { uTime: { value: 0 }, uHorizon: { value: horizon }, uTop: { value: new THREE.Color(0xdcd9d3) } },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
       void main() {
@@ -118,7 +100,7 @@ function createSkyDome(horizon: THREE.Color) {
         vec3 col = mix(uHorizon, uTop, smoothstep(0.0, 0.6, h));
         vec2 uv = vDir.xz / (vDir.y + 0.15) * 1.5 + vec2(uTime * 0.012, uTime * 0.006);
         float c = smoothstep(0.45, 0.8, fbm(uv));
-        col = mix(col, col * 0.72, c * smoothstep(0.02, 0.25, h));
+        col = mix(col, col * 0.96, c * smoothstep(0.02, 0.25, h));
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -145,20 +127,20 @@ export function createStreet(opts: {
 }) {
   const { hm, hy, home, homeCell, houses } = opts;
   const scene = new THREE.Scene();
-  const sky = new THREE.Color(0xd2cdc3);
+  const sky = new THREE.Color(0xf4f2ee);
   scene.background = sky;
-  scene.fog = new THREE.Fog(sky, 250, 1100);
+  scene.fog = new THREE.Fog(sky, 220, 900);
   const dome = createSkyDome(sky);
   scene.add(dome.mesh);
   const pmrem = new THREE.PMREMGenerator(opts.renderer);
   const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environment = env;
   scene.environmentIntensity = 0.55;
-  scene.add(new THREE.HemisphereLight(0xe8eef4, 0x4d5a40, 1.15));
-  const sun = new THREE.DirectionalLight(0xfff1dc, 1.7);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xd9d5cd, 1.6));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.3);
   sun.position.set(-160, 190, 120);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.left = sun.shadow.camera.bottom = -320;
   sun.shadow.camera.right = sun.shadow.camera.top = 320;
   sun.shadow.camera.near = 10;
@@ -192,8 +174,8 @@ export function createStreet(opts: {
   const gp = groundGeo.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < gp.count; i++) gp.setY(i, groundY(gp.getX(i), gp.getZ(i)));
   groundGeo.computeVertexNormals();
-  const groundTex = groundTexture(houses, opts.lanes, homeCell);
-  const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 });
+  const groundTex = groundTexture(houses, opts.lanes);
+  const groundMat = addUnderwater(new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 }), true);
   const groundMesh = new THREE.Mesh(groundGeo, groundMat);
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
@@ -216,8 +198,8 @@ export function createStreet(opts: {
 
   // JPS-style staff gauges: one at the home's front, two on nearby compounds.
   const gaugeTex = staffGaugeTexture();
-  const boardMat = new THREE.MeshStandardMaterial({ map: gaugeTex, roughness: 0.6 });
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x3b3b38, roughness: 0.7 });
+  const boardMat = addUnderwater(new THREE.MeshStandardMaterial({ map: gaugeTex, roughness: 0.6 }));
+  const postMat = addUnderwater(new THREE.MeshStandardMaterial({ color: 0x1d1d1b, roughness: 0.7 }));
   const boardGeo = new THREE.BoxGeometry(0.3, 5, 0.03).translate(0, 2.5, 0);
   const postGeo = new THREE.BoxGeometry(0.1, 5.6, 0.1).translate(0, 2.5, -0.06);
   disposables.push(gaugeTex, boardMat, postMat, boardGeo, postGeo);
@@ -256,7 +238,7 @@ export function createStreet(opts: {
   }
 
   // Houses in the debris path, and how far down the path each is reached.
-  const MUD = new THREE.Color(0x6b4a2e);
+  const MUD = THEME.slide;
   const hitU = houses.map((h) => (slide ? slide.hitAt(h.x, h.z, Math.max(h.w, h.d) * 0.4) : null));
   const buried = houses.map(() => false);
   let buriedCount = 0;
@@ -295,6 +277,8 @@ export function createStreet(opts: {
     /** Every frame: waves, clouds, landslide. */
     animate(hour: number, timeS: number) {
       dome.update(timeS);
+      waterUniforms.uWaterLevel.value = Number.isFinite(level) ? level : -1e9;
+      waterUniforms.uWaterTime.value = timeS;
       slide?.update(hour, timeS);
       if (slide) {
         const r = slide.reveal;

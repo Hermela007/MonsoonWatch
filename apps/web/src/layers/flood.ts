@@ -3,6 +3,7 @@ import type { GeoFrame } from '../geo/region';
 import { cellLngLat, type Heightmap } from '../terrain/heightmap';
 import { NO_DRAIN_M, type Hydrology } from '../terrain/hydrology';
 import type { Focus } from './valley';
+import { THEME } from '../theme';
 
 const vertexShader = /* glsl */ `
 uniform sampler2D uField; // r: filled elev (m), g: HAND (m), b: stage scale, a: sea
@@ -69,16 +70,18 @@ void main() {
   vec3 col;
   float alpha;
   if (sea > 0.5) {
-    col = uSeaCol + spec * 0.15;
-    alpha = 1.0;
+    col = uSeaCol + spec * 0.1;
+    alpha = 0.9;
   } else {
-    float t = 1.0 - exp(-max(depth, 0.0) / 3.0);
-    col = mix(uShallow, uDeep, t) + fres * 0.12 + spec * 0.7;
-    // Foamy advancing edge: a broken cream band right at the flood front.
-    float edge = 1.0 - smoothstep(0.0, 0.9, depth);
-    float froth = smoothstep(0.35, 0.7, noise(vWorld.xz * 14.0 + uTime * 0.8));
-    col = mix(col, vec3(0.95, 0.92, 0.84), edge * (0.45 + 0.55 * froth) * 0.85);
-    alpha = (0.75 + 0.22 * smoothstep(0.0, 1.5, depth)) * cover;
+    // Clear water: a light tint that deepens with depth, sky reflection, and a crisp waterline.
+    float t = 1.0 - exp(-max(depth, 0.0) / 4.0);
+    col = mix(uShallow, uDeep, t) + fres * 0.2 + spec * 0.5;
+    float edge = 1.0 - smoothstep(0.0, 0.25, depth);
+    col = mix(col, uDeep, edge * 0.9);
+    // Moving light bands so the water reads as moving even from far away.
+    float band = smoothstep(0.6, 0.9, noise(vWorld.xz * 9.0 + vec2(uTime * 0.7, -uTime * 0.4)));
+    col += band * 0.06;
+    alpha = (0.35 + 0.45 * t + 0.35 * edge) * cover;
   }
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
   col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.45);
@@ -190,9 +193,9 @@ export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogCo
       uExag: { value: frame.exag },
       uTime: { value: 0 },
       uSunDir: { value: new THREE.Vector3(-0.55, 0.75, -0.4).normalize() },
-      uShallow: { value: new THREE.Color(0xc9b386) },
-      uDeep: { value: new THREE.Color(0x8a6f48) },
-      uSeaCol: { value: new THREE.Color(0xa9c6bf) },
+      uShallow: { value: THEME.floodLight },
+      uDeep: { value: THEME.flood },
+      uSeaCol: { value: new THREE.Color(0xdfe9ee) },
       uFogCol: { value: fogColor },
       uFogDensity: { value: 0.0022 },
       uFocus: { value: new THREE.Vector3() },
