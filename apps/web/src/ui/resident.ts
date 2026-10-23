@@ -11,6 +11,8 @@ export interface ResultView {
   risk: HomeRisk;
   nowHour: number;
   route: SafeRoute | null;
+  /** Flagged slopes in the hills upstream of the home (valley-wide screening). */
+  upstreamSlopes: number;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => {
@@ -24,22 +26,30 @@ const fmtDepth = (m: number) => m.toFixed(0);
 const fmtTime = (h: number) =>
   replayDate(h).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
-/** Pure: the plain-language message for a home. */
+const levelText = (l: 'high' | 'medium' | 'low') => (l === 'high' ? t('levelHigh') : l === 'medium' ? t('levelMedium') : t('levelLow'));
+
+/** Pure: the plain-language message for a home — flood and landslide, side by side. */
 export function describe(v: ResultView) {
   const { risk, nowHour, route } = v;
-  const lines: string[] = [];
+  const flood: string[] = [];
   if (risk.floodWetHour !== null) {
     const h = Math.round(risk.floodWetHour - nowHour);
-    lines.push(h <= 0 ? t('floodNow') : t('floodIn', { h }));
+    flood.push(h <= 0 ? t('floodNow') : t('floodIn', { h }));
     const d = risk.peakDepthM;
-    if (d >= 4) lines.push(t('floodDepthHouse', { d: fmtDepth(d) }));
-    else if (d >= 1.8) lines.push(t('floodDepthHead'));
-    else if (d >= 0.3) lines.push(t('floodDepthKnee'));
+    if (d >= 4) flood.push(t('floodDepthHouse', { d: fmtDepth(d) }));
+    else if (d >= 1.8) flood.push(t('floodDepthHead'));
+    else if (d >= 0.3) flood.push(t('floodDepthKnee'));
   } else if (risk.worstWetHour !== null) {
-    lines.push(t('worstOnly', { h: Math.max(1, Math.round(risk.worstWetHour - nowHour)) }));
-  }
-  if (risk.slide) lines.push(t('landslide'));
-  if (risk.level === 'low') lines.push(t('safe'));
+    flood.push(t('worstOnly', { h: Math.max(1, Math.round(risk.worstWetHour - nowHour)) }));
+  } else flood.push(t('floodLow'));
+
+  const slide: string[] = [];
+  if (risk.slideLevel === 'high') {
+    slide.push(t('slideHigh', { d: fmtDistance(risk.slideDistM / 1000) }));
+    if (risk.slideHour !== null && risk.slideHour > nowHour) slide.push(t('slideHighWhen', { h: Math.round(risk.slideHour - nowHour) }));
+  } else if (risk.slideLevel === 'medium') slide.push(t('slideMedium', { d: fmtDistance(risk.slideDistM / 1000) }));
+  else slide.push(t('slideLow'));
+  if (v.upstreamSlopes > 0) slide.push(t('slideUpstream', { n: v.upstreamSlopes }));
 
   const action =
     route && route.cells.length > 1
@@ -50,7 +60,16 @@ export function describe(v: ResultView) {
         ? t('stay')
         : t('noRoute');
   const level = risk.level === 'high' ? t('riskHigh') : risk.level === 'medium' ? t('riskMedium') : t('riskLow');
-  return { level, lines, action, canRoute: !!route && route.cells.length > 1 };
+  return {
+    level,
+    hazards: [
+      { key: 'flood', name: t('hazardFlood'), level: risk.floodLevel, levelText: levelText(risk.floodLevel), lines: flood },
+      { key: 'slide', name: t('hazardSlide'), level: risk.slideLevel, levelText: levelText(risk.slideLevel), lines: slide },
+    ],
+    lines: [...flood, ...slide],
+    action,
+    canRoute: !!route && route.cells.length > 1,
+  };
 }
 
 export function createResidentUi(
@@ -76,9 +95,9 @@ export function createResidentUi(
 
   const renderSuggestions = () => {
     const q = input.value.trim();
-    const local = q ? matchPlaces(q, places) : places.slice(0, 8);
+    const local = q ? matchPlaces(q, places) : places.slice(0, 10);
     const seen = new Set(local.map((p) => p.name.toLowerCase()));
-    const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, 6);
+    const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, 10);
     suggestions.innerHTML = '';
     for (const town of matches) {
       const b = document.createElement('button');
@@ -159,7 +178,12 @@ export function createResidentUi(
       document.body.dataset.risk = v.risk.level;
       $('place-name').textContent = v.place;
       $('risk-level').textContent = current.level;
-      $('risk-lines').innerHTML = current.lines.map((l) => `<p>${l}</p>`).join('');
+      $('risk-lines').innerHTML = current.hazards
+        .map(
+          (hz) =>
+            `<div class="hazard hz-${hz.level}"><div class="hz-head"><span class="hz-icon hz-${hz.key}"></span><span class="hz-name">${hz.name}</span><span class="hz-level">${hz.levelText}</span></div>${hz.lines.map((l) => `<p>${l}</p>`).join('')}</div>`,
+        )
+        .join('');
       $('risk-action').textContent = current.action;
       $<HTMLButtonElement>('btn-way').disabled = !current.canRoute;
     },
@@ -172,13 +196,15 @@ export function createResidentUi(
     setWhatIf(active: boolean) {
       $('btn-whatif').textContent = active ? t('backNow') : t('whatIf');
     },
-    setStreet(state: 'off' | 'loading' | 'on', stats?: { wet: number; total: number; osm: number; illustrative: number }) {
+    setStreet(state: 'off' | 'loading' | 'on', stats?: { wet: number; total: number; osm: number; illustrative: number; buried?: number }) {
       const btn = $<HTMLButtonElement>('btn-street');
       btn.disabled = state === 'loading';
       btn.textContent = state === 'loading' ? t('loadingStreet') : state === 'on' ? t('backValley') : t('seeStreet');
       document.body.classList.toggle('street', state === 'on');
       if (stats) {
-        $('street-stats').textContent = stats.wet ? t('homesWet', { n: stats.wet, total: stats.total }) : t('homesDry');
+        const parts = [stats.wet ? t('homesWet', { n: stats.wet, total: stats.total }) : t('homesDry')];
+        if (stats.buried) parts.unshift(t('homesBuried', { n: stats.buried }));
+        $('street-stats').innerHTML = parts.map((p, i) => `<div class="${i === 0 && stats.buried ? 'buried' : ''}">${p}</div>`).join('');
         $('street-source').textContent = t('housesSource', { osm: stats.osm, ill: stats.illustrative });
       }
     },

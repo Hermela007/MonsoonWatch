@@ -34,9 +34,9 @@ void main() {
   vec3 watch = vec3(0.88, 0.63, 0.19);
   float flow = fract(vUv.x * 10.0 - uTime * 1.2);
   float band = smoothstep(0.0, 0.25, flow) * smoothstep(1.0, 0.55, flow);
-  vec3 active = mix(vec3(0.55, 0.22, 0.1), vec3(0.95, 0.42, 0.16), band);
-  active += smoothstep(uReveal - 0.08, uReveal, vUv.x) * vec3(0.4, 0.25, 0.1);
-  vec3 col = mix(watch, active, uActive);
+  vec3 failing = mix(vec3(0.55, 0.22, 0.1), vec3(0.95, 0.42, 0.16), band); // ('active' is reserved in GLSL)
+  failing += smoothstep(uReveal - 0.08, uReveal, vUv.x) * vec3(0.4, 0.25, 0.1);
+  vec3 col = mix(watch, failing, uActive);
   float fog = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
   gl_FragColor = vec4(mix(col, uFogCol, fog), mix(0.75, 1.0, uActive));
 }
@@ -120,6 +120,29 @@ export function createLandslides(
   particles.frustumCulled = false;
   group.add(particles);
 
+  // Dust plume where a slope fails: a soft brown cloud that billows up and fades.
+  const plumeTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(150,118,84,0.85)');
+    grad.addColorStop(0.6, 'rgba(150,118,84,0.35)');
+    grad.addColorStop(1, 'rgba(150,118,84,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  owned.push(plumeTex);
+  const plumes = slides.map((sl) => {
+    const mat = new THREE.SpriteMaterial({ map: plumeTex, transparent: true, depthWrite: false });
+    owned.push(mat);
+    const sp = new THREE.Sprite(mat);
+    sp.position.copy(sl.marker.position);
+    group.add(sp);
+    return { sp, mat };
+  });
+
   const tmp = new THREE.Vector3();
   return {
     group,
@@ -154,6 +177,17 @@ export function createLandslides(
         }
       });
       particleGeo.attributes.position.needsUpdate = true;
+      slides.forEach((sl, si) => {
+        const age = hour - sl.start;
+        const { sp, mat } = plumes[si];
+        sp.visible = age >= 0 && age < 8;
+        if (!sp.visible) return;
+        const k = THREE.MathUtils.clamp(age / 8, 0, 1);
+        sp.scale.setScalar(size * (1.5 + 5 * Math.sqrt(k)));
+        sp.position.copy(sl.marker.position);
+        sp.position.y += size * (0.5 + 1.5 * k);
+        mat.opacity = (1 - k) * 0.85;
+      });
       particleMat.size = 0.16 * Math.max(1, cameraDistance / 25);
       for (const el of labelEls) el.classList.toggle('active', active > 0);
       return { active, total: slides.length };

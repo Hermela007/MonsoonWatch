@@ -16,9 +16,13 @@ export interface HomeRisk {
   /** Nearest slope whose runout passes close to home, or null. */
   slide: SlideSource | null;
   slideHour: number | null;
+  /** Distance (m) from home to the nearest flagged slope's runout, or Infinity. */
+  slideDistM: number;
+  floodLevel: RiskLevel;
+  slideLevel: RiskLevel;
 }
 
-const SLIDE_NEAR_M = 400;
+const SLIDE_NEAR_M = 600;
 
 /** Cells within `radius` cells of `cell` (square window). */
 export function neighbourhood(hm: Heightmap, cell: number, radius: number): number[] {
@@ -59,15 +63,17 @@ export function assessHome(hm: Heightmap, hy: Hydrology, home: number, slides: S
 
   let slide: SlideSource | null = null;
   let slideDist = Infinity;
+  let nearest: SlideSource | null = null;
   for (const s of slides) {
     for (const c of s.path) {
       const d = cellDistM(hm, c, home);
-      if (d < SLIDE_NEAR_M && d < slideDist) {
+      if (d < slideDist) {
         slideDist = d;
-        slide = s;
+        nearest = s;
       }
     }
   }
+  if (slideDist < SLIDE_NEAR_M) slide = nearest;
   let slideHour: number | null = null;
   if (slide) {
     for (let h = 0; h <= REPLAY_HOURS; h += 0.25) {
@@ -78,8 +84,14 @@ export function assessHome(hm: Heightmap, hy: Hydrology, home: number, slides: S
     }
   }
 
-  const level: RiskLevel = floodWetHour !== null || slide ? 'high' : worstWetHour !== null ? 'medium' : 'low';
-  return { level, floodWetHour, worstWetHour, peakDepthM, slide, slideHour };
+  if (nearest && !slide) {
+    for (let h = 0; h <= REPLAY_HOURS; h += 0.25) if (rainAccumulated(h) >= nearest.triggerRainAcc) { slideHour = h; break; }
+  }
+  const floodLevel: RiskLevel = floodWetHour !== null ? 'high' : worstWetHour !== null ? 'medium' : 'low';
+  const slideLevel: RiskLevel = slideDist < SLIDE_NEAR_M ? 'high' : slideDist < 1500 ? 'medium' : 'low';
+  const rank = { low: 0, medium: 1, high: 2 } as const;
+  const level: RiskLevel = rank[floodLevel] >= rank[slideLevel] ? floodLevel : slideLevel;
+  return { level, floodWetHour, worstWetHour, peakDepthM, slide, slideHour, slideDistM: slideDist, floodLevel, slideLevel };
 }
 
 /** True if a cell stays dry with margin in the worst case — a candidate safe spot. */

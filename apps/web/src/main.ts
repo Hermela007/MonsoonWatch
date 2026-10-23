@@ -19,7 +19,7 @@ import { createLandslides } from './layers/landslides';
 import { createHomeLayer } from './layers/home';
 import { createResidentUi } from './ui/resident';
 import { createStreet } from './layers/street';
-import { fetchOsmHouses, illustrativeHouses, type House } from './data/buildings';
+import { fetchOsmHouses, illustrativeTown, type House, type Lane } from './data/buildings';
 import { t } from './ui/copy';
 import { connectStream } from './api/stream';
 import { fetchEvacCentres, fetchVillages } from './api/client';
@@ -90,7 +90,7 @@ async function main() {
     hm,
     frame,
     stage.fogColor,
-    { tubeRadiusKm: 0.22, labelled: 3, labelText: 'Landslide risk', labelSpacingKm: 35 },
+    { tubeRadiusKm: 0.09, labelled: 3, labelText: 'Landslide risk', labelSpacingKm: 35 },
   );
   scene.add(hotspots.group);
   let explode = 1;
@@ -111,11 +111,16 @@ async function main() {
   let homePos: THREE.Vector3 | null = null;
   let homeLngLat: LngLat | null = null;
   let homeCell = -1;
-  let housesFor: Promise<House[]> | null = null;
+  let housesFor: Promise<{ houses: House[]; lanes: Lane[] }> | null = null;
+  let localSlides: SlideSource[] = [];
   let street: ReturnType<typeof createStreet> | null = null;
   let streetRain: ReturnType<typeof createRain> | null = null;
   let inStreet = false;
   let valleyCam: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
+  let streetShot: Shot | null = null;
+  let lastBuried = 0;
+  let lastWet = 0;
+  let lastTotal = 0;
   let viewShot: Shot | null = null;
   const focus: Focus = { centre: new THREE.Vector3(), radiusKm: FOCUS_KM, amount: 0 };
   let focusTarget = 0;
@@ -187,8 +192,17 @@ async function main() {
       );
     });
     // Start fetching houses now so "See my street" opens fast.
-    housesFor = fetchOsmHouses(lngLat).then((osm) => [...osm, ...illustrativeHouses(cell, osm)]);
+    housesFor = fetchOsmHouses(lngLat, 450, 5000).then((osm) => {
+      const k = illustrativeTown(cell, osm);
+      return { houses: [...osm, ...k.houses], lanes: k.lanes };
+    });
     const local: SlideSource[] = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 1.2, max: 8, near: { cell, radiusKm: FOCUS_KM } });
+    // Valley hotspots whose runout passes near the home count too.
+    for (const h of hotspotSources) {
+      if (local.includes(h)) continue;
+      if (h.path.some((c) => cellWorld(c).distanceTo(cellWorld(cell)) < FOCUS_KM)) local.push(h);
+    }
+    localSlides = local;
     const risk = assessHome(hm, hy, cell, local);
     const avoid = new Uint8Array(hm.cols * hm.rows);
     for (const s of local) for (const c of s.path) for (const i of neighbourhood(hm, c, 1)) avoid[i] = 1;
@@ -222,7 +236,9 @@ async function main() {
     hour = targetHour = NOW_HOUR;
     whatIf = false;
     ui!.setWhatIf(false);
-    ui!.showResult({ place, risk, nowHour: NOW_HOUR, route });
+    // Valley-wide flagged slopes within 30 km and higher than the home: debris can reach its river.
+    const upstreamSlopes = hotspotSources.filter((h) => hm.elevM[h.cell] > hm.elevM[cell] + 50 && cellWorld(h.cell).distanceTo(cellWorld(cell)) < 30).length;
+    ui!.showResult({ place, risk, nowHour: NOW_HOUR, route, upstreamSlopes });
     layoutShift();
 
     // Frame the home and its safe ground together.
@@ -243,12 +259,25 @@ async function main() {
   const enterStreet = async () => {
     if (!homeLngLat || !housesFor || inStreet) return;
     ui!.setStreet('loading');
-    const houses = await housesFor;
+    const { houses, lanes } = await housesFor;
     if (!homeLngLat) return;
     if (!street) {
-      street = createStreet({ renderer: stage.renderer, hm, hy, home: homeLngLat, homeCell, houses, homeLabel: t('yourHome') });
+      street = createStreet({
+        renderer: stage.renderer,
+        hm,
+        hy,
+        home: homeLngLat,
+        homeCell,
+        houses,
+        lanes,
+        slides: localSlides,
+        homeLabel: t('yourHome'),
+        slideLabels: { warn: t('slopeWarn'), active: t('slopeActive') },
+      });
       streetRain = createRain();
       street.scene.add(streetRain.object);
+      // Compile its shaders now, so the switch doesn't stall mid camera move.
+      stage.renderer.compile(street.scene, camera);
     }
     director.cancel();
     valleyCam = { position: camera.position.clone(), target: controls.target.clone() };
@@ -259,10 +288,22 @@ async function main() {
     controls.minDistance = 12;
     controls.maxDistance = 700;
     const f = street.homeFocus;
-    controls.target.copy(f);
-    camera.position.copy(f).add(new THREE.Vector3(90, 40, 100));
+    // Frame the home; if a landslide threatens it, put the hillside behind the home in view.
+    let target = f.clone();
+    // From across the road, slightly to one side, at roughly first-floor height.
+    const side = new THREE.Vector3(street.homeFront.z, 0, -street.homeFront.x);
+    let pos = f.clone().addScaledVector(street.homeFront, 34).addScaledVector(side, 16).add(new THREE.Vector3(0, 7, 0));
+    if (street.slideMid) {
+      // Stand behind the home, looking up the hillside: houses in front, the slope above them.
+      const toSlide = street.slideMid.clone().sub(f).setY(0).normalize();
+      target = f.clone().lerp(street.slideMid, 0.55);
+      pos = f.clone().addScaledVector(toSlide, -70).add(new THREE.Vector3(toSlide.z * 18, 24, -toSlide.x * 18));
+    }
+    streetShot = { target: target.clone(), position: pos.clone() };
+    controls.target.copy(target);
+    camera.position.copy(pos).add(new THREE.Vector3(0, 60, 0));
     stage.setScene(street.scene);
-    director.flyTo({ target: f.clone().add(new THREE.Vector3(0, 3, 0)), position: f.clone().add(new THREE.Vector3(34, 9, 40)) }, 2400);
+    director.flyTo({ target, position: pos }, 2400);
     ui!.setStreet('on');
   };
 
@@ -365,9 +406,26 @@ async function main() {
   ui.ready();
   connectStream();
 
+  // Places where both hazards meet: the valley floor at the foot of a flagged slope's runout,
+  // for the steepest flagged slope near each of these towns.
+  const hillPlaces = ['Gua Musang', 'Dabong', 'Kuala Krai'].flatMap((name) => {
+    const tw = frame.lngLatToWorld(KELANTAN.towns.find((t) => t.name === name)!.lngLat);
+    const near = hotspotSources
+      .map((h) => ({ h, d: cellWorld(h.cell).setY(0).distanceTo(tw.setY(0)) }))
+      .filter((x) => x.d < 25)
+      .sort((a, b) => b.h.slopeDeg - a.h.slopeDeg)[0];
+    if (!near) return [];
+    const path = near.h.path;
+    let foot = path[path.length - 1];
+    for (let k = path.length - 1; k >= 0 && hy.riverMask[path[k]]; k--) foot = path[Math.max(0, k - 1)];
+    const r = Math.floor(foot / hm.cols);
+    return [{ name: `Below the hills near ${name}`, lngLat: cellLngLat(hm, foot - r * hm.cols, r) }];
+  });
+  ui.setPlaces([...KELANTAN.towns, ...hillPlaces]);
+
   // Workstream C's data, when the API is up. Until then: local stand-ins.
   let centres: EvacCentre[] | null = null;
-  void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces(v));
+  void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...v, ...hillPlaces]));
   void fetchEvacCentres(KELANTAN.id).then((c) => (centres = c));
   director.flyTo(overview, 4000, () => (controls.autoRotate = !homePos));
 
@@ -380,7 +438,8 @@ async function main() {
     controls.update();
 
     // Replay time eases towards its target: forward slowly, back quickly.
-    const rate = targetHour > hour ? 4 : 14;
+    // Slow the replay right down while a landslide surges, so it can be seen.
+    const rate = targetHour > hour ? (inStreet && street?.slideSurging ? 0.15 : 4) : 14;
     hour = targetHour > hour ? Math.min(targetHour, hour + dt * rate) : Math.max(targetHour, hour - dt * rate);
     focus.amount += (focusTarget - focus.amount) * Math.min(1, dt * 2.5);
     explode += (explodeTarget - explode) * Math.min(1, dt * 2.2);
@@ -396,8 +455,20 @@ async function main() {
     hotspots.update(hour, camDist, time);
     hotspots.setLabelsVisible(explode < 0.3);
     if (inStreet && street) {
-      const stats = street.update(Math.round(hour * 20) / 20);
-      street.animate(time);
+      street.animate(hour, time);
+      const stats = street.update(Math.round(hour * 20) / 20) ?? (street.buried !== lastBuried ? { wet: lastWet, total: lastTotal, buried: street.buried } : null);
+      if (stats) {
+        lastBuried = stats.buried ?? 0;
+        lastWet = stats.wet;
+        lastTotal = stats.total;
+      }
+      // Keep the camera in the neighbourhood and out of hillsides.
+      if (!director.busy && streetShot && camera.position.distanceTo(street.homeFocus) > 650) {
+        camera.position.copy(streetShot.position);
+        controls.target.copy(streetShot.target);
+      }
+      const gY = street.groundAt(camera.position.x, camera.position.z) + 3;
+      if (camera.position.y < gY) camera.position.y = gY;
       // Never let the camera sink under the water surface.
       const minY = street.level + 4;
       if (camera.position.y < minY) {
@@ -405,7 +476,7 @@ async function main() {
         camera.position.y += lift;
         controls.target.y = Math.max(controls.target.y, street.level + 1);
       }
-      if (stats) ui!.setStreet('on', { ...stats, ...street.counts });
+      if (stats) ui!.setStreet('on', { ...stats, buried: street.buried, ...street.counts });
       streetRain?.update(controls.target, camDist, Math.min(1, rainIntensity(hour) * 1.8 + 0.25), time);
     }
     ui!.setClock(hour, NOW_HOUR);
@@ -413,7 +484,7 @@ async function main() {
   });
 
   // Dev handle for quick checks in the console.
-  Object.assign(window, { __mw: { hm, hy, depthAt } });
+  Object.assign(window, { __mw: { hm, hy, depthAt, camera, controls, getStreet: () => street } });
 }
 
 main().catch((err) => {
