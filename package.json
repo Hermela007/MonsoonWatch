@@ -17,7 +17,8 @@
     "ingest:jps": "pnpm --filter @monsoonwatch/scripts run ingest:jps",
     "load:replay": "pnpm --filter @monsoonwatch/scripts run load:replay",
     "geocode": "pnpm --filter @monsoonwatch/scripts run geocode",
-    "seed:region": "pnpm --filter @monsoonwatch/scripts run seed:region"
+    "seed:region": "pnpm --filter @monsoonwatch/scripts run seed:region",
+    "load:places": "pnpm --filter @monsoonwatch/scripts run load:places"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
