@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MonsoonWatch · Control room</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="loading">
+      <div class="brand">Monsoon<span>Watch</span></div>
+      <div id="loading-msg">Starting…</div>
+      <div class="bar"><i id="loading-bar"></i></div>
+    </div>
+
+    <header class="hud hud-title">
+      <div class="brand">Monsoon<span>Watch</span></div>
+      <div class="sub">Kelantan river valley · Dec 2014 replay</div>
+      <div class="honesty">
+        Terrain: AWS Terrain Tiles (≈150 m, 2× vertical). Flood extent: HAND approximation from terrain, not a hydraulic model.
+        Rain and river curves are <b>illustrative</b>, shaped on Dec 2014 — the real JPS/GloFAS replay replaces them.
+        Landslide layer is a <b>screening tool</b>: shows where to check first. Town depth = deepest floodplain water within 1 km.
+      </div>
+    </header>
+
+    <section class="hud hud-readouts">
+      <div><label>Rain intensity</label><b id="r-rain">–</b></div>
+      <div><label>Main river rise</label><b id="r-stage" class="c-water">–</b></div>
+      <div><label>Land under water</label><b id="r-flooded" class="c-water">–</b></div>
+      <div><label>Slopes to check</label><b id="r-slope" class="c-risk">–</b></div>
+    </section>
+
+    <aside class="hud hud-legend">
+      <div class="ramp"><span>0 m</span><i></i><span>10 m+</span></div>
+      <div class="key"><i class="sw-worst"></i>Worst case extent</div>
+      <div class="key"><i class="sw-risk"></i>Landslide screening</div>
+      <div class="key"><i class="sw-river"></i>Rivers</div>
+      <div class="hint">Click terrain to inspect · <kbd>Space</kbd> play · <kbd>C</kbd> tour · <kbd>1–4</kbd> views</div>
+    </aside>
+
+    <footer class="hud hud-timeline">
+      <button id="play" aria-label="Play replay">▶</button>
+      <div class="when"><b id="date">–</b><span id="hour">–</span></div>
+      <div class="track">
+        <canvas id="spark"></canvas>
+        <input id="time" type="range" min="0" max="72" step="0.1" value="0" aria-label="Replay time" />
+      </div>
+      <button id="tour" class="tour">Fly the valley</button>
+    </footer>
+
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
