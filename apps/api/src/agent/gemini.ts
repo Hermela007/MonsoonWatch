@@ -80,6 +80,16 @@ function getClient(): GoogleGenAI {
   return client;
 }
 
+// The key lives only in .env (git-ignored) and in this process. Error text can end up in
+// AgentSteps (MongoDB + Tech HUD on screen) and server logs, so scrub anything key-like first.
+const GOOGLE_KEY_PATTERN = /AIza[0-9A-Za-z_-]{20,}/g;
+
+export function redactSecrets(text: string): string {
+  let out = text.replace(GOOGLE_KEY_PATTERN, "[REDACTED]");
+  if (env.geminiApiKey) out = out.split(env.geminiApiKey).join("[REDACTED]");
+  return out;
+}
+
 function buildParams(opts: InteractOptions): Record<string, unknown> {
   if (!!opts.model === !!opts.agent) throw new Error("interact: pass exactly one of `model` or `agent`");
 
@@ -165,8 +175,9 @@ export async function interact(opts: InteractOptions): Promise<InteractResult> {
       raw: it,
     };
   } catch (err) {
-    await step.fail({ summary: `${opts.summary} — error: ${(err as Error).message}`.slice(0, 200) });
-    throw err;
+    const message = redactSecrets((err as Error).message ?? String(err));
+    await step.fail({ summary: `${opts.summary} — error: ${message}`.slice(0, 200) });
+    throw new Error(`Gemini call failed: ${message}`);
   }
 }
 
