@@ -1,0 +1,380 @@
+{
+  "Belatop, Gua Musang, Kelantan": {
+    "lon": 101.4827831,
+    "lat": 4.6599501,
+    "label": "Sungai Belatop, Lojing, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Kampung Pulai, Gua Musang, Kelantan": null,
+  "Kampung Pulai, Kelantan": {
+    "lon": 102.3476379,
+    "lat": 6.0087959,
+    "label": "Kampung Teratak Pulai, Kampung Tepus, باچوق / Bachok, Kelantan, 16370, Malaysia"
+  },
+  "Kampung Lembaga, Gua Musang, Kelantan": null,
+  "Kampung Lembaga, Kelantan": null,
+  "Lembaga, Gua Musang, Kelantan": null,
+  "Lembaga, Kelantan": {
+    "lon": 102.2343035,
+    "lat": 6.1282974,
+    "label": "Lembaga Kemajuan Ikan Malaysia Negeri Kelantan, Jalan Post Office Lama, Kubang Pasu, Kampung Cina, Kota Bharu, Kelantan, 15000, Malaysia"
+  },
+  "Jalan Felda Aring, Gua Musang, Kelantan": null,
+  "Jalan Felda Aring, Kelantan": null,
+  "Aring, Gua Musang, Kelantan": {
+    "lon": 102.344708,
+    "lat": 4.9049212,
+    "label": "Sungai Aring, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Kuala Koh, Gua Musang, Kelantan": {
+    "lon": 102.4400784,
+    "lat": 4.8709189,
+    "label": "Taman Negara Kelantan Kuala Koh, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Limau Kasturi, Gua Musang, Kelantan": {
+    "lon": 102.0696,
+    "lat": 5.0791,
+    "label": "Limau Kasturi, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Bertam, Gua Musang, Kelantan": {
+    "lon": 102.0438523,
+    "lat": 5.1516284,
+    "label": "Bertam, D235, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Dabong, Kuala Krai, Kelantan": {
+    "lon": 102.0099222,
+    "lat": 5.3767384,
+    "label": "Dabong, 66, Dabong, كوالا كراي / Kuala Krai, Kelantan, 18200, Malaysia"
+  },
+  "Kampung Tualang, Kuala Krai, Kelantan": null,
+  "Kampung Tualang, Kelantan": {
+    "lon": 102.3197132,
+    "lat": 6.0850447,
+    "label": "Kampung Tualang, Kampung Belukar, Kota Bharu, Kelantan, 16050, Malaysia"
+  },
+  "Kampung Karangan, Kuala Krai, Kelantan": null,
+  "Kampung Karangan, Kelantan": null,
+  "Karangan, Kuala Krai, Kelantan": null,
+  "Karangan, Kelantan": null,
+  "Kampung Manik Urai, Kuala Krai, Kelantan": null,
+  "Kampung Manik Urai, Kelantan": null,
+  "Manik Urai, Kuala Krai, Kelantan": {
+    "lon": 102.2477933,
+    "lat": 5.3795083,
+    "label": "Manik Urai Baru, Jalan Kota Bharu – Gua Musang, Manek Urai, كوالا كراي / Kuala Krai, Kelantan, Malaysia"
+  },
+  "Kuala Krai, Kuala Krai, Kelantan": {
+    "lon": 102.1993666,
+    "lat": 5.5311582,
+    "label": "Kuala Krai, كوالا كراي / Kuala Krai, Kelantan, Malaysia"
+  },
+  "Kampung Sungai Nal, Kuala Krai, Kelantan": null,
+  "Kampung Sungai Nal, Kelantan": null,
+  "Sungai Nal, Kuala Krai, Kelantan": {
+    "lon": 102.2035508,
+    "lat": 5.6100583,
+    "label": "Sungai Nal, Chenulang, كوالا كراي / Kuala Krai, Kelantan, Malaysia"
+  },
+  "Kuala Balah, Jeli, Kelantan": {
+    "lon": 101.9123335,
+    "lat": 5.4433023,
+    "label": "Kuala Balah, جيلي / Jeli, Kelantan, Malaysia"
+  },
+  "Kampung Lawar, Jeli, Kelantan": {
+    "lon": 101.7006485,
+    "lat": 5.6753346,
+    "label": "Kampung Lawar, جيلي / Jeli, Kelantan, Malaysia"
+  },
+  "Air Bol, Jeli, Kelantan": null,
+  "Air Bol, Kelantan": null,
+  "Air Lanas, Jeli, Kelantan": null,
+  "Air Lanas, Kelantan": {
+    "lon": 102.2462497,
+    "lat": 5.9269815,
+    "label": "PUSAT PENETASAN IKAN AIR TAWAR KOK LANAS, Jalan Kota Bharu – Gua Musang, Kok Lanas, Kampung Dendang, Kota Bharu, Kelantan, 16450, Malaysia"
+  },
+  "Kampung Sokor, Tanah Merah, Kelantan": null,
+  "Kampung Sokor, Kelantan": {
+    "lon": 102.2563326,
+    "lat": 5.9077339,
+    "label": "Kampung Sokor, Kota Bharu, Kelantan, 16450, Malaysia"
+  },
+  "Kusial Baru, Tanah Merah, Kelantan": null,
+  "Kusial Baru, Kelantan": null,
+  "Kusial, Tanah Merah, Kelantan": {
+    "lon": 102.0129061,
+    "lat": 5.7629194,
+    "label": "Bukit Kusial, Tanah Merah, Kelantan, Malaysia"
+  },
+  "Kampung Jenob, Tanah Merah, Kelantan": null,
+  "Kampung Jenob, Kelantan": null,
+  "Jenob, Tanah Merah, Kelantan": null,
+  "Jenob, Kelantan": null,
+  "Kampung Temangan, Machang, Kelantan": null,
+  "Kampung Temangan, Kelantan": null,
+  "Temangan, Machang, Kelantan": {
+    "lon": 102.1542985,
+    "lat": 5.7156305,
+    "label": "Temangan, ماچڠ / Machang, Kelantan, Malaysia"
+  },
+  "Air Mulih, Pasir Mas, Kelantan": null,
+  "Air Mulih, Kelantan": null,
+  "Empangan Bukit Kwong, Pasir Mas, Kelantan": null,
+  "Empangan Bukit Kwong, Kelantan": null,
+  "Bukit Kwong, Pasir Mas, Kelantan": null,
+  "Bukit Kwong, Kelantan": null,
+  "Rantau Panjang, Pasir Mas, Kelantan": {
+    "lon": 101.9728195,
+    "lat": 6.0181186,
+    "label": "Rantau Panjang, Pasir Mas, Kelantan, Malaysia"
+  },
+  "Jambatan Tendong, Pasir Mas, Kelantan": null,
+  "Jambatan Tendong, Kelantan": null,
+  "Tendong, Pasir Mas, Kelantan": {
+    "lon": 102.2066066,
+    "lat": 6.0686964,
+    "label": "Tendong, Jalan Kota Bharu - Pasir Mas, Kampung Tok Buak, Kampung Gaung, Kampung Tendong, Pasir Mas, Kelantan, 17030, Malaysia"
+  },
+  "Kampung Salor, Kota Bharu, Kelantan": {
+    "lon": 102.1987456,
+    "lat": 6.041868,
+    "label": "Kampung Salor, Kota Bharu, Kelantan, 17030, Malaysia"
+  },
+  "Tambatan D'Raja, Kota Bharu, Kelantan": {
+    "lon": 102.2342657,
+    "lat": 6.1320985,
+    "label": "Tambatan D' Raja, Jalan Tengku Besar, Kubang Pasu, Kampung Cina, Kota Bharu, Kelantan, 15000, Malaysia"
+  },
+  "Kuala Besar, Kota Bharu, Kelantan": {
+    "lon": 102.2360122,
+    "lat": 6.2029796,
+    "label": "Kampung Kuala Besar, Kampung Che Latiff, Kota Bharu, Kelantan, 15350, Malaysia"
+  },
+  "Kampung Kok Majid, Tumpat, Kelantan": {
+    "lon": 102.2290737,
+    "lat": 6.1871162,
+    "label": "Kampung Kok Majid, Kampung Pulau Beluru, Tumpat, Kelantan, 16040, Malaysia"
+  },
+  "Kuala Jambu, Tumpat, Kelantan": null,
+  "Kuala Jambu, Kelantan": null,
+  "Jambatan Melor, Bachok, Kelantan": null,
+  "Jambatan Melor, Kelantan": null,
+  "Melor, Bachok, Kelantan": {
+    "lon": 102.3080826,
+    "lat": 5.9679175,
+    "label": "Sungai Melor, Kampung Maligai, باچوق / Bachok, Kelantan, 16400, Malaysia"
+  },
+  "Kampung Pulau Lima, Pasir Puteh, Kelantan": null,
+  "Kampung Pulau Lima, Kelantan": null,
+  "Pulau Lima, Pasir Puteh, Kelantan": null,
+  "Pulau Lima, Kelantan": null,
+  "Tok Bali, Pasir Puteh, Kelantan": {
+    "lon": 102.4779046,
+    "lat": 5.8954958,
+    "label": "Tok Bali, ڤاسير ڤوتيه / Pasir Puteh, Kelantan, Malaysia"
+  },
+  "Pasir Puteh, Pasir Puteh, Kelantan": {
+    "lon": 102.4050452,
+    "lat": 5.8355343,
+    "label": "Pasir Puteh, ڤاسير ڤوتيه / Pasir Puteh, Kelantan, 16800, Malaysia"
+  },
+  "Brook, Gua Musang, Kelantan": null,
+  "Brook, Kelantan": null,
+  "Chabai, Gua Musang, Kelantan": null,
+  "Chabai, Kelantan": null,
+  "Kuala Betis, Gua Musang, Kelantan": {
+    "lon": 101.7865448,
+    "lat": 4.9002245,
+    "label": "Kuala Betis, Lojing, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Pasik, Gua Musang, Kelantan": null,
+  "Pasik, Kelantan": null,
+  "Ladang Kago Plantation Sdn. Bhd., Gua Musang, Kelantan": null,
+  "Ladang Kago Plantation Sdn. Bhd., Kelantan": null,
+  "Kago, Gua Musang, Kelantan": null,
+  "Kago, Kelantan": null,
+  "Ladang Mentara, Gua Musang, Kelantan": null,
+  "Ladang Mentara, Kelantan": null,
+  "Mentara, Gua Musang, Kelantan": {
+    "lon": 101.9662996,
+    "lat": 4.8131244,
+    "label": "Stesen Penguatkuasa JPJ Mentara, 8, Kampung Tanah Puteh, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Felda Chiku 3, Gua Musang, Kelantan": {
+    "lon": 102.2018949,
+    "lat": 4.9789903,
+    "label": "FELDA Chiku 3, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Gua Musang, Gua Musang, Kelantan": {
+    "lon": 101.9652332,
+    "lat": 4.8792724,
+    "label": "Gua Musang, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Upper Chiku, Gua Musang, Kelantan": null,
+  "Upper Chiku, Kelantan": null,
+  "Gunung Gagau, Gua Musang, Kelantan": {
+    "lon": 102.6531292,
+    "lat": 4.7620647,
+    "label": "Selamat Datang Puncak Gunung Gagau, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Felda Aring 5, Gua Musang, Kelantan": {
+    "lon": 102.3214236,
+    "lat": 4.8070135,
+    "label": "Felda Aring 5, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Kampung Aring, Gua Musang, Kelantan": null,
+  "Kampung Aring, Kelantan": null,
+  "Kampung Lebir, Gua Musang, Kelantan": null,
+  "Kampung Lebir, Kelantan": null,
+  "Lebir, Gua Musang, Kelantan": {
+    "lon": 102.3781209,
+    "lat": 5.0046997,
+    "label": "SK Lebir, ڬوا موسڠ / Gua Musang, Kelantan, Malaysia"
+  },
+  "Sekolah Kebangsaan Chalil, Gua Musang, Kelantan": null,
+  "Sekolah Kebangsaan Chalil, Kelantan": null,
+  "Chalil, Gua Musang, Kelantan": null,
+  "Chalil, Kelantan": null,
+  "Ladang Serasa, Gua Musang, Kelantan": null,
+  "Ladang Serasa, Kelantan": null,
+  "Serasa, Gua Musang, Kelantan": null,
+  "Serasa, Kelantan": null,
+  "Gunung Stong, Kuala Krai, Kelantan": {
+    "lon": 101.9378793,
+    "lat": 5.336259,
+    "label": "Gunung Stong, كوالا كراي / Kuala Krai, Kelantan, Malaysia"
+  },
+  "Kampung Laloh, Kuala Krai, Kelantan": null,
+  "Kampung Laloh, Kelantan": null,
+  "Laloh, Kuala Krai, Kelantan": {
+    "lon": 102.280037,
+    "lat": 5.3115216,
+    "label": "Balai Polis Laloh, Jalan Kota Bharu – Gua Musang, Kampung Manjor, Manek Urai, كوالا كراي / Kuala Krai, Kelantan, Malaysia"
+  },
+  "Kampung Chetil, Kuala Krai, Kelantan": null,
+  "Kampung Chetil, Kelantan": null,
+  "Chetil, Kuala Krai, Kelantan": null,
+  "Chetil, Kelantan": null,
+  "Loji Janakuasa Kuala Krai, Kuala Krai, Kelantan": null,
+  "Loji Janakuasa Kuala Krai, Kelantan": null,
+  "Kampung Chenulang, Kuala Krai, Kelantan": null,
+  "Kampung Chenulang, Kelantan": null,
+  "Chenulang, Kuala Krai, Kelantan": {
+    "lon": 102.2758475,
+    "lat": 5.610912,
+    "label": "Chenulang, كوالا كراي / Kuala Krai, Kelantan, Malaysia"
+  },
+  "Kampung Gemang, Jeli, Kelantan": {
+    "lon": 101.8648223,
+    "lat": 5.7617256,
+    "label": "Kampung Gemang, جيلي / Jeli, Kelantan, Malaysia"
+  },
+  "Gunung Basor, Jeli, Kelantan": {
+    "lon": 101.7707536,
+    "lat": 5.5267434,
+    "label": "Gunung Basor, جيلي / Jeli, Kelantan, Malaysia"
+  },
+  "Kampung Tanjung Abdul Rahman Kuala Balah, Jeli, Kelantan": null,
+  "Kampung Tanjung Abdul Rahman Kuala Balah, Kelantan": null,
+  "Tanjung Abdul Rahman Kuala Balah, Jeli, Kelantan": null,
+  "Tanjung Abdul Rahman Kuala Balah, Kelantan": null,
+  "Batu 13, Jeli, Kelantan": {
+    "lon": 101.7333341,
+    "lat": 5.7071525,
+    "label": "Batu Melintang, جيلي / Jeli, Kelantan, Malaysia"
+  },
+  "Kampung Jeli, Jeli, Kelantan": {
+    "lon": 101.8656316,
+    "lat": 5.7458994,
+    "label": "Universiti Malaysia Kelantan Kampus Jeli, Jalan Pasir Putih – Machang – Jeli, Kampong Gemang Lama, Kampung Gemang, جيلي / Jeli, Kelantan, Malaysia"
+  },
+  "Kampung Air Satan, Jeli, Kelantan": null,
+  "Kampung Air Satan, Kelantan": null,
+  "Air Satan, Jeli, Kelantan": null,
+  "Air Satan, Kelantan": null,
+  "Ulu Sokor, Tanah Merah, Kelantan": null,
+  "Ulu Sokor, Kelantan": null,
+  "Ladang Kerilla, Tanah Merah, Kelantan": null,
+  "Ladang Kerilla, Kelantan": null,
+  "Kerilla, Tanah Merah, Kelantan": {
+    "lon": 102.0993571,
+    "lat": 5.6879707,
+    "label": "Sungai Kerilla, Tanah Merah, Kelantan, Malaysia"
+  },
+  "Pejabat Pertanian Batang Merbau, Tanah Merah, Kelantan": null,
+  "Pejabat Pertanian Batang Merbau, Kelantan": null,
+  "Batang Merbau, Tanah Merah, Kelantan": {
+    "lon": 102.0419343,
+    "lat": 5.8120378,
+    "label": "Batang Merbau, Tanah Merah, Kelantan, 17509, Malaysia"
+  },
+  "Sekolah Kebangsaan Kemahang 3, Tanah Merah, Kelantan": {
+    "lon": 101.9987077,
+    "lat": 5.8974644,
+    "label": "Sekolah Kebangsaan Kemahang 3, Jalan Kemahang, FELDA Kemahang 3, Tanah Merah, Kelantan, 17510, Malaysia"
+  },
+  "JPS Machang, Machang, Kelantan": null,
+  "JPS Machang, Kelantan": null,
+  "Machang, Machang, Kelantan": {
+    "lon": 102.214217,
+    "lat": 5.7641131,
+    "label": "Machang, ماچڠ / Machang, Kelantan, 18500, Malaysia"
+  },
+  "Ibu Bekalan To Uban, Pasir Mas, Kelantan": null,
+  "Ibu Bekalan To Uban, Kelantan": null,
+  "To Uban, Pasir Mas, Kelantan": {
+    "lon": 102.1439481,
+    "lat": 5.9658046,
+    "label": "To' Uban, Jalan Kampung Sila, Kampung To' Uban, To' Uban, Pasir Mas, Kelantan, 17040, Malaysia"
+  },
+  "Kampung Tandak, Pasir Mas, Kelantan": null,
+  "Kampung Tandak, Kelantan": null,
+  "Tandak, Pasir Mas, Kelantan": null,
+  "Tandak, Kelantan": null,
+  "Rumah Pam JPS Meranti, Pasir Mas, Kelantan": null,
+  "Rumah Pam JPS Meranti, Kelantan": null,
+  "Meranti, Pasir Mas, Kelantan": {
+    "lon": 102.1061409,
+    "lat": 6.1000372,
+    "label": "Meranti, Pasir Mas, Kelantan, 17010, Malaysia"
+  },
+  "IPMI Zon Timur, Kota Bharu, Kelantan": {
+    "lon": 102.2899507,
+    "lat": 6.124438,
+    "label": "Institut Pembangunan Modal Insan Zon Timur, Jalan Kujid 7, Perumahan Kastam Desa Kujid, Kampung Belukar, Kampung Panji, Kota Bharu, Kelantan, 16100, Malaysia"
+  },
+  "Tumpat, Tumpat, Kelantan": {
+    "lon": 102.1706651,
+    "lat": 6.2002519,
+    "label": "Tumpat, Kelantan, 16200, Malaysia"
+  },
+  "Kampung Jambu, Tumpat, Kelantan": {
+    "lon": 102.2184086,
+    "lat": 6.1605666,
+    "label": "Kampung Hutan Jambu, Kampung Laut, Tumpat, Kelantan, 16040, Malaysia"
+  },
+  "Bachok, Bachok, Kelantan": {
+    "lon": 102.4008505,
+    "lat": 6.0616322,
+    "label": "Bachok, باچوق / Bachok, Kelantan, 16300, Malaysia"
+  },
+  "Pak Badol, Bachok, Kelantan": {
+    "lon": 102.3043052,
+    "lat": 5.9415969,
+    "label": "Sekolah Menengah Kebangsaan Pak Badol, Jalan Kota Bharu – Kuala Terengganu, Kampung Hutan Chap, Kampung Pak Badol, باچوق / Bachok, Kelantan, 16810, Malaysia"
+  },
+  "Kampung Wakaf Raja, Pasir Puteh, Kelantan": {
+    "lon": 102.4308425,
+    "lat": 5.7653585,
+    "label": "Kampung Wakaf Raja, Kampung Tok Kamis, ڤاسير ڤوتيه / Pasir Puteh, Kelantan, Malaysia"
+  },
+  "Sekolah Menengah Cherang Ruku, Pasir Puteh, Kelantan": {
+    "lon": 102.491205,
+    "lat": 5.8609485,
+    "label": "Sekolah Menengah Kebangsaan Cherang Ruku, D7, Kampung Dalam Rhu, Cherang Ruku, ڤاسير ڤوتيه / Pasir Puteh, Kelantan, 16700, Malaysia"
+  },
+  "Peringat, Kota Bharu, Kelantan": {
+    "lon": 102.2867408,
+    "lat": 6.0225511,
+    "label": "Peringat, Kota Bharu, Kelantan, 16400, Malaysia"
+  }
+}

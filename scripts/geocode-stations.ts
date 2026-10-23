@@ -49,8 +49,11 @@ try {
   for (const s of stations) {
     const manual = overrides[s._id];
     if (manual) { found.set(s._id, { coords: manual, source: "manual", label: "manual override" }); continue; }
+    // Only accept a match whose OSM address contains the station's own district — otherwise common
+    // names ("Kampung Pulai", "Lembaga") match the wrong place elsewhere in Kelantan.
+    const inDistrict = <T extends { label: string }>(hit: T | null | undefined): T | null => (hit && hit.label.toLowerCase().includes(s.district.toLowerCase()) ? hit : null);
     for (const place of placeCandidates(s.name)) {
-      const hit = (await nominatim(`${place}, ${s.district}, Kelantan`)) ?? (await nominatim(`${place}, Kelantan`));
+      const hit = inDistrict(await nominatim(`${place}, ${s.district}, Kelantan`)) ?? inDistrict(await nominatim(`${place}, Kelantan`));
       if (hit) { found.set(s._id, { coords: [hit.lon, hit.lat], source: "nominatim", label: hit.label }); break; }
     }
     process.stdout.write(found.has(s._id) ? "." : "x");
