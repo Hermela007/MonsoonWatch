@@ -132,7 +132,9 @@ The MongoDB brief: *"The more of them you use, the more points you get."* We use
 | `reports` | normal | Resident photo/video reports + bulletins: text, media URL, location, Gemini analysis, **embeddings**. |
 | `knowledge` | normal | Long documents (flood post-mortems, plans, Deep Research briefs), chunked + embedded. |
 | `alerts` | normal | Drafted alerts: status `draft → verified → approved → sent`, approver, timestamps. |
-| `agent_runs` | normal | Full audit log of every agent step (inputs, model used, verification result). |
+| `agent_runs` | normal | One doc per agent run: trigger, status, start/finish time. |
+| `agent_steps` | normal | One doc per agent step (model used, summary, verification result, latency). Change stream → Tech HUD. |
+| `geo` | normal | OSM roads (split into segments at junctions), rivers and building centroids for the region. |
 | `saint_tasks` | normal | Handoff to/from Saint (see §6.4). |
 
 ### 5.2 Feature map (implement all; each needs its on-screen moment)
@@ -191,7 +193,7 @@ db.reports.aggregate([
 | `gemini-nano-banana-2.1` (optional) | Illustrate a resident's street at forecast depth. **Must** be labelled "Illustration, not a prediction". | — |
 
 ### 6.3 The verification loop (50% of DeepMind score is the working demo with a real verification loop)
-The agent's plan is **checked by deterministic code** before any human sees it. Every check returns pass/fail, is logged to `agent_runs`, and is shown in the UI.
+The agent's plan is **checked by deterministic code** before any human sees it. Every check returns pass/fail, is logged to `agent_steps`, and is shown in the UI.
 
 1. **Threshold check:** each at-risk claim must match the latest stored reading vs the station's JPS thresholds (or the model's rain-accumulation threshold).
 2. **Route check:** every evacuation route is tested against current flooded-road segments and landslide runout polygons (`$geoIntersects`). Fail → agent re-plans.

@@ -17,6 +17,7 @@ import { createLandslides } from './layers/landslides';
 import { createHomeLayer } from './layers/home';
 import { createResidentUi } from './ui/resident';
 import { t } from './ui/copy';
+import { connectStream } from './api/stream';
 import { NOW_HOUR, REPLAY_HOURS, rainAccumulated, rainIntensity, stageM } from './mock/replay2014';
 
 const params = new URLSearchParams(location.search);
@@ -209,6 +210,7 @@ async function main() {
   ui.showLanding();
   layoutShift();
   ui.ready();
+  connectStream();
   director.flyTo(overview, 4000, () => (controls.autoRotate = !homePos));
 
   // ---- Frame loop --------------------------------------------------------

@@ -47,6 +47,8 @@ REGION_ID=kelantan
 - Branches: `main` is always runnable. Each person works on `a/*`, `b/*`, `c/*` branches and merges via small PRs. Never push broken `main`.
 
 ### 1.2 Shared types (`packages/shared/src/types.ts`)
+> **Superseded by the code.** This block is the original draft. `packages/shared/src/` is the source of truth, and §1.6 lists what changed (new `Alert.people`, `Hazards.blockedRoadIds`, `Region.landslide`, `AgentRun`, `GeoLayers`, `KnowledgeChunk`, plus response types in `api.ts`).
+
 Use zod for each so the API validates at runtime. Units: metres, mm, m³/s, ISO timestamps (UTC), GeoJSON `[lon, lat]`.
 
 ```ts
@@ -201,6 +203,22 @@ Each owner commits realistic fixtures for what they provide, in the first 2 hour
 - A: none needed (consumer), but owns `apps/web/src/mock/` that replays fixtures as fake SSE.
 
 `MOCK=1` makes the API serve fixtures and emit a scripted SSE sequence (C builds this in ~30 min; it is the most valuable 30 minutes of the weekend).
+
+### 1.6 Contract decisions (agreed Fri 23 Oct, evening)
+Gaps in §1.2–1.4 that were settled. The code in `packages/shared/src/` is the source of truth.
+
+| # | Gap | Decision | Where |
+|---|---|---|---|
+| 1 | `agent_runs` vs `agent_steps` | **Both.** `agent_runs` = one `AgentRun` doc per run (trigger, status, times). `agent_steps` = one `AgentStep` doc per HUD line; its change stream feeds `agent.step`. Always use the `COLLECTIONS` constant, never type collection names. | `types.ts` `AgentRun`, `collections.ts` |
+| 2 | Stations "with latest reading" | `GET /regions/:id/stations` returns `StationWithLatest[]` = `Station & { latest: Reading \| null }`. | `api.ts` |
+| 3 | Search result shape | `/search` returns `SearchResponse { query, type, reranked, hits: SearchHit[] }`. Each hit has `kind`, `id`, `title`, `score`, optional `snippet`, `lngLat`, `sourceUrl`, and `rankBeforeRerank` (hybrid only) for the "reranked by Voyage" before/after view. `/reports/:id/similar` returns `SimilarReportsResponse { reportId, hits: { report, score, distanceM }[] }`. | `api.ts` |
+| 4 | `/geo` shape | `GeoLayers { regionId, roads, rivers, buildings }`, each a GeoJSON FeatureCollection. **Roads are split at junctions** by `scripts/load-osm.ts`: one feature = one segment with `id` (`"<wayId>:<index>"`), `from`/`to` OSM node ids, `highway`, `lengthM`, so B builds the routing graph straight from it. Buildings are centroids only. `Hazards` gains `blockedRoadIds: string[]` (road segment ids) next to the drawable `blockedRoads`. | `types.ts` `GeoLayers`, `RoadProps`, `Hazards` |
+| 5 | Splitting a village across centres | **One alert per (village, centre).** If a village must be split, the agent makes several `Alert`s with the same `runId` + `villageId`. New field `Alert.people` = how many people this alert sends to `evacCentreId`; the capacity check is `capacity − headcount ≥ people`, and the alerts for a village must add up to its population. | `types.ts` `Alert` |
+| 6 | Landslide thresholds in config | `Region.landslide?: { slopeMinDeg, rainThresholdsMm: { days, mm }[], citations: { title, url }[] }`. B fills it from Deep Research; risk is raised when slope ≥ `slopeMinDeg` and rain over `days` ≥ `mm` for any entry. | `types.ts` `Region` |
+| 7 | `GET /agent/runs/:id` | Returns `AgentRunDetail { run: AgentRun, steps: AgentStep[] (oldest first), alerts: Alert[] }`. `POST /agent/run` returns `AgentRunStarted { runId }`. | `api.ts` |
+| 8 | Error format | Every non-2xx response body is `ApiError { error: { code, message } }`, `code` ∈ `bad_request \| not_found \| conflict \| unavailable \| internal`. The API sets this up globally; in a route, `throw new HttpError(404, "not_found", "…")` from `apps/api/src/errors.ts`. | `api.ts`, `apps/api/src/errors.ts` |
+
+Also added: `KnowledgeChunk` (the `knowledge` collection, used by hybrid search and B's `searchKnowledge`), and a `geo` collection for the OSM layers.
 
 ---
 
