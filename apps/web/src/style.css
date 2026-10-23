@@ -1,0 +1,3 @@
+html, body { margin: 0; height: 100%; background: #0b0f14; color: #cfd8e3; font-family: ui-sans-serif, system-ui, sans-serif; overflow: hidden; }
+canvas { display: block; }
+#status { position: fixed; top: 12px; left: 12px; font: 12px ui-monospace, monospace; opacity: 0.8; pointer-events: none; }
