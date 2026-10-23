@@ -21,7 +21,7 @@ export interface Hydrology {
 }
 
 /** Binary min-heap of cell indices keyed by (elevation, insertion order). */
-class CellHeap {
+export class CellHeap {
   private idx: Int32Array;
   private size = 0;
   constructor(

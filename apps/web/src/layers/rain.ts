@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const DROPS = 14000;
+const DROPS = 9000;
 
 const vertexShader = /* glsl */ `
 attribute vec4 aSeed;
@@ -27,7 +27,7 @@ const fragmentShader = /* glsl */ `
 uniform vec3 uColor;
 varying float vAlpha;
 void main() {
-  gl_FragColor = vec4(uColor * vAlpha * 0.28, 1.0);
+  gl_FragColor = vec4(uColor * vAlpha * 0.16, 1.0);
 }
 `;
 
@@ -69,8 +69,8 @@ export function createRain() {
     update(target: THREE.Vector3, cameraDistance: number, intensity: number, timeS: number) {
       const u = material.uniforms;
       u.uCentre.value.copy(target);
-      u.uSize.value = THREE.MathUtils.clamp(cameraDistance * 1.1, 8, 140);
-      u.uIntensity.value = intensity;
+      u.uSize.value = THREE.MathUtils.clamp(cameraDistance * 1.6, 14, 160);
+      u.uIntensity.value = intensity * 0.6;
       u.uTime.value = timeS;
       lines.visible = intensity > 0.01;
     },

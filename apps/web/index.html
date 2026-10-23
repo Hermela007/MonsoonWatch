@@ -2,53 +2,51 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MonsoonWatch · Control room</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#05080e" />
+    <title>MonsoonWatch · Is my home safe?</title>
   </head>
-  <body>
+  <body data-view="landing">
     <div id="app"></div>
 
     <div id="loading">
       <div class="brand">Monsoon<span>Watch</span></div>
-      <div id="loading-msg">Starting…</div>
+      <div id="loading-msg">Loading the valley…</div>
       <div class="bar"><i id="loading-bar"></i></div>
     </div>
 
-    <header class="hud hud-title">
+    <header class="topbar ui">
       <div class="brand">Monsoon<span>Watch</span></div>
-      <div class="sub">Kelantan river valley · Dec 2014 replay</div>
-      <div class="honesty">
-        Terrain: AWS Terrain Tiles (≈150 m, 2× vertical). Flood extent: HAND approximation from terrain, not a hydraulic model.
-        Rain and river curves are <b>illustrative</b>, shaped on Dec 2014 — the real JPS/GloFAS replay replaces them.
-        Landslide layer is a <b>screening tool</b>: shows where to check first. Town depth = deepest floodplain water within 1 km.
-      </div>
+      <div class="clock"><b id="clock-tag">Now</b><span id="clock-time"></span></div>
     </header>
 
-    <section class="hud hud-readouts">
-      <div><label>Rain intensity</label><b id="r-rain">–</b></div>
-      <div><label>Main river rise</label><b id="r-stage" class="c-water">–</b></div>
-      <div><label>Land under water</label><b id="r-flooded" class="c-water">–</b></div>
-      <div><label>Slopes to check</label><b id="r-slope" class="c-risk">–</b></div>
+    <section id="landing" class="card ui" aria-labelledby="ask-title">
+      <h1 id="ask-title" data-copy="askTitle"></h1>
+      <p class="sub" data-copy="askSub"></p>
+      <form id="place-form" autocomplete="off">
+        <input id="place-input" type="search" inputmode="search" enterkeyhint="go" aria-label="Your town or village" />
+      </form>
+      <div id="suggestions" class="suggestions"></div>
+      <button id="btn-locate" class="btn btn-ghost" type="button">📍 <span data-copy="useLocation"></span></button>
+      <p id="landing-note" class="note" role="status"></p>
+      <p class="footer" data-copy="footer"></p>
     </section>
 
-    <aside class="hud hud-legend">
-      <div class="ramp"><span>0 m</span><i></i><span>10 m+</span></div>
-      <div class="key"><i class="sw-worst"></i>Worst case extent</div>
-      <div class="key"><i class="sw-risk"></i>Landslide screening</div>
-      <div class="key"><i class="sw-river"></i>Rivers</div>
-      <div class="hint">Click terrain to inspect · <kbd>Space</kbd> play · <kbd>C</kbd> tour · <kbd>1–4</kbd> views</div>
-    </aside>
-
-    <footer class="hud hud-timeline">
-      <button id="play" aria-label="Play replay">▶</button>
-      <div class="when"><b id="date">–</b><span id="hour">–</span></div>
-      <div class="track">
-        <canvas id="spark"></canvas>
-        <input id="time" type="range" min="0" max="72" step="0.1" value="0" aria-label="Replay time" />
+    <section id="result" class="card ui" aria-live="polite">
+      <div class="place-row">
+        <span id="place-name" class="place"></span>
+        <button id="btn-change" class="link" type="button" data-copy="change"></button>
       </div>
-      <button id="tour" class="tour">Fly the valley</button>
-    </footer>
-
+      <div id="risk-level" class="risk-level"></div>
+      <div id="risk-lines" class="risk-lines"></div>
+      <div id="risk-action" class="risk-action"></div>
+      <div class="actions">
+        <button id="btn-way" class="btn btn-primary" type="button" data-copy="showWay"></button>
+        <button id="btn-whatif" class="btn" type="button" data-copy="whatIf"></button>
+        <button id="btn-listen" class="btn btn-ghost" type="button"></button>
+      </div>
+      <p class="footer" data-copy="footer"></p>
+    </section>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

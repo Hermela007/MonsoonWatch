@@ -1,0 +1,45 @@
+// All user-facing wording in one place. Plain English, short sentences.
+const COPY = {
+  askTitle: 'Is my home safe?',
+  askSub: 'Type your town or village, or tap your home on the map.',
+  placeholder: 'e.g. Kuala Krai',
+  useLocation: 'Use my location',
+  locating: 'Finding you…',
+  outside: 'That location is outside the area we cover yet.',
+  noLocation: 'Could not get your location. Type your town instead.',
+  noMatch: 'No match yet. Try another spelling, or tap the map.',
+  riskHigh: 'HIGH RISK',
+  riskMedium: 'BE READY',
+  riskLow: 'LOW RISK',
+  floodIn: 'Flood water may reach your area in about {h} hours.',
+  floodNow: 'Flood water may already be in your area.',
+  floodDepthKnee: 'It could reach about knee height.',
+  floodDepthHead: 'It could get deeper than an adult is tall.',
+  floodDepthHouse: 'It could get deeper than a single-storey house (about {d} m).',
+  worstOnly: 'If the rain gets worse, water could reach your area in about {h} hours.',
+  landslide: 'The slope near you could slide after this much rain. Stay away from steep ground.',
+  safe: 'Your area is not expected to flood.',
+  goTo: 'Go to higher ground: {d} away',
+  stay: 'You are on higher ground. Stay inside and keep listening for updates.',
+  noRoute: 'No safe ground found nearby. Follow official instructions.',
+  showWay: 'Show me the way',
+  whatIf: 'See what could happen',
+  backNow: 'Back to now',
+  listen: 'Listen',
+  stop: 'Stop',
+  change: 'Change place',
+  now: 'Now',
+  later: '+{h} h',
+  yourHome: 'Your home',
+  higherGround: 'Higher ground',
+  near: 'Near {place}',
+  myLocation: 'My location',
+  pickedPlace: 'Selected place',
+  footer: 'Demo using the December 2014 Kelantan flood. Estimates are approximate. Always follow official instructions.',
+} as const;
+
+export type CopyKey = keyof typeof COPY;
+
+export function t(key: CopyKey, vars: Record<string, string | number> = {}): string {
+  return COPY[key].replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
+}

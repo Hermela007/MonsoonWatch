@@ -3,6 +3,8 @@
 
 export const REPLAY_START_MS = Date.UTC(2014, 11, 21, 16); // 22 Dec 2014 00:00 MYT
 export const REPLAY_HOURS = 72;
+/** Demo "now": heavy rain under way, river rising, before the peak. */
+export const NOW_HOUR = 10;
 export const PEAK_STAGE_M = 18; // order of the 2014 rise at Kuala Krai; VERIFY against JPS replay
 
 const smooth = (a: number, b: number, x: number) => {
@@ -47,10 +49,13 @@ export function replayDate(h: number): Date {
   return new Date(REPLAY_START_MS + h * 3600_000);
 }
 
-/** First replay hour at which a point with the given depth function becomes wet, or null. */
+/** Water this deep (m) counts as "reached" — about knee height. */
+export const WET_THRESHOLD_M = 0.3;
+
+/** First replay hour at which a point with the given depth function gets WET_THRESHOLD_M of water, or null. */
 export function firstWetHour(depthForStage: (stage: number) => number, worst = false): number | null {
   for (let h = 0; h <= REPLAY_HOURS; h += 0.5) {
-    if (depthForStage(worst ? worstStageM(h) : stageM(h)) > 0.05) return h;
+    if (depthForStage(worst ? worstStageM(h) : stageM(h)) > WET_THRESHOLD_M) return h;
   }
   return null;
 }
