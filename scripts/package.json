@@ -7,7 +7,8 @@
     "seed": "tsx seed.ts",
     "typecheck": "tsc --noEmit",
     "jps:snapshot": "tsx jps-snapshot.ts",
-    "ingest:jps": "tsx ingest-jps.ts"
+    "ingest:jps": "tsx ingest-jps.ts",
+    "load:replay": "tsx load-replay-2014.ts"
   },
   "dependencies": {
     "@monsoonwatch/api": "workspace:*",

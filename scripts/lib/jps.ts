@@ -12,5 +12,11 @@ export async function fetchJpsHtml(kind: JpsKind): Promise<string> {
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`JPS ${kind}: HTTP ${res.status}`);
-  return res.text();
+  return redactKeys(await res.text());
+}
+
+/** JPS pages embed their own public Google Maps browser key. Strip API keys so saved snapshots
+ *  never put third-party keys in our repo (GitHub secret scanning flags them). */
+export function redactKeys(html: string): string {
+  return html.replace(/AIza[0-9A-Za-z_-]{20,}/g, "REDACTED_BY_MONSOONWATCH");
 }
