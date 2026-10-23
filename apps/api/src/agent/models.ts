@@ -4,9 +4,9 @@
 export const MODELS = {
   /** Lead orchestrator — whole situation in one 1M-token context. */
   argon: "gemini-4-argon",
-  /** Parallel per-village subagents, video/image understanding. */
+  /** Parallel per-village subagents (route, centre, pickup order, alert text). */
   flash: "gemini-3.8-flash",
-  /** Cheap routing / classification (e.g. "is this upload a river photo?"). */
+  /** Cheap routing / classification (e.g. "does this risk event need a full agent run?"). */
   flashLite: "gemini-3.5-flash-lite",
   /** Browser voice Q&A (Live API — separate skill, not the Interactions API). */
   live: "gemini-3.8-live",
