@@ -1,0 +1,19 @@
+{
+  "collection": "stations",
+  "name": "places",
+  "type": "search",
+  "definition": {
+    "mappings": {
+      "dynamic": false,
+      "fields": {
+        "regionId": { "type": "token" },
+        "kind": { "type": "token" },
+        "name": [
+          { "type": "string", "analyzer": "lucene.standard" },
+          { "type": "autocomplete", "tokenization": "edgeGram", "minGrams": 2, "maxGrams": 15, "foldDiacritics": true }
+        ],
+        "district": { "type": "string", "analyzer": "lucene.standard" }
+      }
+    }
+  }
+}

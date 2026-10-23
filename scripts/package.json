@@ -5,10 +5,15 @@
   "type": "module",
   "scripts": {
     "seed": "tsx seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "jps:snapshot": "tsx jps-snapshot.ts",
+    "ingest:jps": "tsx ingest-jps.ts"
   },
   "dependencies": {
-    "@monsoonwatch/shared": "workspace:*"
+    "@monsoonwatch/api": "workspace:*",
+    "@monsoonwatch/shared": "workspace:*",
+    "cheerio": "^1.2.0",
+    "mongodb": "^7.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
