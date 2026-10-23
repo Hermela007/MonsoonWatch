@@ -26,8 +26,8 @@ export function setStepSink(next: StepSink): void {
 }
 
 // TODO(B, after C's db client merges): add `mongoStepSink` that does
-// `agentSteps.replaceOne({ _id: step._id }, step, { upsert: true })` and register it in
-// the API bootstrap when MOCK !== "1". Collection name to be confirmed with C.
+// `db.collection(COLLECTIONS.agentSteps).replaceOne({ _id: step._id }, step, { upsert: true })`
+// and register it in the API bootstrap when MOCK !== "1".
 
 /** Steps recorded by the in-memory sink, oldest first. Useful in mock mode and scripts. */
 export function getMemorySteps(runId?: string): AgentStep[] {

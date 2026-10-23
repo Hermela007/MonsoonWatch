@@ -105,11 +105,39 @@ export function checkRoute(alert: Alert, ctx: VerifyContext): VerificationResult
 }
 
 // 3. Capacity: the centre must have room for the whole village.
-export function checkCapacity(_alert: Alert, ctx: VerifyContext): VerificationResult {
+// One alert = one group (`alert.people`) going to one centre (§1.6 decision 5).
+export function checkCapacity(alert: Alert, ctx: VerifyContext): VerificationResult {
   const free = ctx.centre.capacity - ctx.centre.headcount;
-  const need = ctx.village.population;
-  const detail = `${ctx.centre.name}: ${free} free (${ctx.centre.headcount}/${ctx.centre.capacity}); ${ctx.village.name} needs ${need}`;
+  const need = alert.people;
+  const detail = `${ctx.centre.name}: ${free} free (${ctx.centre.headcount}/${ctx.centre.capacity}); sending ${need} from ${ctx.village.name}`;
+  if (need <= 0) return fail("capacity", `${detail} — alert must move at least 1 person`);
   return free >= need ? pass("capacity", detail) : fail("capacity", `${detail} — split across centres`);
+}
+
+/**
+ * Cross-alert check for a split village: the alerts for one village (same run) must add up to
+ * its population, and no centre may be over-filled by the combined groups. Run after verifyAlert.
+ */
+export function checkVillageSplit(
+  alerts: Pick<Alert, "villageId" | "evacCentreId" | "people">[],
+  village: Village,
+  centres: EvacCentre[],
+): VerificationResult {
+  const mine = alerts.filter((a) => a.villageId === village._id);
+  const total = mine.reduce((sum, a) => sum + a.people, 0);
+  if (total !== village.population) {
+    return fail("capacity", `${village.name}: alerts move ${total} of ${village.population} people`);
+  }
+  const perCentre = new Map<string, number>();
+  for (const a of mine) perCentre.set(a.evacCentreId, (perCentre.get(a.evacCentreId) ?? 0) + a.people);
+  for (const [centreId, people] of perCentre) {
+    const c = centres.find((x) => x._id === centreId);
+    if (!c) return fail("capacity", `${village.name}: unknown centre ${centreId}`);
+    if (c.capacity - c.headcount < people) {
+      return fail("capacity", `${c.name}: ${people} assigned but only ${c.capacity - c.headcount} free`);
+    }
+  }
+  return pass("capacity", `${village.name}: all ${total} people assigned across ${perCentre.size} centre(s)`);
 }
 
 // 4. Freshness: supporting data must be recent (live mode only — replay data is historical by design).
