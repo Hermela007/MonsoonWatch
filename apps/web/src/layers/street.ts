@@ -8,6 +8,7 @@ import { NO_DRAIN_M } from '../terrain/hydrology';
 import { neighbourhood } from '../terrain/homeRisk';
 import { localFrame, rng, type House } from '../data/buildings';
 import { stageM } from '../mock/replay2014';
+import { createStreetWater } from './streetWater';
 
 const SIZE_M = 1400;
 const WALL_M = { 1: 3.4, 2: 6.4 } as const;
@@ -56,6 +57,55 @@ function roofGeometry(w: number, d: number, rise: number) {
   return g;
 }
 
+/** Overcast storm sky: warm grey horizon darkening upwards, with drifting cloud masses. */
+function createSkyDome(horizon: THREE.Color) {
+  const geo = new THREE.SphereGeometry(2500, 48, 24);
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: { uTime: { value: 0 }, uHorizon: { value: horizon }, uTop: { value: new THREE.Color(0x6f716f) } },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform float uTime;
+      uniform vec3 uHorizon;
+      uniform vec3 uTop;
+      varying vec3 vDir;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+      }
+      float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.0; a *= 0.5; } return v; }
+      void main() {
+        float h = max(vDir.y, 0.0);
+        vec3 col = mix(uHorizon, uTop, smoothstep(0.0, 0.6, h));
+        vec2 uv = vDir.xz / (vDir.y + 0.15) * 1.5 + vec2(uTime * 0.012, uTime * 0.006);
+        float c = smoothstep(0.45, 0.8, fbm(uv));
+        col = mix(col, col * 0.72, c * smoothstep(0.02, 0.25, h));
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = -1;
+  return {
+    mesh,
+    update(t: number) {
+      mat.uniforms.uTime.value = t;
+    },
+    dispose() {
+      geo.dispose();
+      mat.dispose();
+    },
+  };
+}
+
 /**
  * Street-level scene (1 unit = 1 m) around the resident's home: houses, ground from the DEM,
  * and a flat flood surface at the model's local water level.
@@ -71,23 +121,35 @@ export function createStreet(opts: {
 }) {
   const { hm, hy, home, homeCell, houses } = opts;
   const scene = new THREE.Scene();
-  const sky = new THREE.Color(0xdedad2);
+  const sky = new THREE.Color(0xd2cdc3); // horizon colour; the dome darkens upwards
   scene.background = sky;
   scene.fog = new THREE.Fog(sky, 250, 1100);
+  const dome = createSkyDome(sky);
+  scene.add(dome.mesh);
   const pmrem = new THREE.PMREMGenerator(opts.renderer);
   const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
   scene.environment = env;
   scene.environmentIntensity = 0.6;
   scene.add(new THREE.HemisphereLight(0xe6edf5, 0x46523f, 1.2));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-  sun.position.set(-120, 200, 80);
+  const sun = new THREE.DirectionalLight(0xfff4e2, 1.6);
+  sun.position.set(-160, 180, 120);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = sun.shadow.camera.bottom = -260;
+  sun.shadow.camera.right = sun.shadow.camera.top = 260;
+  sun.shadow.camera.near = 10;
+  sun.shadow.camera.far = 700;
+  sun.shadow.bias = -0.0005;
+  sun.shadow.normalBias = 0.6;
+  sun.shadow.radius = 4;
   scene.add(sun);
-  const disposables: { dispose(): void }[] = [env, pmrem];
+  const disposables: { dispose(): void }[] = [env, pmrem, dome];
 
   const { toLngLat } = localFrame(home);
+  // Ground = the depression-filled surface the flood model uses, so street depths match the card.
   const groundAbs = (x: number, z: number) => {
     const { gx, gy } = gridCoords(hm, toLngLat(x, z));
-    const e = sampleField(hm, hm.elevM, gx, gy);
+    const e = sampleField(hm, hy.filledM, gx, gy);
     return Number.isNaN(e) ? 0 : Math.max(e, 0);
   };
   const ground0 = groundAbs(0, 0);
@@ -108,16 +170,15 @@ export function createStreet(opts: {
   for (let i = 0; i < gp.count; i++) gp.setY(i, groundY(gp.getX(i), gp.getZ(i)));
   groundGeo.computeVertexNormals();
   const groundMat = new THREE.MeshStandardMaterial({ color: 0x6f7d5c, roughness: 1 });
-  scene.add(new THREE.Mesh(groundGeo, groundMat));
+  const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+  groundMesh.receiveShadow = true;
+  scene.add(groundMesh);
   disposables.push(groundGeo, groundMat);
 
-  // Water.
-  const waterGeo = new THREE.PlaneGeometry(SIZE_M * 1.5, SIZE_M * 1.5).rotateX(-Math.PI / 2);
-  const waterMat = new THREE.MeshStandardMaterial({ color: 0x8f7a52, roughness: 0.2, metalness: 0.05, transparent: true, opacity: 0.86 });
-  const water = new THREE.Mesh(waterGeo, waterMat);
-  water.renderOrder = 2;
-  scene.add(water);
-  disposables.push(waterGeo, waterMat);
+  // Water: animated waves (Gerstner) with foam on crests and against walls.
+  const water = createStreetWater(houses, sky, { near: 250, far: 1100 }, groundY);
+  scene.add(water.mesh);
+  disposables.push(water);
 
   // Houses.
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xf2f1ec, roughness: 0.85 });
@@ -139,8 +200,10 @@ export function createStreet(opts: {
     const roofGeo = roofGeometry(h.w, h.d, Math.min(h.d * 0.45, 3.2)).translate(0, wallH, 0);
     const roofMat = new THREE.MeshStandardMaterial({ color: DEPTH_BANDS[0].color, roughness: 0.7 });
     disposables.push(wallGeo, roofGeo, roofMat);
-    group.add(new THREE.Mesh(wallGeo, i === homeIdx ? new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x333333 }) : wallMat));
-    group.add(new THREE.Mesh(roofGeo, roofMat));
+    const walls = new THREE.Mesh(wallGeo, i === homeIdx ? new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x333333 }) : wallMat);
+    const roof = new THREE.Mesh(roofGeo, roofMat);
+    walls.castShadow = walls.receiveShadow = roof.castShadow = true;
+    group.add(walls, roof);
     if (withRuler.has(i)) {
       // Depth ruler on the front corner, like a flood gauge.
       const r = new THREE.Mesh(rulerGeo, rulerMat);
@@ -164,7 +227,9 @@ export function createStreet(opts: {
     const z = (rand() - 0.5) * 700;
     if (houses.some((h) => Math.hypot(h.x - x, h.z - z) < Math.max(h.w, h.d) / 2 + 3)) continue;
     const t = new THREE.Group();
-    t.add(new THREE.Mesh(trunkGeo, trunkMat), new THREE.Mesh(crownGeo, crownMat));
+    const crown = new THREE.Mesh(crownGeo, crownMat);
+    crown.castShadow = true;
+    t.add(new THREE.Mesh(trunkGeo, trunkMat), crown);
     t.position.set(x, groundY(x, z), z);
     t.scale.setScalar(0.8 + rand() * 0.7);
     scene.add(t);
@@ -180,17 +245,28 @@ export function createStreet(opts: {
   scene.add(label);
 
   let lastHour = NaN;
+  let level = -Infinity;
+  let homeDepthNow = 0;
   return {
     scene,
+    /** Current water surface in local metres (−Infinity when dry). */
+    get level() {
+      return level;
+    },
     homeFocus: new THREE.Vector3(homeItem.h.x, homeItem.base + 2, homeItem.h.z),
     counts: { osm: houses.filter((h) => h.source === 'osm').length, illustrative: houses.filter((h) => h.source === 'illustrative').length },
     /** Updates water and roofs; returns how many houses have water and the home's depth. */
+    /** Every frame: animates the waves and clouds. */
+    animate(timeS: number) {
+      dome.update(timeS);
+      water.mesh.visible = Number.isFinite(level);
+      if (water.mesh.visible) water.update(level, homeDepthNow, timeS);
+    },
     update(hour: number) {
       if (hour === lastHour) return null;
       lastHour = hour;
       const w = waterAbs(hour) - ground0;
-      water.visible = Number.isFinite(w);
-      if (water.visible) water.position.y = w;
+      level = w;
       let wet = 0;
       let homeDepth = 0;
       items.forEach((it, i) => {
@@ -200,6 +276,7 @@ export function createStreet(opts: {
         if (depth > 0.05) wet++;
         if (i === homeIdx) homeDepth = depth;
       });
+      homeDepthNow = homeDepth;
       el.textContent = homeDepth > 0.05 ? `${opts.homeLabel} · ${homeDepth.toFixed(1)} m of water` : `${opts.homeLabel} · dry`;
       el.classList.toggle('wet', homeDepth > 0.05);
       return { wet, total: items.length, homeDepth };

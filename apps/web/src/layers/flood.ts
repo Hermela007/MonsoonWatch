@@ -42,6 +42,13 @@ varying vec2 vUv;
 varying vec3 vWorld;
 varying float vViewDist;
 
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+
 void main() {
   // Depth per pixel from bilinearly filtered fields → smooth shorelines instead of grid stairs.
   vec4 f = texture2D(uField, vUv);
@@ -51,11 +58,11 @@ void main() {
   float cover = sea > 0.5 ? 1.0 : smoothstep(-aa, aa, depth);
   if (cover < 0.01) discard;
 
-  vec2 q = vWorld.xz * 3.0;
-  vec3 n = normalize(vec3(
-    sin(q.x * 1.7 + uTime * 1.3) * 0.05 + sin(q.y * 2.9 - uTime * 0.8) * 0.03,
-    1.0,
-    cos(q.y * 1.9 + uTime * 1.1) * 0.05 + cos(q.x * 2.3 + uTime * 0.7) * 0.03));
+  // Moving ripples: two scrolling noise layers perturb the normal.
+  vec2 q = vWorld.xz * 6.0;
+  float n1 = noise(q + vec2(uTime * 0.9, uTime * 0.4));
+  float n2 = noise(q * 2.3 - vec2(uTime * 0.6, -uTime * 1.1));
+  vec3 n = normalize(vec3((n1 - 0.5) * 0.5 + (n2 - 0.5) * 0.3, 1.0, (n2 - 0.5) * 0.5 - (n1 - 0.5) * 0.3));
   vec3 viewDir = normalize(cameraPosition - vWorld);
   float spec = pow(max(dot(reflect(-uSunDir, n), viewDir), 0.0), 120.0);
   float fres = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
@@ -66,8 +73,12 @@ void main() {
     alpha = 1.0;
   } else {
     float t = 1.0 - exp(-max(depth, 0.0) / 3.0);
-    col = mix(uShallow, uDeep, t) + fres * 0.1 + spec * 0.4;
-    alpha = (0.72 + 0.23 * smoothstep(0.0, 1.5, depth)) * cover;
+    col = mix(uShallow, uDeep, t) + fres * 0.12 + spec * 0.7;
+    // Foamy advancing edge: a broken cream band right at the flood front.
+    float edge = 1.0 - smoothstep(0.0, 0.9, depth);
+    float froth = smoothstep(0.35, 0.7, noise(vWorld.xz * 14.0 + uTime * 0.8));
+    col = mix(col, vec3(0.95, 0.92, 0.84), edge * (0.45 + 0.55 * froth) * 0.85);
+    alpha = (0.75 + 0.22 * smoothstep(0.0, 1.5, depth)) * cover;
   }
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
   col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.45);

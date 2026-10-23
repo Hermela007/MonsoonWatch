@@ -260,9 +260,9 @@ async function main() {
     controls.maxDistance = 700;
     const f = street.homeFocus;
     controls.target.copy(f);
-    camera.position.copy(f).add(new THREE.Vector3(70, 34, 80));
+    camera.position.copy(f).add(new THREE.Vector3(90, 40, 100));
     stage.setScene(street.scene);
-    director.flyTo({ target: f.clone(), position: f.clone().add(new THREE.Vector3(38, 16, 44)) }, 2200);
+    director.flyTo({ target: f.clone().add(new THREE.Vector3(0, 3, 0)), position: f.clone().add(new THREE.Vector3(34, 9, 40)) }, 2400);
     ui!.setStreet('on');
   };
 
@@ -396,9 +396,17 @@ async function main() {
     hotspots.update(hour, camDist, time);
     hotspots.setLabelsVisible(explode < 0.3);
     if (inStreet && street) {
-      const stats = street.update(Math.round(hour * 4) / 4);
+      const stats = street.update(Math.round(hour * 20) / 20);
+      street.animate(time);
+      // Never let the camera sink under the water surface.
+      const minY = street.level + 4;
+      if (camera.position.y < minY) {
+        const lift = minY - camera.position.y;
+        camera.position.y += lift;
+        controls.target.y = Math.max(controls.target.y, street.level + 1);
+      }
       if (stats) ui!.setStreet('on', { ...stats, ...street.counts });
-      streetRain?.update(controls.target, camDist, rainIntensity(hour), time);
+      streetRain?.update(controls.target, camDist, Math.min(1, rainIntensity(hour) * 1.8 + 0.25), time);
     }
     ui!.setClock(hour, NOW_HOUR);
     stage.render();

@@ -64,7 +64,7 @@ void main() {
   img = pow(img, vec3(0.85)) * 1.15;
   vec3 hyps = mix(uLow, uHigh, smoothstep(0.0, 900.0, vElev));
   vec3 base = mix(hyps, img, uHasImagery);
-  vec3 col = base * (0.55 + 0.6 * diff);
+  vec3 col = base * (0.4 + 0.8 * diff) * vec3(1.04, 1.0, 0.95);
 
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
 

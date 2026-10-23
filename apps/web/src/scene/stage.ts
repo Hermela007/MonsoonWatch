@@ -12,6 +12,8 @@ export function createStage(container: HTMLElement, opts: { bloom: boolean; maxP
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, opts.maxPixelRatio));
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   container.appendChild(renderer.domElement);
 
   const labels = new CSS2DRenderer();
