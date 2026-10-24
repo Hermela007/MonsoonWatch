@@ -88,3 +88,16 @@ test("capacity uses alert.people; village split must add up", () => {
   assert.equal(checkVillageSplit(split, village, [centre, c2]).passed, true);
   assert.equal(checkVillageSplit(split.slice(0, 1), village, [centre, c2]).passed, false);
 });
+
+test("replay: flood claim backed by a GloFAS river_threshold event (approximate)", () => {
+  const glofas = {
+    _id: "glofas-5.775-102.125:river_threshold:warning:x", regionId: "kelantan", ts: "2014-12-23T00:00:00Z",
+    type: "river_threshold" as const, stationId: "glofas-5.775-102.125", level: "warning" as const,
+    value: 3400, threshold: 3000, message: "", source: "stream_processing" as const,
+  };
+  const ctx = makeCtx({ mode: "replay", evidence: { riskEvents: [glofas] } });
+  const ok = verifyAlert(makeAlert({ level: "warning" }), ctx).find((x) => x.check === "threshold")!;
+  assert.equal(ok.passed, true);
+  assert.match(ok.detail, /GloFAS, approximate/);
+  assert.equal(verifyAlert(makeAlert({ level: "danger" }), ctx).find((x) => x.check === "threshold")!.passed, false);
+});

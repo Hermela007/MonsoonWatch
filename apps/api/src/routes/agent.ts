@@ -1,9 +1,12 @@
 // B: POST /agent/run → { runId } (work continues in the background)
 //    GET  /agent/runs/:id → AgentRunDetail { run, steps (oldest first), alerts }
-// Data source: the labelled TEST scenario when MOCK=1 or body.source = "sample"; otherwise MongoDB.
+// Data source: the labelled TEST scenario when MOCK=1 or body.source = "sample"; otherwise MongoDB
+// (body.mode "live" | "replay", body.at = replay clock ISO time). Runs also start automatically
+// from Stream Processing risk events (agent/auto-trigger.ts).
 
 import type { FastifyInstance } from "fastify";
 import type { AgentRunDetail, AgentRunStarted } from "@monsoonwatch/shared";
+import { startAutoTrigger } from "../agent/auto-trigger";
 import { startAgentRun } from "../agent/orchestrator";
 import { makeSampleSituation } from "../agent/sample/kelantan-test";
 import { loadSituationFromDb } from "../agent/situation-db";
@@ -11,15 +14,19 @@ import { defaultStore } from "../agent/store";
 import { env } from "../env";
 import { HttpError } from "../errors";
 
-interface RunBody { regionId?: string; riskEventId?: string; source?: "sample" | "db" }
+interface RunBody { regionId?: string; riskEventId?: string; source?: "sample" | "db"; mode?: "live" | "replay"; at?: string }
 
 export async function agentRoutes(app: FastifyInstance) {
+  // Real mode: start runs automatically from Stream Processing risk events (AGENT_AUTO_RUN=0 to disable).
+  if (!env.mock) startAutoTrigger();
+
   app.post<{ Body: RunBody }>("/agent/run", async (req, reply): Promise<AgentRunStarted> => {
     const regionId = req.body?.regionId ?? env.regionId;
     const useSample = env.mock || req.body?.source === "sample";
     let situation;
     try {
-      situation = useSample ? makeSampleSituation() : await loadSituationFromDb(regionId);
+      const at = req.body?.at ? new Date(req.body.at) : undefined;
+      situation = useSample ? makeSampleSituation() : await loadSituationFromDb(regionId, { mode: req.body?.mode ?? "live", at });
     } catch (err) {
       throw new HttpError(404, "not_found", (err as Error).message);
     }

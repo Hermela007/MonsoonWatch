@@ -62,7 +62,16 @@ export function checkThreshold(alert: Alert, ctx: VerifyContext): VerificationRe
 
   if (alert.hazard === "flood") {
     if (!station?.thresholds || !latestReading) {
-      return fail("threshold", "No river station reading with JPS thresholds cited");
+      // No JPS station (e.g. the 2014 replay, which has GloFAS discharge cells): fall back to the
+      // river_threshold events Stream Processing computed. GloFAS thresholds are approximate.
+      const river = riskEvents.filter((e) => e.type === "river_threshold");
+      if (river.length === 0) return fail("threshold", "No river station reading with JPS thresholds, or river risk event, cited");
+      const best = river.reduce((x, y) => (LEVEL_RANK[y.level] > LEVEL_RANK[x.level] ? y : x));
+      const glofas = best.stationId?.startsWith("glofas-");
+      const unit = glofas ? " m³/s (GloFAS, approximate threshold)" : "";
+      const detail = `${best.stationId ?? "river"}: ${best.value}${unit} vs ${best.threshold} → ${best.level.toUpperCase()}; claimed ${alert.level.toUpperCase()}`;
+      if (LEVEL_RANK[best.level] < LEVEL_RANK.alert) return fail("threshold", `${detail} — no threshold crossed`);
+      return LEVEL_RANK[alert.level] > LEVEL_RANK[best.level] ? fail("threshold", `${detail} — overclaims`) : pass("threshold", detail);
     }
     const actual = levelFromThresholds(latestReading.value, station.thresholds);
     const t = station.thresholds;
