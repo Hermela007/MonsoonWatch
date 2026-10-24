@@ -12,6 +12,8 @@ export const env = {
   regionId: process.env.REGION_ID || "kelantan",
   mongodbUri: process.env.MONGODB_URI || "",
   mongodbDb: process.env.MONGODB_DB || "monsoonwatch",
+  // Atlas Stream Processing workspace (no credentials in it: `pnpm db:stream` reuses MONGODB_URI's user).
+  streamProcessingUri: process.env.STREAM_PROCESSING_URI || "",
   geminiApiKey: process.env.GEMINI_API_KEY || "",
   voyageApiKey: process.env.VOYAGE_API_KEY || "",
 };

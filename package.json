@@ -14,6 +14,7 @@
     "db:ping": "pnpm --filter @monsoonwatch/api run db:ping",
     "jps:snapshot": "pnpm --filter @monsoonwatch/scripts run jps:snapshot",
     "db:setup": "pnpm --filter @monsoonwatch/api run db:setup",
+    "db:stream": "pnpm --filter @monsoonwatch/api run db:stream",
     "ingest:jps": "pnpm --filter @monsoonwatch/scripts run ingest:jps",
     "load:replay": "pnpm --filter @monsoonwatch/scripts run load:replay",
     "geocode": "pnpm --filter @monsoonwatch/scripts run geocode",
