@@ -25,6 +25,8 @@ Risk detection runs as two Atlas Stream Processing processors (`riskRiver`, `ris
 `pnpm db:stream` creates or updates and starts them; `pnpm db:stream --stop` stops them (billed per hour while running).
 Needs `STREAM_PROCESSING_URI` and a `MONGODB_URI` user with the `atlasAdmin` role. Details: IMPLEMENTATION §4 C4.
 
+Dec 2014 replay (reconstructed): `POST /api/replay/start {"regionId":"kelantan","from":"2014-12-18"}` (30 s per day), `POST /api/replay/stop`, `GET /api/replay/status`. Details: IMPLEMENTATION §4 C3.
+
 ## Layout
 
 | Path | What | Owner |

@@ -1,6 +1,7 @@
 import { closeDb } from "./db/client";
 import { env } from "./env";
 import { forceCloseChangeStream, startChangeStreams, stopChangeStreams } from "./events/change-streams";
+import { stop as stopReplay } from "./replay/engine";
 import { buildServer } from "./server";
 import { COLLECTIONS } from "@monsoonwatch/shared";
 
@@ -26,9 +27,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    app.log.info(`${signal}: closing change streams, server and MongoDB`);
+    app.log.info(`${signal}: stopping replay, closing change streams, server and MongoDB`);
     const force = setTimeout(() => process.exit(1), 5_000).unref();
     try {
+      stopReplay();
       await stopChangeStreams();
       await app.close();
       await closeDb();
