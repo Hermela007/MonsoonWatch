@@ -67,12 +67,18 @@ export async function createRouteMap2d(container: HTMLElement): Promise<RouteMap
   };
 
   return {
-    show(route: EvacuationRoute, home: LngLat, padding: Padding, onTurn: (i: number) => void) {
+    show(route: EvacuationRoute, home: LngLat, padding: Padding, onTurn: (i: number) => void, onMoveStart?: (p: LngLat) => void) {
       clear();
       // Size to the container now that it's visible.
       map.resize();
       const bounds = new maplibregl.LngLatBounds(home, home);
-      markers.push(new maplibregl.Marker({ element: marker('m2d-home') }).setLngLat(home).addTo(map));
+      // The start dot can be dragged if the address landed in the wrong spot: the route recalculates from there.
+      const start = new maplibregl.Marker({ element: marker('m2d-home'), draggable: !!onMoveStart }).setLngLat(home).addTo(map);
+      if (onMoveStart) start.on('dragend', () => {
+        const p = start.getLngLat();
+        onMoveStart([p.lng, p.lat]);
+      });
+      markers.push(start);
       if (route.status === 'ok' && route.geometry && route.centre) {
         const coords = route.geometry.coordinates as LngLat[];
         (map.getSource('route') as maplibregl.GeoJSONSource).setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
@@ -108,7 +114,7 @@ export async function createRouteMap2d(container: HTMLElement): Promise<RouteMap
 }
 
 export interface RouteMap2d {
-  show(route: EvacuationRoute, home: LngLat, padding: Padding, onTurn: (i: number) => void): void;
+  show(route: EvacuationRoute, home: LngLat, padding: Padding, onTurn: (i: number) => void, onMoveStart?: (p: LngLat) => void): void;
   selectTurn(i: number): void;
   clear(): void;
 }

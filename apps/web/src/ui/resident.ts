@@ -120,7 +120,6 @@ export function createResidentUi(
     /** Address search (OpenStreetMap via Photon, limited to Kelantan). */
     searchAddresses?: (q: string) => Promise<AddressSuggestion[]>;
     onLocate: () => void;
-    onPickMap: () => void;
     onShowWay: () => void;
     onWhatIf: () => void;
     onChange: () => void;
@@ -162,7 +161,7 @@ export function createResidentUi(
       b.className = 'suggestion address';
       b.textContent = a.text;
       const n = document.createElement('small');
-      n.textContent = a.precision === 'place' ? 'Place · confirm pin' : a.precision === 'street' ? 'Street · confirm pin' : t('addressNote');
+      n.textContent = a.precision === 'place' ? 'place' : a.precision === 'street' ? 'street' : t('addressNote');
       b.appendChild(n);
       b.addEventListener('click', () => void chooseAddress(a));
       suggestions.appendChild(b);
@@ -174,7 +173,7 @@ export function createResidentUi(
       b.textContent = town.name;
       {
         const n = document.createElement('small');
-        n.textContent = 'Village / town centre';
+        n.textContent = 'village';
         b.appendChild(n);
       }
       b.addEventListener('click', () => h.onPick(town));
@@ -211,7 +210,6 @@ export function createResidentUi(
     remote = hits; addresses = found; renderSuggestions();
     note.textContent = found.length || matchPlaces(q, places).length || hits.length ? 'Choose a matching address or village below, then confirm its pin.' : t('noMatch');
   });
-  $('btn-pick-map').addEventListener('click', h.onPickMap);
   $('btn-locate').addEventListener('click', h.onLocate);
   $('btn-way').addEventListener('click', h.onShowWay);
   $('btn-whatif').addEventListener('click', h.onWhatIf);
@@ -307,6 +305,26 @@ export function createResidentUi(
       // "Show me the way" opens the route screen: the route, or the alternatives when there is none.
       $<HTMLButtonElement>('btn-way').disabled = false;
       $('btn-way').textContent = v.ok ? t('showWay') : t('routeOptions');
+    },
+    /** Where the route starts, how exact that is, and how to make it exact (instead of a confirm step). */
+    setOrigin(o: { text: string; hint: string | null; snap: string | null } | null) {
+      for (const id of ['origin-line', 'route-origin']) {
+        const el = $(id);
+        el.hidden = !o;
+        el.replaceChildren();
+        if (!o) continue;
+        const main = document.createElement('div');
+        main.className = 'origin-main';
+        main.textContent = o.text;
+        el.append(main);
+        const hints = [o.hint, o.snap, id === 'route-origin' ? t('originDrag') : null].filter(Boolean) as string[];
+        for (const hint of hints) {
+          const p = document.createElement('div');
+          p.className = 'origin-hint';
+          p.textContent = hint;
+          el.append(p);
+        }
+      }
     },
     /** The route screen: map focused on the journey, this panel in place of the result card. */
     showRoute(v: JourneyView, h: { onTravel: (t: TravelMode) => void; onCentre: (centreId: string) => void; onStep: (i: number) => void }) {

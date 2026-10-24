@@ -181,7 +181,9 @@ export interface Hazards {            // what the 3D scene draws for a given tim
 | `GET /area-warnings?runId=` · `POST /area-warnings/:id/approve` `{approvedBy}` · `/reject` | B (A calls it) | `AreaWarning[]` / `AreaWarning`. Approve → `SaintTask(send_alert, target "area_warning")` + spoken version at `/alerts/:id/audio/:lang` |
 | `GET /alerts/:id/audio/:lang` | B | `audio/wav` spoken alert (Gemini TTS, generated after approval; 404 until ready) |
 | ~~`POST /voice/session`~~ | — | Dropped with Live voice (24 Oct) |
-| `POST /saint/updates` | C | 204 (for Saint or the shared-sheet sync) |
+| `GET /saint/tasks?alertId&status` | C | `SaintTask[]` (newest first) |
+| `GET /saint/tasks/:id/handoff` · `POST /saint/tasks/:id/handed-off {by}` | C | `{ taskId, alertId, brief, whatsappUrl }` (409 unless approved; alert or district warning by `target`) · `SaintTask` |
+| `POST /saint/updates {text, by?}` | C | `{ applied, skipped, errors }` from pasted `MW CHECKIN` lines |
 | `GET /stream` | C | **Server-Sent Events** (below) |
 
 ### 1.4 Live events (`GET /api/stream`, SSE)
@@ -457,7 +459,7 @@ Two real Atlas Stream Processing processors, defined in **`apps/api/src/db/strea
 - Keep `docs/saint-log.md`: what we asked, tools/accounts used, where it asked for approval (required for submission).
 - **No Saint allocated →** `SaintTask`s render as a human checklist; remove Saint from submission.
 
-> **As built (Sat 24 Oct):** Thea's guest access is WhatsApp-only, so the handoff is human-in-the-loop over WhatsApp: a Saint brief + `wa.me` link per approved alert, and pasted `MW CHECKIN` lines → `POST /api/saint/updates`. See `docs/saint-brief.md`, `docs/saint-log.md`, `apps/api/src/routes/saint.ts`.
+> **As built (Sat 24 Oct):** Thea's guest access is WhatsApp-only, so the handoff is human-in-the-loop over WhatsApp: a Saint brief + `wa.me` link per approved alert, and pasted `MW CHECKIN` lines → `POST /api/saint/updates`. District warnings (`AreaWarning`) use the same flow with their own brief; with no planned centre, Thea fills `centre=` from the leader's reply. See `docs/saint-brief.md`, `docs/saint-log.md`, `apps/api/src/routes/saint.ts`.
 
 ### C9. README, submission, videos (Sun AM, start notes Sat)
 - README per GUIDELINES §10, with **file links** for each sponsor feature (index JSONs, stream processor, prompts, wrapper).

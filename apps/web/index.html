@@ -12,7 +12,6 @@
   </head>
   <body data-view="landing">
     <div id="app"></div>
-    <div id="origin-map" aria-label="Confirm your starting point on the map"></div>
     <div id="route-map" aria-label="Route map"></div>
 
     <div id="loading">
@@ -136,32 +135,21 @@
       <form id="place-form" autocomplete="off">
         <input id="place-input" type="search" inputmode="search" enterkeyhint="go" aria-label="Starting address, building or village" aria-describedby="origin-search-help" />
       </form>
-      <p id="origin-search-help" class="origin-help">Choose an address result, then check its pin. A village result starts at the village centre.</p>
+      <p id="origin-search-help" class="origin-help">Pick an address for an exact route. A village starts from its centre.</p>
       <div id="suggestions" class="suggestions"></div>
       <button id="btn-locate" class="btn btn-ghost" type="button">📍 <span data-copy="useLocation"></span></button>
-      <button id="btn-pick-map" class="btn btn-ghost" type="button">Choose a starting point on the map</button>
       <p id="landing-note" class="note" role="status"></p>
       <p id="caption-fact" class="fact"></p>
       <p class="footer" data-copy="footer"></p>
     </section>
 
-    <section id="origin-confirm" class="card ui" aria-labelledby="origin-confirm-title" hidden>
-      <div class="place-row"><span class="place">Starting point</span><button id="origin-cancel" class="link" type="button">Change address</button></div>
-      <h1 id="origin-confirm-title">Is the pin in the right place?</h1>
-      <p id="origin-label"></p>
-      <p id="origin-precision" class="origin-help"></p>
-      <p class="origin-help">Drag the pin or tap the map to adjust it. You can start from home, work or anywhere you need to leave.</p>
-      <p id="origin-coordinates" class="origin-coordinates"></p>
-      <fieldset class="origin-travel"><legend>How will you travel?</legend><label><input type="radio" name="origin-travel" value="car" checked /> Driving</label><label><input type="radio" name="origin-travel" value="walk" /> Walking</label></fieldset>
-      <p id="origin-confirm-status" class="note" role="status"></p>
-      <button id="origin-use" class="btn btn-primary" type="button">Confirm starting point</button>
-    </section>
 
     <section id="route-view" class="card ui" aria-label="Evacuation route">
       <div class="place-row">
         <button id="btn-route-back" class="link" type="button">← Back</button>
         <span class="place">Evacuation route</span>
       </div>
+      <div id="route-origin" class="origin-line" hidden></div>
       <div id="route-body" class="journey"></div>
       <p class="trust" data-copy="trust"></p>
     </section>
@@ -183,6 +171,7 @@
       <div id="risk-action" class="risk-action"></div>
       <p id="journey-status" class="note" role="status"></p>
       <section id="journey" class="journey" aria-label="Your evacuation route" hidden></section>
+      <div id="origin-line" class="origin-line" hidden></div>
       <p class="trust" data-copy="trust"></p>
       <div id="street-info" class="street-info">
         <div id="street-stats" class="street-stats"></div>
