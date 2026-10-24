@@ -38,7 +38,13 @@ export interface VerifyContext {
     latestReading?: Reading;
     riskEvents: RiskEvent[];
   };
-  hazards: Pick<Hazards, "blockedRoads" | "landslide">;
+  hazards: Pick<Hazards, "blockedRoads" | "landslide"> & Partial<Pick<Hazards, "blockedRoadIds">>;
+  /**
+   * How the route was planned (route.ts). When the road segment ids are known, the flood check
+   * uses them exactly (no false alarm where a dry route only touches a flooded road at a junction).
+   * A boat route may cross flooded roads; landslide runouts still fail it.
+   */
+  route?: { mode: "road" | "boat"; segmentIds?: string[] };
   options?: Partial<typeof DEFAULTS>;
 }
 
@@ -91,9 +97,20 @@ export function checkRoute(alert: Alert, ctx: VerifyContext): VerificationResult
     return fail("route", `Route ends ${endKm.toFixed(1)} km from ${ctx.centre.name} (max ${opt.maxRouteEndKm} km)`);
   }
 
-  for (const blocked of ctx.hazards.blockedRoads.coordinates) {
-    const seg = firstIntersectingSegment(coords, blocked);
-    if (seg >= 0) return fail("route", `Route segment ${seg + 1} crosses a flooded road`);
+  const boat = ctx.route?.mode === "boat";
+  if (!boat) {
+    const ids = ctx.route?.segmentIds;
+    const blockedIds = ctx.hazards.blockedRoadIds;
+    if (ids && blockedIds) {
+      const blocked = new Set(blockedIds);
+      const hit = ids.find((id) => blocked.has(id));
+      if (hit) return fail("route", `Road route uses flooded road segment ${hit} — needs a boat or another centre`);
+    } else {
+      for (const blocked of ctx.hazards.blockedRoads.coordinates) {
+        const seg = firstIntersectingSegment(coords, blocked);
+        if (seg >= 0) return fail("route", `Route segment ${seg + 1} crosses a flooded road`);
+      }
+    }
   }
   for (const runout of ctx.hazards.landslide.runouts) {
     const seg = firstIntersectingSegment(coords, runout.coordinates);
@@ -101,7 +118,13 @@ export function checkRoute(alert: Alert, ctx: VerifyContext): VerificationResult
       return fail("route", `Route segment ${seg + 1} crosses a landslide runout path (risk ${runout.risk.toFixed(2)})`);
     }
   }
-  return pass("route", `Clear of ${ctx.hazards.blockedRoads.coordinates.length} flooded roads and ${ctx.hazards.landslide.runouts.length} runouts`);
+  const floods = ctx.hazards.blockedRoadIds?.length ?? ctx.hazards.blockedRoads.coordinates.length;
+  return pass(
+    "route",
+    boat
+      ? `Boat route; clear of ${ctx.hazards.landslide.runouts.length} landslide runouts`
+      : `Dry road route; clear of ${floods} flooded segments and ${ctx.hazards.landslide.runouts.length} runouts`,
+  );
 }
 
 // 3. Capacity: the centre must have room for the whole village.
