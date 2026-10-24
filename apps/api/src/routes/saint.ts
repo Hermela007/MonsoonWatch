@@ -126,7 +126,9 @@ export async function saintRoutes(app: FastifyInstance) {
         if ((err as { code?: number }).code === 11000) { skipped.push({ line: c.raw, reason: "already applied" }); continue; }
         throw err;
       }
-      if (c.status === "arrived") await centres.updateOne({ _id: centre._id }, { $inc: { headcount: c.people } });
+      if (c.status === "arrived") {
+        await centres.updateOne({ _id: centre._id }, { $inc: { headcount: c.people }, $set: { headcountUpdatedAt: new Date().toISOString() } as never });
+      }
       // The original send_alert task is done once the leader has responded.
       await tasks.updateMany({ alertId: c.alertId, type: "send_alert", status: { $in: ["queued", "in_progress"] } }, { $set: { status: "done", ts: new Date().toISOString() } });
       await emitStep({

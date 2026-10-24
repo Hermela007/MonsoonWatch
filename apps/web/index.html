@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>MonsoonWatch · Is my home safe?</title>
   </head>
   <body data-view="landing">
@@ -28,20 +29,26 @@
     </header>
 
     <section id="control" class="card ui" aria-live="polite">
-      <div class="place-row"><span class="place">Control room · Kelantan</span></div>
+      <div class="place-row"><span class="place"><span data-copy="controlKicker"></span> · Kelantan</span></div>
+      <p id="public-demo-note" class="note" hidden>Public demo · operator actions are restricted. <a href="?mock=1">Try the scripted walkthrough</a>.</p>
+      <p class="note">3D flood and landslide layers use reconstructed 2014 data and terrain screening, with an approximate discharge-to-rise mapping.</p>
+      <div class="actions">
+        <button id="btn-replay" class="btn btn-primary" type="button">Play the replay</button>
+        <button id="btn-run" class="btn" type="button">Run the agent now</button>
+      </div>
+      <p id="replay-status" class="note" role="status"></p>
       <div id="control-idle">
         <div class="risk-level">Dec 2014 replay</div>
         <p class="sub">When a river crosses a warning level, the agent drafts an alert. It must pass every check, and a person must approve it, before anything is sent.</p>
-        <div class="actions">
-          <button id="btn-replay" class="btn btn-primary" type="button">Play the replay</button>
-          <button id="btn-run" class="btn" type="button">Run the agent now</button>
-        </div>
+
       </div>
       <p id="control-risk" class="control-risk"></p>
       <div id="alert-box" hidden>
+        <label id="alert-picker-row" hidden>Review alert <select id="alert-picker" aria-label="Alert to review"></select></label>
         <div class="risk-level" id="alert-title"></div>
         <div class="alert-meta" id="alert-meta"></div>
         <blockquote id="alert-msg"></blockquote>
+        <div id="alert-pickups" class="note"></div>
         <h3>Checks</h3>
         <ul id="alert-checks" class="checks"></ul>
         <p id="alert-status" class="alert-status"></p>
@@ -49,10 +56,18 @@
           <button id="btn-approve" class="btn btn-primary" type="button" disabled>Approve and send</button>
           <button id="btn-reject" class="btn" type="button" disabled>Reject</button>
         </div>
-        <div id="saint-box" hidden>
-          <h3>After approval · Saint</h3>
-          <ul id="saint-list" class="tasks"></ul>
-        </div>
+      </div>
+      <div id="saint-box" hidden>
+        <h3>After approval · Saint (Thea)</h3>
+        <p class="note">One leader via WhatsApp. Supply orders remain drafts awaiting approval.</p>
+        <ul id="saint-list" class="tasks"></ul>
+        <label for="saint-by">Duty officer</label>
+        <input id="saint-by" value="Duty officer" autocomplete="name" />
+        <label for="saint-report">Paste Saint’s report</label>
+        <textarea id="saint-report" rows="5" placeholder="Paste Thea’s WhatsApp report, including MW CHECKIN lines"></textarea>
+        <button id="saint-submit" class="btn" type="button" disabled>Apply report</button>
+        <div id="saint-result" class="note" role="status" aria-live="polite"></div>
+        <p id="saint-capacity" class="note" aria-live="polite"></p>
       </div>
     </section>
 
@@ -74,7 +89,13 @@
 
     <section id="landing" class="card ui" aria-labelledby="ask-title">
       <div class="place-kicker">Kelantan, Malaysia</div>
+      <p class="status-line"><i></i><span data-copy="status"></span></p>
       <h1 id="ask-title" data-copy="askTitle"></h1>
+      <ol class="cascade" aria-label="How monsoon rain becomes a disaster">
+        <li class="c-rain" data-copy="cascadeRain"></li>
+        <li class="c-slide" data-copy="cascadeSlide"></li>
+        <li class="c-flood" data-copy="cascadeFlood"></li>
+      </ol>
       <p class="sub" data-copy="askSub"></p>
       <form id="place-form" autocomplete="off">
         <input id="place-input" type="search" inputmode="search" enterkeyhint="go" aria-label="Your town or village" />
@@ -91,9 +112,17 @@
         <span id="place-name" class="place"></span>
         <button id="btn-change" class="link" type="button" data-copy="change"></button>
       </div>
+      <div id="official" class="official" role="alert" hidden>
+        <div id="official-kicker" class="official-kicker"></div>
+        <div id="official-go" class="official-go"></div>
+        <p id="official-msg" class="official-msg"></p>
+        <p id="official-people" class="official-people"></p>
+      </div>
       <div id="risk-level" class="risk-level"></div>
       <div id="risk-lines" class="risk-lines"></div>
+      <div id="risk-when" class="risk-when" hidden></div>
       <div id="risk-action" class="risk-action"></div>
+      <p class="trust" data-copy="trust"></p>
       <div id="street-info" class="street-info">
         <div id="street-stats" class="street-stats"></div>
         <div class="roof-key"><span data-copy="roofKey"></span>

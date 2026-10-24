@@ -1,3 +1,5 @@
+import { createSaintUi } from './saint';
+import type { ConnectionMode } from '../api/stream';
 import type { AgentStep, Alert, RiskEvent, SaintTask } from '@monsoonwatch/shared';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => {
@@ -15,31 +17,38 @@ const CHECK_LABEL: Record<string, string> = {
   language: 'Message is clear',
   vulnerable: 'Vulnerable people covered',
 };
-const SAINT_LABEL: Record<SaintTask['type'], string> = {
-  send_alert: 'Send alert',
-  chase_reply: 'Confirm receipt',
-  log_checkin: 'Centre check-ins',
-  supply_order: 'Supplies',
-  sitrep: 'Situation report',
-};
-
 /** Control-room panels: the alert under review (with checks and approval) and the Tech HUD. */
 export function createControlUi(h: {
   onReplay: () => void;
   onRun: () => void;
-  onDecide: (d: 'approve' | 'reject') => void;
-  onTaskDecide: (taskId: string, d: 'approve' | 'reject') => void;
+  onDecide: (id: string, d: 'approve' | 'reject') => void;
+  onSelectAlert: (a: Alert) => void;
 }) {
   const steps = new Map<string, HTMLElement>();
-  const tasks = new Map<string, HTMLElement>();
+  const saint = createSaintUi($('saint-box'));
   const list = $('hud-list');
   let t0 = 0;
   let current: Alert | null = null;
+  const alerts = new Map<string, Alert>();
+  let deciding = false;
+  let connected = false;
+  let readOnly = false;
+  let runBusy = false;
+  let replayBusy = false;
+  const updateActions = () => {
+    $<HTMLButtonElement>('btn-run').disabled = !connected || readOnly || runBusy;
+    $<HTMLButtonElement>('btn-replay').disabled = !connected || readOnly || replayBusy;
+  };
+  $('alert-picker').addEventListener('change', () => {
+    current = alerts.get($<HTMLSelectElement>('alert-picker').value) ?? null;
+    renderAlert();
+    if (current) h.onSelectAlert(current);
+  });
 
   $('btn-replay').addEventListener('click', h.onReplay);
   $('btn-run').addEventListener('click', h.onRun);
-  $('btn-approve').addEventListener('click', () => h.onDecide('approve'));
-  $('btn-reject').addEventListener('click', () => h.onDecide('reject'));
+  $('btn-approve').addEventListener('click', () => current && h.onDecide(current._id, 'approve'));
+  $('btn-reject').addEventListener('click', () => current && h.onDecide(current._id, 'reject'));
 
   const renderAlert = () => {
     const a = current;
@@ -47,8 +56,12 @@ export function createControlUi(h: {
     $('control-idle').hidden = !!a;
     if (!a) return;
     $('alert-box').dataset.alertId = a._id;
+    const picker = $<HTMLSelectElement>('alert-picker');
+    picker.innerHTML = [...alerts.values()].map((x) => `<option value="${esc(x._id)}">${esc(x.villageId)} · ${esc(x.status)} · ${x.people} people</option>`).join('');
+    picker.value = a._id;
+    $('alert-picker-row').hidden = alerts.size < 2;
     const checks = a.verification;
-    const pending = ['threshold', 'route', 'capacity', 'freshness', 'language'].filter((c) => !checks.some((v) => v.check === c));
+    const pending = ['threshold', 'route', 'capacity', 'freshness', 'language', 'vulnerable'].filter((c) => !checks.some((v) => v.check === c));
     $('alert-title').textContent = `${a.hazard === 'flood' ? 'Flood' : 'Landslide'} alert · ${a.villageId}`;
     $('alert-meta').textContent = [
       a.level.toUpperCase(),
@@ -57,14 +70,17 @@ export function createControlUi(h: {
     ]
       .filter(Boolean)
       .join(' · ');
-    $('alert-msg').textContent = a.messages.find((m) => m.lang === 'en')?.text ?? a.messages[0]?.text ?? '';
+    $('alert-msg').textContent = a.messages.map((m) => `[${m.lang}] ${m.text}`).join('\n\n');
+    $('alert-pickups').textContent = a.pickups?.length
+      ? 'Priority pickups: ' + [...a.pickups].sort((a, b) => a.order - b.order).map((p) => `${p.order}. ${p.people} ${p.category} by ${p.vehicle}`).join(' · ')
+      : '';
     $('alert-checks').innerHTML =
       checks
         .map((c) => `<li class="${c.passed ? 'pass' : 'fail'}"><span class="mark">${c.passed ? '✓' : '✕'}</span><b>${esc(CHECK_LABEL[c.check] ?? c.check)}</b><small>${esc(c.detail)}</small></li>`)
         .join('') + pending.map((c) => `<li class="pending"><span class="mark">·</span><b>${CHECK_LABEL[c]}</b><small>Checking…</small></li>`).join('');
-    const canDecide = a.status === 'verified';
+    const canDecide = connected && !readOnly && !deciding && a.status === 'verified' && checks.length > 0 && checks.every((c) => c.passed);
     $<HTMLButtonElement>('btn-approve').disabled = !canDecide;
-    $<HTMLButtonElement>('btn-reject').disabled = !canDecide && a.status !== 'draft';
+    $<HTMLButtonElement>('btn-reject').disabled = !connected || readOnly || deciding || (a.status !== 'verified' && a.status !== 'draft');
     const status = $('alert-status');
     status.dataset.status = a.status;
     status.textContent =
@@ -79,9 +95,20 @@ export function createControlUi(h: {
   };
 
   return {
-    setMode(mode: 'live' | 'mock' | 'connecting') {
+    setReadOnly(value: boolean) {
+      readOnly = value;
+      saint.setReadOnly(value);
+      $('public-demo-note').hidden = !value;
+      updateActions();
+      renderAlert();
+    },
+    setMode(mode: ConnectionMode) {
+      saint.setMode(mode);
+      connected = mode === 'live' || mode === 'mock';
+      updateActions();
+      renderAlert();
       const chip = $('hud-mode');
-      chip.textContent = mode === 'live' ? 'Live' : mode === 'mock' ? 'Scripted demo data' : 'Connecting…';
+      chip.textContent = mode === 'live' ? 'Live' : mode === 'mock' ? 'Scripted demo data' : mode === 'offline' ? 'API disconnected · retrying' : 'Connecting…';
       chip.dataset.mode = mode;
     },
     step(s: AgentStep) {
@@ -104,39 +131,32 @@ export function createControlUi(h: {
       $('hud-empty').hidden = true;
     },
     alert(a: Alert) {
-      current = a;
+      alerts.set(a._id, a);
+      if (!current || current._id === a._id) current = a;
       renderAlert();
+    },
+    get currentAlert() { return current; },
+    setDeciding(value: boolean) { deciding = value; renderAlert(); },
+    setRunBusy(value: boolean) { runBusy = value; updateActions(); },
+    setReplay(running: boolean, text: string, busy = false) {
+      replayBusy = busy;
+      $('btn-replay').textContent = running ? 'Stop the replay' : 'Play the replay';
+      $('replay-status').textContent = text;
+      updateActions();
     },
     risk(e: RiskEvent) {
       $('control-risk').textContent = e.message;
     },
-    task(t: SaintTask) {
-      $('saint-box').hidden = false;
-      let row = tasks.get(t._id);
-      if (!row) {
-        row = document.createElement('li');
-        tasks.set(t._id, row);
-        $('saint-list').appendChild(row);
-      }
-      row.className = `task ${t.status}`;
-      row.innerHTML = `<b>${SAINT_LABEL[t.type]}</b><span>${esc(t.detail)}</span><em>${t.status.replace('_', ' ')}</em>`;
-      // Spending (and anything else Saint flags) needs a person: show the decision right on the task.
-      if (t.status === 'awaiting_approval') {
-        const row2 = document.createElement('div');
-        row2.className = 'task-actions';
-        row2.innerHTML = `<button type="button" class="btn btn-primary">Approve</button><button type="button" class="btn">Decline</button>`;
-        const [ok, no] = row2.querySelectorAll('button');
-        ok.addEventListener('click', () => h.onTaskDecide(t._id, 'approve'));
-        no.addEventListener('click', () => h.onTaskDecide(t._id, 'reject'));
-        row.appendChild(row2);
-      }
-    },
+    task(t: SaintTask) { saint.task(t); },
+    evac(c: import('@monsoonwatch/shared').EvacCentre) { saint.evac(c); },
     note(text: string) {
       this.step({ _id: `note-${Date.now()}`, runId: '', ts: new Date().toISOString(), actor: 'MonsoonWatch', kind: 'info', summary: text, status: 'ok' });
     },
     reset() {
+      alerts.clear();
+      deciding = false;
       steps.clear();
-      tasks.clear();
+      saint.reset();
       list.innerHTML = '';
       $('saint-list').innerHTML = '';
       $('saint-box').hidden = true;

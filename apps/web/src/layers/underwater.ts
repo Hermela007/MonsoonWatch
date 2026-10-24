@@ -31,14 +31,20 @@ float causticAt(vec2 uv, float t) {
 
 const GRID = /* glsl */ `
   {
+    // Drafting grid at three scales (5 m, 50 m, 250 m), each fading in as the camera comes close enough
+    // for it to read. Draped on the relief, the lines bend over slopes: the strongest cue to 3D form.
+    float distG = length(cameraPosition - vWPos);
     vec2 g1 = vWPos.xz / 5.0;
     vec2 a1 = abs(fract(g1 - 0.5) - 0.5) / max(fwidth(g1), vec2(1e-4));
-    float minor = 1.0 - min(min(a1.x, a1.y), 1.0);
+    float minor = (1.0 - min(min(a1.x, a1.y), 1.0)) * (1.0 - smoothstep(120.0, 500.0, distG));
     vec2 g2 = vWPos.xz / 50.0;
     vec2 a2 = abs(fract(g2 - 0.5) - 0.5) / max(fwidth(g2), vec2(1e-4));
-    float major = 1.0 - min(min(a2.x, a2.y) / 1.3, 1.0);
-    float fadeG = 1.0 - smoothstep(150.0, 600.0, length(cameraPosition - vWPos));
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.72, 0.70, 0.66), (minor * 0.28 + major * 0.5) * fadeG);
+    float major = (1.0 - min(min(a2.x, a2.y) / 0.8, 1.0)) * (1.0 - smoothstep(300.0, 1800.0, distG));
+    vec2 g3 = vWPos.xz / 250.0;
+    vec2 a3 = abs(fract(g3 - 0.5) - 0.5) / max(fwidth(g3), vec2(1e-4));
+    float macro = (1.0 - min(min(a3.x, a3.y) / 0.8, 1.0)) * (1.0 - smoothstep(900.0, 3500.0, distG));
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.72, 0.70, 0.66), minor * 0.22 + major * 0.32);
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.66, 0.64, 0.60), macro * 0.35);
   }
 `;
 

@@ -36,7 +36,8 @@ export function createMockAgent(emit: <K extends StreamEventName>(name: K, data:
     },
     { check: 'capacity', passed: true, detail: '1,240 people → centre with 1,500 places' },
     { check: 'freshness', passed: true, detail: 'Newest reading 6 min old' },
-    { check: 'language', passed: true, detail: 'Plain English, under 60 words' },
+    { check: 'language', passed: true, detail: 'Illustrative English message, under 60 words' },
+    { check: 'vulnerable', passed: true, detail: 'Scripted example only — no real pickup assessment' },
   ];
 
   return {
@@ -133,27 +134,10 @@ export function createMockAgent(emit: <K extends StreamEventName>(name: K, data:
         });
         t += dur + 250;
       };
-      saint('send_alert', 'Sending the approved alert to 3 community leaders', 'Alert delivered to 3 community leaders', 1600);
-      saint('chase_reply', 'Waiting for leaders to confirm', '2 of 3 leaders confirmed; reminder sent to the third', 1800);
+      saint('send_alert', 'Preparing the approved alert for one leader via WhatsApp', 'Scripted demo: one leader contacted via WhatsApp', 1600);
+      saint('chase_reply', 'Waiting for the leader’s WhatsApp reply', 'Scripted demo: the leader replied on WhatsApp', 1800);
       saint('log_checkin', 'Logging arrivals at the evacuation centre', '140 people checked in so far', 1500);
-      saint('supply_order', 'Drafting supply order: water, blankets', 'Supply order drafted — waiting for approval before spending', 1400, 'awaiting_approval');
-    },
-    /** A person approves or declines a Saint task that was waiting (e.g. a supply order). */
-    decideTask(taskId: string, decision: 'approve' | 'reject', by: string) {
-      if (!alert) return;
-      const emitTask = (status: SaintTask['status'], detail: string) =>
-        emit('saint.task', { task: { _id: taskId, alertId: alert!._id, ts: new Date().toISOString(), type: 'supply_order', status, detail } });
-      step({ actor: 'Human', kind: 'info', summary: `${by} ${decision === 'approve' ? 'approved' : 'declined'} the supply order`, status: decision === 'approve' ? 'ok' : 'fail' });
-      if (decision === 'reject') {
-        emitTask('failed', 'Supply order declined — nothing was bought');
-        return;
-      }
-      emitTask('in_progress', 'Placing the approved order');
-      step({ actor: 'Saint', kind: 'saint', summary: 'Placing the approved supply order', status: 'running' });
-      at(1400, () => {
-        emitTask('done', 'Test order placed: 300 bottles of water, 150 blankets (demo — no real payment)');
-        step({ actor: 'Saint', kind: 'saint', summary: 'Test order placed (demo — no real payment)', status: 'ok', latencyMs: 1400 });
-      });
+      saint('supply_order', 'Drafting supply order: water, blankets', 'Supply order drafted — awaiting human approval; nothing ordered or paid', 1400, 'awaiting_approval');
     },
     stop() {
       timers.splice(0).forEach((t) => clearTimeout(t));

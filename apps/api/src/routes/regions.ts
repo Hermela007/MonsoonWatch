@@ -1,9 +1,11 @@
 // C: region config, stations (with latest live reading), villages, evac centres.
 import type { FastifyInstance } from "fastify";
-import { COLLECTIONS, type EvacCentre, type Region, type Station, type StationWithLatest, type Village } from "@monsoonwatch/shared";
+import { COLLECTIONS, type Region, type Station, type StationWithLatest, type Village } from "@monsoonwatch/shared";
 import { getDb } from "../db/client";
 import { toReading, type ReadingDoc } from "../db/readings";
 import { HttpError } from "../errors";
+import { getCentreStatuses, type CentreWithStatus } from "../hazards";
+import { parseHazardsMode, parseHazardsTs } from "./hazards";
 
 export async function requireRegion(id: string): Promise<Region> {
   const region = await (await getDb()).collection<Region>(COLLECTIONS.regions).findOne({ _id: id });
@@ -43,8 +45,11 @@ export async function regionRoutes(app: FastifyInstance) {
     return (await getDb()).collection<Village>(COLLECTIONS.villages).find({ regionId: req.params.id }).toArray();
   });
 
-  app.get<{ Params: { id: string } }>("/regions/:id/evac-centres", async (req): Promise<EvacCentre[]> => {
+  // ?ts=<ISO>&mode=live|replay (defaults now / live): each centre gets status usable | at_risk | unknown at
+  // that scenario time (routing.ts CentreStatus) + statusReason, statusBasis, statusAt, source,
+  // capacityEstimated, headcountUpdatedAt. Same scenario as /hazards and road status.
+  app.get<{ Params: { id: string }; Querystring: { ts?: string; mode?: string } }>("/regions/:id/evac-centres", async (req): Promise<CentreWithStatus[]> => {
     await requireRegion(req.params.id);
-    return (await getDb()).collection<EvacCentre>(COLLECTIONS.evacCentres).find({ regionId: req.params.id }).toArray();
+    return getCentreStatuses(req.params.id, parseHazardsTs(req.query.ts), parseHazardsMode(req.query.mode));
   });
 }
