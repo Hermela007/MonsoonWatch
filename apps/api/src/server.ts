@@ -8,6 +8,7 @@ import { env } from "./env";
 import { HttpError, registerErrorHandlers } from "./errors";
 import { agentRoutes } from "./routes/agent";
 import { alertRoutes } from "./routes/alerts";
+import { evacuationRouteRoutes } from "./routes/evacuation-route";
 import { geoRoutes } from "./routes/geo";
 import { hazardsRoutes } from "./routes/hazards";
 import { healthRoutes } from "./routes/health";
@@ -61,6 +62,7 @@ export function buildServer(opts: { webRoot?: string; serveWeb?: boolean; public
       // B: agent, alerts, voice routes go here.
       await api.register(agentRoutes);
       await api.register(alertRoutes);
+      await api.register(evacuationRouteRoutes);
     },
     { prefix: "/api" },
   );
