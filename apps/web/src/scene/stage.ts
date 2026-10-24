@@ -24,15 +24,16 @@ export function createStage(container: HTMLElement, opts: { bloom: boolean; maxP
   const scene = new THREE.Scene();
   scene.background = fogColor;
 
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 2000);
-  camera.position.set(0, 420, 260);
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 6000);
+  // Opening shot: high above Peninsular Malaysia (main.ts flies down into the valley).
+  camera.position.set(-19, 1700, 560);
 
   const controls = new OrbitControls(camera, labels.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.maxPolarAngle = Math.PI * 0.46;
   controls.minDistance = 1.5;
-  controls.maxDistance = 420;
+  controls.maxDistance = 2600;
   controls.screenSpacePanning = false;
   controls.autoRotateSpeed = 0.35;
 

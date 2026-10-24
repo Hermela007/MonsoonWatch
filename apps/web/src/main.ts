@@ -22,13 +22,17 @@ import { createStreet } from './layers/street';
 import { loadAreaFor, type AreaData } from './data/areas';
 import { t } from './ui/copy';
 import { createEventHub } from './api/stream';
-import { decideAlert, runAgent, setApiLive } from './api/client';
+import { decideAlert, fetchStations, runAgent, setApiLive } from './api/client';
 import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
 import { fetchEvacCentres, fetchVillages } from './api/client';
 import type { EvacCentre } from '@monsoonwatch/shared';
 import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
-import { loadRealData } from './data/realData';
+import { loadMalaysia, loadRealData } from './data/realData';
+import { createGeoContext } from './layers/geoContext';
+import { createPeninsula } from './layers/peninsula';
+import { createStations } from './layers/stations';
+import { FOG } from './theme';
 
 const params = new URLSearchParams(location.search);
 const isPhone = matchMedia('(max-width: 767px), (pointer: coarse)').matches;
@@ -42,6 +46,19 @@ const WHATIF_HOURS = 72;
 // Illustrative trigger (rise above normal, m) until C's Stream Processing emits real risk events.
 const AGENT_TRIGGER_STAGE_M = PEAK_STAGE_M * 0.45;
 
+/** Small locator map of Peninsular Malaysia with Kelantan filled and the modelled valley boxed. */
+function locatorSvg(m: { states: { name: string; polygons: [number, number][][] }[] }, bbox: [number, number, number, number]) {
+  const [x0, y0, x1, y1] = [99.6, 1.2, 104.6, 6.9];
+  const W = 110;
+  const H = (W * (y1 - y0)) / (x1 - x0);
+  const P = ([lon, lat]: [number, number]) => `${(((lon - x0) / (x1 - x0)) * W).toFixed(1)},${(((y1 - lat) / (y1 - y0)) * H).toFixed(1)}`;
+  const paths = m.states
+    .map((s) => s.polygons.map((r) => `<path d="M${r.map(P).join('L')}Z" class="${s.name === 'Kelantan' ? 'kel' : ''}"/>`).join(''))
+    .join('');
+  const [a, b] = [P([bbox[0], bbox[3]]).split(','), P([bbox[2], bbox[1]]).split(',')];
+  return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="${W}" height="${H.toFixed(0)}" role="img" aria-label="Kelantan within Peninsular Malaysia">${paths}<rect x="${a[0]}" y="${a[1]}" width="${(+b[0] - +a[0]).toFixed(1)}" height="${(+b[1] - +a[1]).toFixed(1)}"/></svg><span>Kelantan, Malaysia</span>`;
+}
+
 async function main() {
   const frame = new GeoFrame(KELANTAN.bbox, EXAG);
   const rows = Math.round((COLS * frame.heightKm) / frame.widthKm);
@@ -54,6 +71,7 @@ async function main() {
 
   // Real data (Workstream C's committed files): places, Dec 2014 rain and river discharge.
   const realP = loadRealData();
+  const malaysiaP = loadMalaysia().catch(() => null);
   const imageryW = isPhone ? 768 : 1536;
   const imageryP = loadImagery(KELANTAN.bbox, isPhone ? 10 : 11, imageryW, Math.round((imageryW * frame.heightKm) / frame.widthKm));
   const hm = await loadTerrariumGrid(KELANTAN.bbox, 10, COLS, rows, (d, n) => loadingBar(0.05 + 0.7 * (d / n)));
@@ -114,6 +132,26 @@ async function main() {
     { tubeRadiusKm: 0.09, labelled: 3, labelText: 'Landslide risk', labelSpacingKm: 35 },
   );
   scene.add(hotspots.group);
+
+  // Atlas: real named rivers and place labels, and the peninsula map for the opening zoom.
+  const MAJOR = ['Kota Bharu', 'Pasir Mas', 'Tanah Merah', 'Kuala Krai', 'Dabong', 'Gua Musang'];
+  const geoCtx = createGeoContext({
+    hm,
+    frame,
+    rivers: real.rivers,
+    towns: real.villages.filter((v) => v.kind === 'city' || v.kind === 'town' || MAJOR.includes(v.name)).map((v) => ({ name: v.name, lngLat: v.lngLat, major: MAJOR.includes(v.name) })),
+  });
+  scene.add(geoCtx.group);
+  const malaysia = await malaysiaP;
+  const peninsula = malaysia ? createPeninsula(malaysia, frame, -SLAB_DEPTH - 0.8) : null;
+  if (peninsula) scene.add(peninsula.group);
+  let stations: ReturnType<typeof createStations> | null = null;
+  // Caption and locator, from the data.
+  {
+    const peakDate = new Date(`${real.peak.date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+    document.getElementById('caption-fact')!.textContent = `In December 2014 the Kelantan river peaked at ${real.peak.m3s.toLocaleString('en-GB')} m³/s on ${peakDate} (GloFAS). This replays that flood, and the landslides the rain set off.`;
+    if (malaysia) document.getElementById('locator')!.innerHTML = locatorSvg(malaysia, KELANTAN.bbox);
+  }
   // The exploded layer stack is retired (it read as an abstract diagram); only its shadow remains.
   let explode = 0;
   let explodeTarget = 0;
@@ -149,7 +187,8 @@ async function main() {
   let focusTarget = 0;
 
   // Landing: low oblique view up the valley from the south-east — hills, floodplain and slopes in one frame.
-  const overview: Shot = { position: new THREE.Vector3(52, 34, 96), target: new THREE.Vector3(-4, 2, 18) };
+  // Seen from the South China Sea: the delta and Kota Bharu in front, the river leading back to the hills.
+  const overview: Shot = { position: new THREE.Vector3(34, 58, -128), target: new THREE.Vector3(-6, 0, 14) };
 
   const layoutShift = () => {
     const view = document.body.dataset.view;
@@ -439,6 +478,17 @@ async function main() {
   // Real candidate evacuation centres (schools, community halls) from C's data.
   let centres: { name: string; lngLat: LngLat }[] = real.centres;
   const loadApiData = () => {
+    void fetchStations(KELANTAN.id).then((list) => {
+      if (!list?.length || stations) return;
+      stations = createStations(list, hm, frame);
+      scene.add(stations.mesh);
+      const c = stations.counts;
+      const above = c.alert + c.warning + c.danger;
+      const when = new Date(stations.newest).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const el = document.getElementById('live-gauges')!;
+      el.textContent = `Live now: ${stations.total} JPS river gauges · ${above ? `${above} above Normal` : 'all Normal'} · ${when}`;
+      el.hidden = false;
+    });
     // Prefer the API's copies (same source, maintained by C) when it's running.
     void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...allPlaces, ...v]));
     void fetchEvacCentres(KELANTAN.id).then((c: EvacCentre[] | null) => {
@@ -589,7 +639,9 @@ async function main() {
     if (k === '5') (setMode('control'), window.setTimeout(() => void startAgent(), 2400));
     if (k === '6') void decide('approve');
   });
-  director.flyTo(overview, 4000, () => (controls.autoRotate = !homePos));
+  // Establishing shot: from Peninsular Malaysia down into the Kelantan valley.
+  controls.target.set(-19, 0, 150);
+  director.flyTo(overview, 5200, () => (controls.autoRotate = !homePos));
 
   // ---- Frame loop --------------------------------------------------------
   stage.renderer.setAnimationLoop((now) => {
@@ -616,6 +668,10 @@ async function main() {
     stack.setExplode(explode);
 
     const camDist = camera.position.distanceTo(controls.target);
+    FOG.value = 0.26 / Math.max(camDist, 60);
+    geoCtx.update(camera, !!homePos);
+    peninsula?.update(camDist);
+    stations?.update(camDist);
     const s = stageM(Math.min(hour, REPLAY_HOURS));
     valley.update(rainAccumulated(hour), time, focus);
     // Around a chosen home, outline where the water is expected to reach at the peak.

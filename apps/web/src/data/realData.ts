@@ -6,10 +6,17 @@ export interface RealData extends RealSeries {
   source: Record<string, string>;
   villages: { name: string; lngLat: LngLat; kind: 'city' | 'town' | 'village' | 'hamlet' }[];
   centres: { name: string; lngLat: LngLat; kind: string; capacityEstimate: number }[];
+  rivers: { name: string; km: number; lines: LngLat[][] }[];
+  peak: { m3s: number; date: string };
 }
 
 export async function loadRealData(): Promise<RealData> {
   const res = await fetch('/data/kelantan.json');
   if (!res.ok) throw new Error(`Real data missing (HTTP ${res.status}) — run node apps/web/scripts/build-real-data.mjs`);
   return (await res.json()) as RealData;
+}
+
+export async function loadMalaysia() {
+  const res = await fetch('/data/malaysia.json');
+  return res.ok ? ((await res.json()) as import('../layers/peninsula').MalaysiaData) : null;
 }

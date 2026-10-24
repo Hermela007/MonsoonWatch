@@ -197,3 +197,29 @@ body[data-view='result'] #legend .forecast-key { display: inline-flex; }
 #legend .grid-note { font-family: var(--mono); font-size: 11px; color: var(--faint); }
 body.street #legend, body[data-mode='control'] #legend { opacity: 0; }
 @media (max-width: 767px) { #legend { top: 52px; bottom: auto; right: 16px; left: 16px; justify-content: flex-end; gap: 12px; } #legend .grid-note { display: none; } }
+
+/* Atlas labels */
+.atlas { pointer-events: none; white-space: nowrap; transform: translateY(-50%); }
+.atlas.town { font-size: 11px; color: var(--muted); padding-left: 10px; position: relative; }
+.atlas.town::before { content: ''; position: absolute; left: 0; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--ink); }
+.atlas.town.major { font-size: 13px; font-weight: 600; color: var(--ink); }
+.atlas.river { font-size: 11px; font-style: italic; color: var(--flood); letter-spacing: 0.02em; }
+.atlas.sea { font-size: 12px; font-style: italic; letter-spacing: 0.3em; color: #6f97b3; text-transform: uppercase; }
+.atlas.country, .atlas.state { font-size: 11px; letter-spacing: 0.35em; color: var(--faint); font-weight: 600; }
+.atlas.state { color: var(--ink); font-size: 13px; }
+
+/* Caption, locator, sources (landing) */
+#caption { right: 24px; top: 64px; width: 340px; text-align: right; pointer-events: none; }
+.caption-place { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
+#caption p { font-size: 13px; line-height: 1.5; color: var(--muted); margin: 6px 0 0; }
+#locator { right: 24px; bottom: 52px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: none; }
+#locator path { fill: #e8e5df; stroke: #b9b3a9; stroke-width: 0.5; }
+#locator path.kel { fill: var(--ink); stroke: var(--ink); }
+#locator rect { fill: none; stroke: var(--flood); stroke-width: 1.2; }
+#locator span { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+#sources { left: 24px; bottom: 14px; margin: 0; font-size: 10.5px; color: var(--faint); pointer-events: none; max-width: 60vw; }
+#legend .live { font-family: var(--mono); font-size: 11px; color: var(--ink); }
+body:not([data-view='landing']) #caption, body:not([data-view='landing']) #sources, body.street #locator, body[data-mode='control'] #caption { opacity: 0; }
+body[data-view='landing'] #landing ~ * {}
+@media (max-width: 1100px) { #caption { width: 260px; } .caption-place { font-size: 24px; } }
+@media (max-width: 767px) { #caption, #locator, #sources { display: none; } }

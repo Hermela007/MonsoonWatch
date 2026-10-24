@@ -1,4 +1,4 @@
-import type { Alert, AgentRunStarted, EvacCentre, SearchResponse, Village } from '@monsoonwatch/shared';
+import type { Alert, AgentRunStarted, EvacCentre, SearchResponse, StationWithLatest, Village } from '@monsoonwatch/shared';
 import type { Town } from '../geo/region';
 
 let apiLive = false;
@@ -69,3 +69,6 @@ export const runAgent = (regionId: string) => postJson<AgentRunStarted>('/agent/
 /** POST /alerts/:id/approve | reject (Workstream B). Human-in-the-loop: nothing is sent without this. */
 export const decideAlert = (id: string, decision: 'approve' | 'reject', by: string) =>
   postJson<Alert>(`/alerts/${encodeURIComponent(id)}/${decision}`, { by });
+
+/** Live JPS stations with their latest reading (C's API). */
+export const fetchStations = (regionId: string) => getJson<StationWithLatest[]>(`/regions/${regionId}/stations`, 6000);

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { GeoFrame } from '../geo/region';
 import { cellLngLat, type Heightmap } from '../terrain/heightmap';
 import type { Hydrology } from '../terrain/hydrology';
-import { THEME } from '../theme';
+import { FOG, THEME } from '../theme';
 
 const vertexShader = /* glsl */ `
 attribute float aElev;
@@ -153,7 +153,7 @@ export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogC
       uRiskCol: { value: THEME.slide },
       uRiverCol: { value: THEME.flood },
       uFogCol: { value: fogColor },
-      uFogDensity: { value: 0.0022 },
+      uFogDensity: FOG,
       uFocus: { value: new THREE.Vector3() },
       uFocusR: { value: 6 },
       uFocusOn: { value: 0 },

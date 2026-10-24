@@ -12,3 +12,6 @@ export const THEME = {
   slide: new THREE.Color(0xd4542b),
   slideLight: new THREE.Color(0xf0b49d),
 };
+
+/** Shared fog density uniform: scaled with camera distance so the opening zoom from Malaysia stays clear. */
+export const FOG = { value: 0.0022 };

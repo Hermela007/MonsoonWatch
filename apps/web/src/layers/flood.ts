@@ -3,7 +3,7 @@ import type { GeoFrame } from '../geo/region';
 import { cellLngLat, type Heightmap } from '../terrain/heightmap';
 import { NO_DRAIN_M, type Hydrology } from '../terrain/hydrology';
 import type { Focus } from './valley';
-import { THEME } from '../theme';
+import { FOG, THEME } from '../theme';
 
 const vertexShader = /* glsl */ `
 uniform sampler2D uField; // r: filled elev (m), g: HAND (m), b: stage scale, a: sea
@@ -211,9 +211,9 @@ export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogCo
       uSunDir: { value: new THREE.Vector3(-0.55, 0.75, -0.4).normalize() },
       uShallow: { value: THEME.floodLight },
       uDeep: { value: THEME.flood },
-      uSeaCol: { value: new THREE.Color(0xdfe9ee) },
+      uSeaCol: { value: new THREE.Color(0xcfe3ef) },
       uFogCol: { value: fogColor },
-      uFogDensity: { value: 0.0022 },
+      uFogDensity: FOG,
       uFocus: { value: new THREE.Vector3() },
       uFocusR: { value: 6 },
       uFocusOn: { value: 0 },

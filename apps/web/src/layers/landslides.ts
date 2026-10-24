@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FOG } from '../theme';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { GeoFrame } from '../geo/region';
 import { cellLngLat, type Heightmap } from '../terrain/heightmap';
@@ -81,7 +82,7 @@ export function createLandslides(
         uActive: { value: 0 },
         uTime: { value: 0 },
         uFogCol: { value: fogColor },
-        uFogDensity: { value: 0.0022 },
+        uFogDensity: FOG,
       },
     });
     const beaconMat = new THREE.MeshBasicMaterial({ color: WATCH });
