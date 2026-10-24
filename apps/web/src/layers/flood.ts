@@ -81,7 +81,7 @@ void main() {
     // Moving light bands so the water reads as moving even from far away.
     float band = smoothstep(0.6, 0.9, noise(vWorld.xz * 9.0 + vec2(uTime * 0.7, -uTime * 0.4)));
     col += band * 0.06;
-    alpha = (0.35 + 0.45 * t + 0.35 * edge) * cover;
+    alpha = (0.55 + 0.4 * t + 0.3 * edge) * cover;
   }
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
   col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.45);

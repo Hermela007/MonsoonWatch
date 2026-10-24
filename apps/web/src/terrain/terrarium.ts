@@ -89,6 +89,7 @@ export async function loadTerrariumGrid(
     for (let c = 0; c < cols; c++) elevM[r * cols + c] = sample(colPx[c], py);
   }
 
+  cleanInlandLows(elevM, cols, rows);
   const midLat = ((minLat + maxLat) / 2) * (Math.PI / 180);
   return {
     cols,
@@ -98,4 +99,59 @@ export async function loadTerrariumGrid(
     cellXM: ((maxLon - minLon) / (cols - 1)) * 111320 * Math.cos(midLat),
     cellYM: ((maxLat - minLat) / (rows - 1)) * 110570,
   };
+}
+
+/**
+ * Terrain tiles occasionally contain isolated cells at or below 0 m far inland (data glitches).
+ * The flood model treats ≤ 0 m as sea, so such a cell becomes a fake outlet that drains a whole
+ * town. Real sea is ≤ 0 m *and* connected to the edge of the grid; everything else is raised to
+ * the lowest positive neighbour. Pure; mutates `elevM` in place.
+ */
+export function cleanInlandLows(elevM: Float32Array, cols: number, rows: number) {
+  const n = cols * rows;
+  const sea = new Uint8Array(n);
+  const queue: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const r = (i / cols) | 0;
+    const c = i - r * cols;
+    if (elevM[i] <= 0 && (r === 0 || c === 0 || r === rows - 1 || c === cols - 1)) {
+      sea[i] = 1;
+      queue.push(i);
+    }
+  }
+  while (queue.length) {
+    const i = queue.pop()!;
+    const r = (i / cols) | 0;
+    const c = i - r * cols;
+    for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const rr = r + dr;
+      const cc = c + dc;
+      if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
+      const j = rr * cols + cc;
+      if (!sea[j] && elevM[j] <= 0) {
+        sea[j] = 1;
+        queue.push(j);
+      }
+    }
+  }
+  let fixed = 0;
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 0; i < n; i++) {
+      if (sea[i] || elevM[i] > 0) continue;
+      const r = (i / cols) | 0;
+      const c = i - r * cols;
+      let low = Infinity;
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++) {
+          const rr = r + dr;
+          const cc = c + dc;
+          if ((dr || dc) && rr >= 0 && cc >= 0 && rr < rows && cc < cols && elevM[rr * cols + cc] > 0) low = Math.min(low, elevM[rr * cols + cc]);
+        }
+      if (low < Infinity) {
+        elevM[i] = low;
+        fixed++;
+      }
+    }
+  }
+  return fixed;
 }

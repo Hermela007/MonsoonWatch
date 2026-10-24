@@ -187,6 +187,12 @@ export function createResidentUi(
       $('risk-action').textContent = current.action;
       $<HTMLButtonElement>('btn-way').disabled = !current.canRoute;
     },
+    /** Landing loop: show the replay date/time rather than "Now / +h". */
+    setReplayClock(hour: number) {
+      $('clock-tag').textContent = 'Dec 2014 replay';
+      $('clock-time').textContent = fmtTime(hour);
+      document.body.classList.remove('future');
+    },
     setClock(hour: number, nowHour: number) {
       const ahead = Math.round(hour - nowHour);
       $('clock-tag').textContent = ahead > 0 ? t('later', { h: ahead }) : t('now');

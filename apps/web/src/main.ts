@@ -31,8 +31,9 @@ import { NOW_HOUR, REPLAY_HOURS, rainAccumulated, rainIntensity, stageM } from '
 
 const params = new URLSearchParams(location.search);
 const isPhone = matchMedia('(max-width: 767px), (pointer: coarse)').matches;
-const EXAG = Number(params.get('exag')) || 2;
-const COLS = Number(params.get('res')) || (isPhone ? 300 : 480);
+const EXAG = Number(params.get('exag')) || 3;
+// Same analysis grid on every device: a safety answer must not depend on screen size.
+const COLS = Number(params.get('res')) || 480;
 const FOCUS_KM = 6;
 // Closer than this the 150 m terrain looks blocky; the street view covers close-ups.
 const VALLEY_MIN_KM = 7;
@@ -106,8 +107,9 @@ async function main() {
     { tubeRadiusKm: 0.09, labelled: 3, labelText: 'Landslide risk', labelSpacingKm: 35 },
   );
   scene.add(hotspots.group);
-  let explode = 1;
-  let explodeTarget = 1;
+  // The exploded layer stack is retired (it read as an abstract diagram); only its shadow remains.
+  let explode = 0;
+  let explodeTarget = 0;
   const flood = createFlood(hm, hy, frame, stage.fogColor);
   const rain = createRain();
   const home = createHomeLayer();
@@ -131,6 +133,7 @@ async function main() {
   let inStreet = false;
   let valleyCam: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
   let streetShot: Shot | null = null;
+  let wasLanding = true;
   let lastBuried = 0;
   let lastWet = 0;
   let lastTotal = 0;
@@ -138,8 +141,8 @@ async function main() {
   const focus: Focus = { centre: new THREE.Vector3(), radiusKm: FOCUS_KM, amount: 0 };
   let focusTarget = 0;
 
-  // Landing: the exploded layer stack seen from a front corner, like a product shot.
-  const overview: Shot = { position: new THREE.Vector3(150, 95, 165), target: new THREE.Vector3(0, -6, -8) };
+  // Landing: low oblique view up the valley from the south-east — hills, floodplain and slopes in one frame.
+  const overview: Shot = { position: new THREE.Vector3(52, 34, 96), target: new THREE.Vector3(-4, 2, 18) };
 
   const layoutShift = () => {
     const view = document.body.dataset.view;
@@ -328,7 +331,7 @@ async function main() {
     }
     homePos = null;
     focusTarget = 0;
-    explodeTarget = 1;
+    explodeTarget = 0;
     hour = targetHour = NOW_HOUR;
     whatIf = false;
     ui!.showLanding();
@@ -573,6 +576,12 @@ async function main() {
     director.update(performance.now());
     controls.update();
 
+    // Landing: loop the Dec 2014 replay so flood and landslides play out on the terrain.
+    const landing = document.body.dataset.view === 'landing' && document.body.dataset.mode !== 'control' && !homePos;
+    if (landing) {
+      targetHour = hour = hour >= REPLAY_HOURS + 6 ? 0 : hour + dt * 3.2;
+    } else if (wasLanding) hour = targetHour = NOW_HOUR;
+    wasLanding = landing;
     // Replay time eases towards its target: forward slowly, back quickly.
     // Slow the replay right down while a landslide surges, so it can be seen.
     const rate = targetHour > hour ? (inStreet && street?.slideSurging ? 0.15 : 4) : 14;
@@ -584,7 +593,7 @@ async function main() {
     stack.setExplode(explode);
 
     const camDist = camera.position.distanceTo(controls.target);
-    const s = stageM(hour);
+    const s = stageM(Math.min(hour, REPLAY_HOURS));
     valley.update(rainAccumulated(hour), time, focus);
     flood.update(s, time, focus);
     rain.update(controls.target, camDist, rainIntensity(hour) * (1 - explode * 0.8), time);
@@ -617,7 +626,8 @@ async function main() {
       if (stats) ui!.setStreet('on', { ...stats, buried: street.buried, ...street.counts });
       streetRain?.update(controls.target, camDist, Math.min(1, rainIntensity(hour) * 1.8 + 0.25), time);
     }
-    ui!.setClock(hour, NOW_HOUR);
+    if (landing) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
+    else ui!.setClock(hour, NOW_HOUR);
     stage.render();
   });
 

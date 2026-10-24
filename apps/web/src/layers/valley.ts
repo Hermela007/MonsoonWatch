@@ -7,7 +7,9 @@ import { THEME } from '../theme';
 const vertexShader = /* glsl */ `
 attribute float aElev;
 attribute float aSlope;
+attribute float aRiverFlag;
 uniform float uExag;
+varying float vRiverFlag;
 varying float vElev;
 varying float vSlope;
 varying vec2 vUv;
@@ -21,6 +23,7 @@ void main() {
   vNormalW = normalize(mat3(modelMatrix) * normal);
   vElev = aElev;
   vSlope = aSlope;
+  vRiverFlag = aRiverFlag;
   vUv = uv;
   vec4 mv = viewMatrix * world;
   vViewDist = -mv.z;
@@ -44,6 +47,7 @@ uniform float uFocusR;
 uniform float uFocusOn;
 varying float vElev;
 varying float vSlope;
+varying float vRiverFlag;
 varying vec2 vUv;
 varying vec3 vNormalW;
 varying vec3 vWorld;
@@ -59,8 +63,9 @@ float gridLine(vec2 p, float period, float w) {
 void main() {
   vec3 n = normalize(vNormalW);
   float diff = clamp(dot(n, uSunDir), 0.0, 1.0);
-  // Off-white model surface, soft hill-shading in neutral greys.
-  vec3 col = uPaper * (0.78 + 0.26 * diff);
+  // Off-white model surface; hill-shading in neutral greys so the relief reads.
+  vec3 col = uPaper * (0.6 + 0.48 * diff);
+  col *= 1.0 - smoothstep(12.0, 40.0, vSlope) * 0.08;
 
   // Grid: 1 km minor, 5 km major, fading with distance.
   float fade = 1.0 - smoothstep(60.0, 260.0, vViewDist);
@@ -71,12 +76,15 @@ void main() {
   float cl = abs(fract(ce - 0.5) - 0.5) / max(fwidth(ce), 1e-4);
   col = mix(col, uLine, (1.0 - min(cl, 1.0)) * 0.35 * step(5.0, vElev) * (1.0 - smoothstep(20.0, 120.0, vViewDist)));
 
+  // Rivers: thin lines in the flood colour (the water sheet takes over as they rise).
+  col = mix(col, uRiverCol * 0.85, smoothstep(0.55, 0.95, vRiverFlag) * 0.85);
+
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
 
   // Landslide susceptibility (slope x accumulated rain): the only warm colour on the terrain.
   float risk = smoothstep(18.0, 35.0, vSlope) * smoothstep(0.15, 0.9, uRainAcc) * step(40.0, vElev);
   float pulse = 0.85 + 0.15 * sin(uTime * 2.0 - vWorld.z * 0.5);
-  col = mix(col, uRiskCol, risk * 0.55 * pulse * mix(0.6, inFocus, uFocusOn));
+  col = mix(col, uRiskCol, risk * 0.7 * pulse * mix(1.0, inFocus, uFocusOn));
 
   // Outside the home's area: recede into paper.
   col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.55);
@@ -126,6 +134,7 @@ export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogC
   geometry.computeVertexNormals();
   geometry.setAttribute('aElev', new THREE.BufferAttribute(hm.elevM, 1));
   geometry.setAttribute('aSlope', new THREE.BufferAttribute(hy.slopeDeg, 1));
+  geometry.setAttribute('aRiverFlag', new THREE.BufferAttribute(Float32Array.from(hy.riverMask), 1));
 
   const material = new THREE.ShaderMaterial({
     vertexShader,
@@ -142,7 +151,7 @@ export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogC
       uLine: { value: THEME.line },
       uLineStrong: { value: THEME.lineStrong },
       uRiskCol: { value: THEME.slide },
-      uRiverCol: { value: THEME.floodLight },
+      uRiverCol: { value: THEME.flood },
       uFogCol: { value: fogColor },
       uFogDensity: { value: 0.0022 },
       uFocus: { value: new THREE.Vector3() },
