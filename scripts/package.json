@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "seed": "tsx seed-region.ts && tsx ingest-jps.ts && tsx geocode-stations.ts && tsx load-places.ts && tsx load-osm.ts && tsx build-terrain.ts && tsx prep-hazards.ts && tsx load-knowledge.ts && tsx load-replay-2014.ts",
+    "seed": "tsx seed-region.ts && tsx ingest-jps.ts && tsx geocode-stations.ts && tsx load-places.ts && tsx load-vulnerable.ts && tsx load-osm.ts && tsx build-terrain.ts && tsx prep-hazards.ts && tsx load-knowledge.ts && tsx load-replay-2014.ts",
     "typecheck": "tsc --noEmit",
     "jps:snapshot": "tsx jps-snapshot.ts",
     "ingest:jps": "tsx ingest-jps.ts",
@@ -15,6 +15,7 @@
     "load:osm": "tsx load-osm.ts",
     "build:terrain": "tsx build-terrain.ts",
     "prep:hazards": "tsx prep-hazards.ts",
+    "load:vulnerable": "tsx load-vulnerable.ts",
     "load:knowledge": "tsx load-knowledge.ts"
   },
   "dependencies": {
