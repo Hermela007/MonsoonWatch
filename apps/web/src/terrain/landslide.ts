@@ -1,5 +1,6 @@
 import type { Heightmap } from './heightmap';
 import type { Hydrology } from './hydrology';
+import { rainFractionForMm } from '../data/replay2014';
 
 export interface SlideSource {
   cell: number;
@@ -13,9 +14,17 @@ export interface SlideSource {
   reachesRiver: boolean;
 }
 
-/** Screening heuristic: steeper slopes need less accumulated rain to be flagged. */
+/**
+ * Screening threshold (mm of accumulated rain since 17 Dec) at which a slope is flagged.
+ * Steeper slopes need less rain. Illustrative values, applied to REAL 2014 rainfall.
+ */
+export function triggerRainMm(slopeDeg: number): number {
+  return Math.min(560, Math.max(260, 620 - (slopeDeg - 26) * 14));
+}
+
+/** The same threshold as a fraction of the replay window's total rain. */
 export function triggerRainAcc(slopeDeg: number): number {
-  return Math.min(0.9, Math.max(0.35, 1.25 - slopeDeg / 50));
+  return rainFractionForMm(triggerRainMm(slopeDeg));
 }
 
 /** Steepest descent from `start` until the slope flattens, a river is reached, or it pits. */

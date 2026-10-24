@@ -1,0 +1,82 @@
+[
+ {
+  "name": "Kuala Krai",
+  "slug": "kuala-krai",
+  "center": [
+   102.199367,
+   5.531158
+  ],
+  "buildings": 1367,
+  "roads": 223
+ },
+ {
+  "name": "Dabong",
+  "slug": "dabong",
+  "center": [
+   102.008836,
+   5.378476
+  ],
+  "buildings": 459,
+  "roads": 42
+ },
+ {
+  "name": "Tanah Merah",
+  "slug": "tanah-merah",
+  "center": [
+   102.14841,
+   5.809775
+  ],
+  "buildings": 1951,
+  "roads": 343
+ },
+ {
+  "name": "Kota Bharu",
+  "slug": "kota-bharu",
+  "center": [
+   102.237807,
+   6.124791
+  ],
+  "buildings": 2079,
+  "roads": 508
+ },
+ {
+  "name": "Pasir Mas",
+  "slug": "pasir-mas",
+  "center": [
+   102.142925,
+   6.041613
+  ],
+  "buildings": 2412,
+  "roads": 418
+ },
+ {
+  "name": "Gua Musang",
+  "slug": "gua-musang",
+  "center": [
+   101.965233,
+   4.879272
+  ],
+  "buildings": 1313,
+  "roads": 201
+ },
+ {
+  "name": "Kampung Kubur Datu",
+  "slug": "kampung-kubur-datu",
+  "center": [
+   101.889717,
+   5.512898
+  ],
+  "buildings": 385,
+  "roads": 13
+ },
+ {
+  "name": "Kampung Sungai Batu",
+  "slug": "kampung-sungai-batu",
+  "center": [
+   101.973165,
+   5.363305
+  ],
+  "buildings": 179,
+  "roads": 13
+ }
+]

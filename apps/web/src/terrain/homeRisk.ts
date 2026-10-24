@@ -1,7 +1,7 @@
 import type { Heightmap } from './heightmap';
 import { depthAt, NO_DRAIN_M, type Hydrology } from './hydrology';
 import type { SlideSource } from './landslide';
-import { REPLAY_HOURS, firstWetHour, rainAccumulated, stageM, worstStageM } from '../mock/replay2014';
+import { REPLAY_HOURS, firstWetHour, rainAccumulated, stageM, worstStageM } from '../data/replay2014';
 
 export type RiskLevel = 'high' | 'medium' | 'low';
 

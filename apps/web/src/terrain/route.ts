@@ -1,7 +1,7 @@
 import type { Heightmap } from './heightmap';
 import { CellHeap, depthAt, type Hydrology } from './hydrology';
 import { isSafeGround } from './homeRisk';
-import { worstStageM, REPLAY_HOURS } from '../mock/replay2014';
+import { worstStageM, REPLAY_HOURS } from '../data/replay2014';
 
 export interface SafeRoute {
   /** Cells from home to safe ground. Length 1 if home is already safe. */

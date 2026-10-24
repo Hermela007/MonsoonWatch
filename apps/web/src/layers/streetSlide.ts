@@ -1,6 +1,15 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-import { rng } from '../data/buildings';
+/** Deterministic PRNG for boulder sizes/spins (animation only). */
+function rng(seed: number) {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  };
+}
 
 const SLIDE_SECONDS = 7; // real-time duration of the debris surge once triggered
 const ACROSS = 9;

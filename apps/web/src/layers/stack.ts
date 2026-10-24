@@ -3,7 +3,7 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { GeoFrame } from '../geo/region';
 import type { Heightmap } from '../terrain/heightmap';
 import { depthAt, type Hydrology } from '../terrain/hydrology';
-import { REPLAY_HOURS, worstStageM } from '../mock/replay2014';
+import { REPLAY_HOURS, worstStageM } from '../data/replay2014';
 import { THEME } from '../theme';
 
 const GAP = 24; // world km between layers when fully exploded

@@ -2,7 +2,7 @@ import type { Town } from '../geo/region';
 import { searchPlaces } from '../api/client';
 import type { HomeRisk } from '../terrain/homeRisk';
 import type { SafeRoute } from '../terrain/route';
-import { replayDate } from '../mock/replay2014';
+import { peakHour, replayDate } from '../data/replay2014';
 import { matchPlaces } from './places';
 import { t } from './copy';
 
@@ -34,19 +34,25 @@ export function describe(v: ResultView) {
   const flood: string[] = [];
   if (risk.floodWetHour !== null) {
     const h = Math.round(risk.floodWetHour - nowHour);
-    flood.push(h <= 0 ? t('floodNow') : t('floodIn', { h }));
+    flood.push(h <= 0 ? t('floodNow') : h > 36 ? t('floodInDays', { d: Math.round(h / 24) }) : t('floodIn', { h }));
+    const ph = peakHour();
+    if (ph > nowHour) flood.push(t('floodPeak', { when: replayDate(ph).toLocaleDateString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', weekday: 'short', day: 'numeric', month: 'short' }) }));
     const d = risk.peakDepthM;
     if (d >= 4) flood.push(t('floodDepthHouse', { d: fmtDepth(d) }));
     else if (d >= 1.8) flood.push(t('floodDepthHead'));
     else if (d >= 0.3) flood.push(t('floodDepthKnee'));
   } else if (risk.worstWetHour !== null) {
-    flood.push(t('worstOnly', { h: Math.max(1, Math.round(risk.worstWetHour - nowHour)) }));
+    const wh = Math.max(1, Math.round(risk.worstWetHour - nowHour));
+    flood.push(wh > 36 ? t('worstOnlyDays', { d: Math.round(wh / 24) }) : t('worstOnly', { h: wh }));
   } else flood.push(t('floodLow'));
 
   const slide: string[] = [];
   if (risk.slideLevel === 'high') {
     slide.push(t('slideHigh', { d: fmtDistance(risk.slideDistM / 1000) }));
-    if (risk.slideHour !== null && risk.slideHour > nowHour) slide.push(t('slideHighWhen', { h: Math.round(risk.slideHour - nowHour) }));
+    if (risk.slideHour !== null && risk.slideHour > nowHour) {
+      const sh = Math.round(risk.slideHour - nowHour);
+      slide.push(sh > 36 ? t('slideHighWhenDays', { d: Math.round(sh / 24) }) : t('slideHighWhen', { h: sh }));
+    }
   } else if (risk.slideLevel === 'medium') slide.push(t('slideMedium', { d: fmtDistance(risk.slideDistM / 1000) }));
   else slide.push(t('slideLow'));
   if (v.upstreamSlopes > 0) slide.push(t('slideUpstream', { n: v.upstreamSlopes }));
@@ -104,6 +110,11 @@ export function createResidentUi(
       b.type = 'button';
       b.className = 'suggestion';
       b.textContent = town.name;
+      if (town.note) {
+        const n = document.createElement('small');
+        n.textContent = town.note;
+        b.appendChild(n);
+      }
       b.addEventListener('click', () => h.onPick(town));
       suggestions.appendChild(b);
     }
@@ -161,7 +172,8 @@ export function createResidentUi(
 
   return {
     setPlaces(list: Town[]) {
-      places = list;
+      const seen = new Set<string>();
+      places = list.filter((p) => !seen.has(p.name) && seen.add(p.name));
       renderSuggestions();
     },
     showLanding() {
@@ -211,7 +223,7 @@ export function createResidentUi(
         const parts = [stats.wet ? t('homesWet', { n: stats.wet, total: stats.total }) : t('homesDry')];
         if (stats.buried) parts.unshift(t('homesBuried', { n: stats.buried }));
         $('street-stats').innerHTML = parts.map((p, i) => `<div class="${i === 0 && stats.buried ? 'buried' : ''}">${p}</div>`).join('');
-        $('street-source').textContent = t('housesSource', { osm: stats.osm, ill: stats.illustrative });
+        $('street-source').textContent = stats.osm ? t('housesSource', { osm: stats.osm }) : t('noBuildings');
       }
     },
     note(text: string) {

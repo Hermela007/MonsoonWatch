@@ -6,12 +6,12 @@ import { cellLngLat, gridCoords, sampleField, type Heightmap } from '../terrain/
 import { NO_DRAIN_M, type Hydrology } from '../terrain/hydrology';
 import { neighbourhood } from '../terrain/homeRisk';
 import type { SlideSource } from '../terrain/landslide';
-import { localFrame, rng, type House, type Lane } from '../data/buildings';
+import { localFrame, type House, type Lane } from '../data/buildings';
+import type { AreaData } from '../data/areas';
 import { staffGaugeTexture } from '../data/textures';
-import { REPLAY_HOURS, rainAccumulated, stageM } from '../mock/replay2014';
+import { REPLAY_HOURS, rainAccumulated, stageM } from '../data/replay2014';
 import { createStreetWater } from './streetWater';
-import { createHouses } from './houses';
-import { createVegetation } from './vegetation';
+import { createRealBuildings, type Footprint } from './realBuildings';
 import { createStreetSlide } from './streetSlide';
 import { addUnderwater, waterUniforms } from './underwater';
 import { THEME } from '../theme';
@@ -28,8 +28,12 @@ export const DEPTH_BANDS = [
   { max: Infinity, color: THEME.flood, label: 'Over 1.5 m' },
 ] as const;
 
-/** Plan drawing: off-white ground, plots outlined, roads as slightly darker bands. */
-function groundTexture(houses: House[], lanes: Lane[]) {
+const ROAD_WIDTH_M: Record<string, number> = {
+  motorway: 14, trunk: 12, primary: 11, secondary: 9, tertiary: 8, unclassified: 6, residential: 6, living_street: 5, service: 4, track: 3, path: 1.5, footway: 1.5,
+};
+
+/** Plan drawing: off-white ground, real roads as slightly darker bands, building footprints outlined. */
+function groundTexture(roads: { kind: string; pts: { x: number; z: number }[] }[], prints: { x: number; z: number }[][]) {
   const N = 4096;
   const c = document.createElement('canvas');
   c.width = c.height = N;
@@ -38,36 +42,55 @@ function groundTexture(houses: House[], lanes: Lane[]) {
   const X = (x: number) => (x / GROUND_M + 0.5) * N;
   g.fillStyle = '#f1efea';
   g.fillRect(0, 0, N, N);
-  g.strokeStyle = 'rgba(150,143,133,0.55)';
-  g.lineWidth = 1.2;
-  for (const h of houses) {
-    const L = h.kind === 'terrace' ? h.w : Math.max(h.w, h.d);
-    const W = h.kind === 'terrace' ? Math.min(h.d, 12) : Math.min(h.w, h.d);
-    g.save();
-    g.translate(X(h.x), X(h.z));
-    g.rotate(-h.angle);
-    g.fillStyle = '#f6f5f1';
-    g.fillRect((-L / 2 - 4) * s, (-W / 2 - 4) * s, (L + 12) * s, (W + 10) * s);
-    g.strokeRect((-L / 2 - 4) * s, (-W / 2 - 4) * s, (L + 12) * s, (W + 10) * s);
-    g.restore();
-  }
-  for (const [w, col] of [
-    [9.6, 'rgba(150,143,133,0.6)'],
-    [9, '#e6e3dd'],
-  ] as const) {
-    g.strokeStyle = col;
-    g.lineWidth = w * s;
-    g.lineCap = 'butt';
-    for (const lane of lanes) {
+  for (const pass of [0, 1]) {
+    for (const r of roads) {
+      const w = ROAD_WIDTH_M[r.kind] ?? 4;
+      g.strokeStyle = pass === 0 ? 'rgba(150,143,133,0.55)' : '#e6e3dd';
+      g.lineWidth = (pass === 0 ? w + 0.8 : w) * s;
+      g.lineCap = g.lineJoin = 'round';
       g.beginPath();
-      lane.forEach((p, k) => (k ? g.lineTo(X(p.x), X(p.z)) : g.moveTo(X(p.x), X(p.z))));
+      r.pts.forEach((p, k) => (k ? g.lineTo(X(p.x), X(p.z)) : g.moveTo(X(p.x), X(p.z))));
       g.stroke();
     }
+  }
+  g.fillStyle = 'rgba(150,143,133,0.25)';
+  for (const ring of prints) {
+    g.beginPath();
+    ring.forEach((p, k) => (k ? g.lineTo(X(p.x), X(p.z)) : g.moveTo(X(p.x), X(p.z))));
+    g.closePath();
+    g.fill();
   }
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 16;
   return tex;
+}
+
+/** Oriented box (from the longest edge) of a footprint — for foam outlines and hit tests. */
+function orientedBox(ring: { x: number; z: number }[]) {
+  let best = 0;
+  let angle = 0;
+  for (let i = 1; i < ring.length; i++) {
+    const dx = ring[i].x - ring[i - 1].x;
+    const dz = ring[i].z - ring[i - 1].z;
+    const len = Math.hypot(dx, dz);
+    if (len > best) {
+      best = len;
+      angle = Math.atan2(-dz, dx);
+    }
+  }
+  const ca = Math.cos(angle);
+  const sa = Math.sin(angle);
+  let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+  for (const p of ring) {
+    const u = p.x * ca - p.z * sa;
+    const v = p.x * sa + p.z * ca;
+    minU = Math.min(minU, u); maxU = Math.max(maxU, u);
+    minV = Math.min(minV, v); maxV = Math.max(maxV, v);
+  }
+  const cu = (minU + maxU) / 2;
+  const cv = (minV + maxV) / 2;
+  return { x: cu * ca + cv * sa, z: -cu * sa + cv * ca, w: maxU - minU, d: maxV - minV, angle };
 }
 
 /** Overcast storm sky: warm grey horizon darkening upwards, with drifting cloud masses. */
@@ -119,13 +142,13 @@ export function createStreet(opts: {
   hy: Hydrology;
   home: LngLat;
   homeCell: number;
-  houses: House[];
-  lanes: Lane[];
+  /** Real buildings and roads for this area, or null if none are loaded (then none are drawn). */
+  area: AreaData | null;
   slides: SlideSource[];
   homeLabel: string;
   slideLabels: { warn: string; active: string };
 }) {
-  const { hm, hy, home, homeCell, houses } = opts;
+  const { hm, hy, home, homeCell } = opts;
   const scene = new THREE.Scene();
   const sky = new THREE.Color(0xf4f2ee);
   scene.background = sky;
@@ -161,6 +184,21 @@ export function createStreet(opts: {
   const ground0 = groundAbs(0, 0);
   const groundY = (x: number, z: number) => groundAbs(x, z) - ground0;
 
+  // ---- Real buildings and roads -------------------------------------------------------
+  const CLIP_M = 680;
+  const toLoc = (ll: LngLat) => toLocal(ll);
+  const prints = (opts.area?.buildings ?? [])
+    .map((b) => {
+      const ring = b.ring.map(toLoc);
+      const box = orientedBox(ring);
+      // Heights: Overture has few here; one storey (3.5 m) unless floors/height are known.
+      const heightM = b.height ?? (b.floors ? b.floors * 3.3 : 3.5);
+      return { ring, box, heightM, base: groundY(box.x, box.z) };
+    })
+    .filter((p) => Math.hypot(p.box.x, p.box.z) < CLIP_M && p.box.w < 120);
+  const houses: House[] = prints.map((p) => ({ x: p.box.x, z: p.box.z, w: Math.max(p.box.w, p.box.d), d: Math.min(p.box.w, p.box.d), angle: p.box.angle, storeys: 1, source: 'osm', kind: 'modern' }));
+  const roads = (opts.area?.roads ?? []).map((r) => ({ kind: r.kind, pts: r.line.map(toLoc) }));
+
   let ref = -1;
   for (const i of neighbourhood(hm, homeCell, 3)) {
     if (hy.drainElevM[i] === NO_DRAIN_M || hy.seaMask[i]) continue;
@@ -174,27 +212,31 @@ export function createStreet(opts: {
   const gp = groundGeo.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < gp.count; i++) gp.setY(i, groundY(gp.getX(i), gp.getZ(i)));
   groundGeo.computeVertexNormals();
-  const groundTex = groundTexture(houses, opts.lanes);
+  const groundTex = groundTexture(roads, prints.map((p) => p.ring));
   const groundMat = addUnderwater(new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 }), true);
   const groundMesh = new THREE.Mesh(groundGeo, groundMat);
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
   disposables.push(groundGeo, groundMat, groundTex);
 
-  // Houses and plants.
-  const built = createHouses(houses, groundY, homeCell);
+  // Real buildings.
+  const built = createRealBuildings(prints.map((p): Footprint => ({ ring: p.ring, heightM: p.heightM, base: p.base - 0.3 })));
   scene.add(built.group);
-  const veg = createVegetation(houses, opts.lanes, groundY, homeCell, 650);
-  scene.add(veg.group);
-  disposables.push(built, veg);
+  disposables.push(built);
 
   // Water.
   const water = createStreetWater(houses, sky, { near: 250, far: 1100 }, groundY);
   scene.add(water.mesh);
   disposables.push(water);
 
-  const homeIdx = houses.reduce((best, h, i) => (Math.hypot(h.x, h.z) < Math.hypot(houses[best].x, houses[best].z) ? i : best), 0);
-  const homeHouse = houses[homeIdx];
+  // "Your home": the real building nearest the chosen point (within 60 m), else just the point.
+  let homeIdx = -1;
+  houses.forEach((h, i) => {
+    const d = Math.hypot(h.x, h.z);
+    if (d < 60 && (homeIdx < 0 || d < Math.hypot(houses[homeIdx].x, houses[homeIdx].z))) homeIdx = i;
+  });
+  const homeHouse: House = homeIdx >= 0 ? houses[homeIdx] : { x: 0, z: 0, w: 0, d: 0, angle: 0, storeys: 1, source: 'osm', kind: 'modern' };
+  const homeTop = homeIdx >= 0 ? prints[homeIdx].base + prints[homeIdx].heightM : groundY(0, 0);
 
   // JPS-style staff gauges: one at the home's front, two on nearby compounds.
   const gaugeTex = staffGaugeTexture();
@@ -204,7 +246,8 @@ export function createStreet(opts: {
   const postGeo = new THREE.BoxGeometry(0.1, 5.6, 0.1).translate(0, 2.5, -0.06);
   disposables.push(gaugeTex, boardMat, postMat, boardGeo, postGeo);
   const near = houses.map((h, i) => ({ h, i, d: Math.hypot(h.x, h.z) })).sort((a, b) => a.d - b.d);
-  for (const { h } of [near[0], near[4], near[9]].filter(Boolean)) {
+  // One depth gauge (a measuring aid, not a real object) at the home.
+  for (const { h } of [near[0]].filter(Boolean).filter(() => homeIdx >= 0).map(() => ({ h: homeHouse }))) {
     const fx = h.x + Math.sin(h.angle) * (h.d / 2 + 4.5) + Math.cos(h.angle) * (h.w / 2 - 1);
     const fz = h.z + Math.cos(h.angle) * (h.d / 2 + 4.5) - Math.sin(h.angle) * (h.w / 2 - 1);
     const g = new THREE.Group();
@@ -248,7 +291,7 @@ export function createStreet(opts: {
   el.className = 'place-label home street-home';
   const label = new CSS2DObject(el);
   label.center.set(0.5, 1);
-  label.position.set(homeHouse.x, built.roofTop[homeIdx] + 2, homeHouse.z);
+  label.position.set(homeHouse.x, homeTop + 3, homeHouse.z);
   scene.add(label);
 
   let lastHour = NaN;
@@ -273,7 +316,9 @@ export function createStreet(opts: {
     homeFocus: new THREE.Vector3(homeHouse.x, groundY(homeHouse.x, homeHouse.z) + 3, homeHouse.z),
     /** Unit vector from the home towards its street frontage. */
     homeFront: new THREE.Vector3(Math.sin(homeHouse.angle), 0, Math.cos(homeHouse.angle)),
-    counts: { osm: houses.filter((h) => h.source === 'osm').length, illustrative: houses.filter((h) => h.source === 'illustrative').length },
+    counts: { osm: houses.length, illustrative: 0 },
+    /** True when no real building data covers this place. */
+    noBuildings: houses.length === 0,
     /** Every frame: waves, clouds, landslide. */
     animate(hour: number, timeS: number) {
       dome.update(timeS);
@@ -287,7 +332,7 @@ export function createStreet(opts: {
           if (hit === buried[i]) return;
           buried[i] = hit;
           buriedCount += hit ? 1 : -1;
-          if (hit) built.setRoofTint(i, MUD, 0.85);
+          if (hit) built.setTint(i, MUD, 0.85);
           else bands[i] = -2; // force the flood tint to be re-applied
         });
         if (buriedCount === 0 && r === 0) lastHour = NaN;
@@ -306,11 +351,12 @@ export function createStreet(opts: {
         const band = DEPTH_BANDS.findIndex((b) => depth <= b.max);
         if (band !== bands[i] && !buried[i]) {
           bands[i] = band;
-          built.setRoofTint(i, DEPTH_BANDS[band].color);
+          built.setTint(i, DEPTH_BANDS[band].color);
         }
         if (depth > 0.05) wet++;
         if (i === homeIdx) homeDepthNow = depth;
       });
+      if (homeIdx < 0) homeDepthNow = Number.isFinite(level) ? level - groundY(0, 0) : 0;
       el.textContent = homeDepthNow > 0.05 ? `${opts.homeLabel} · ${homeDepthNow.toFixed(1)} m of water` : `${opts.homeLabel} · dry`;
       el.classList.toggle('wet', homeDepthNow > 0.05);
       return { wet, total: houses.length, homeDepth: homeDepthNow, buried: buriedCount };

@@ -8,6 +8,8 @@ export type BBox = [number, number, number, number];
 export interface Town {
   name: string;
   lngLat: LngLat;
+  /** Short qualifier shown next to the name in suggestions (e.g. "below steep slopes"). */
+  note?: string;
 }
 
 // Local stand-in until `region.kelantan.json` lands in packages/shared (Workstream C).
@@ -15,15 +17,6 @@ export const KELANTAN = {
   id: 'kelantan',
   name: 'Kelantan river valley',
   bbox: [101.8, 4.7, 102.55, 6.28] as BBox,
-  // Approximate town centres; replace with C's villages.json.
-  towns: [
-    { name: 'Kota Bharu', lngLat: [102.2386, 6.1256] },
-    { name: 'Pasir Mas', lngLat: [102.1397, 6.0493] },
-    { name: 'Tanah Merah', lngLat: [102.1467, 5.81] },
-    { name: 'Kuala Krai', lngLat: [102.201, 5.5307] },
-    { name: 'Dabong', lngLat: [102.0156, 5.3786] },
-    { name: 'Gua Musang', lngLat: [101.9681, 4.8794] },
-  ] as Town[],
 };
 
 /**

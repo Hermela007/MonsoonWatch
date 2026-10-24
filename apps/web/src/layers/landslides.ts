@@ -3,7 +3,7 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { GeoFrame } from '../geo/region';
 import { cellLngLat, type Heightmap } from '../terrain/heightmap';
 import type { SlideSource } from '../terrain/landslide';
-import { REPLAY_HOURS, rainAccumulated } from '../mock/replay2014';
+import { REPLAY_HOURS, rainAccumulated } from '../data/replay2014';
 
 const REVEAL_HOURS = 5; // debris path draws out over this many replay hours once a slope is flagged
 const PARTICLES_PER_PATH = 14;

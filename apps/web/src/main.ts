@@ -19,7 +19,7 @@ import { createLandslides } from './layers/landslides';
 import { createHomeLayer } from './layers/home';
 import { createResidentUi } from './ui/resident';
 import { createStreet } from './layers/street';
-import { fetchOsmHouses, illustrativeTown, type House, type Lane } from './data/buildings';
+import { loadAreaFor, type AreaData } from './data/areas';
 import { t } from './ui/copy';
 import { createEventHub } from './api/stream';
 import { decideAlert, runAgent, setApiLive } from './api/client';
@@ -27,7 +27,8 @@ import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
 import { fetchEvacCentres, fetchVillages } from './api/client';
 import type { EvacCentre } from '@monsoonwatch/shared';
-import { NOW_HOUR, REPLAY_HOURS, rainAccumulated, rainIntensity, stageM } from './mock/replay2014';
+import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
+import { loadRealData } from './data/realData';
 
 const params = new URLSearchParams(location.search);
 const isPhone = matchMedia('(max-width: 767px), (pointer: coarse)').matches;
@@ -37,9 +38,9 @@ const COLS = Number(params.get('res')) || 480;
 const FOCUS_KM = 6;
 // Closer than this the 150 m terrain looks blocky; the street view covers close-ups.
 const VALLEY_MIN_KM = 7;
-const WHATIF_HOURS = 40;
+const WHATIF_HOURS = 72;
 // Illustrative trigger (rise above normal, m) until C's Stream Processing emits real risk events.
-const AGENT_TRIGGER_STAGE_M = 4;
+const AGENT_TRIGGER_STAGE_M = PEAK_STAGE_M * 0.45;
 
 async function main() {
   const frame = new GeoFrame(KELANTAN.bbox, EXAG);
@@ -51,11 +52,17 @@ async function main() {
     if (el) el.style.width = `${Math.round(f * 100)}%`;
   };
 
+  // Real data (Workstream C's committed files): places, Dec 2014 rain and river discharge.
+  const realP = loadRealData();
   const imageryW = isPhone ? 768 : 1536;
   const imageryP = loadImagery(KELANTAN.bbox, isPhone ? 10 : 11, imageryW, Math.round((imageryW * frame.heightKm) / frame.widthKm));
   const hm = await loadTerrariumGrid(KELANTAN.bbox, 10, COLS, rows, (d, n) => loadingBar(0.05 + 0.7 * (d / n)));
   loadingBar(0.8);
   await new Promise((r) => setTimeout(r, 20));
+  const real = await realP;
+  setRealSeries(real);
+  const realTowns: Town[] = real.villages.map((v) => ({ name: v.name, lngLat: v.lngLat }));
+  const realByName = (n: string) => realTowns.find((t) => t.name === n);
   const hy = analyseHydrology(hm, 150);
   loadingBar(0.95);
   await new Promise((r) => setTimeout(r, 20));
@@ -126,7 +133,7 @@ async function main() {
   let homePos: THREE.Vector3 | null = null;
   let homeLngLat: LngLat | null = null;
   let homeCell = -1;
-  let housesFor: Promise<{ houses: House[]; lanes: Lane[] }> | null = null;
+  let housesFor: Promise<AreaData | null> | null = null;
   let localSlides: SlideSource[] = [];
   let street: ReturnType<typeof createStreet> | null = null;
   let streetRain: ReturnType<typeof createRain> | null = null;
@@ -161,7 +168,7 @@ async function main() {
   const nearestTownName = (lngLat: LngLat) => {
     let best: Town | null = null;
     let bestKm = Infinity;
-    for (const town of KELANTAN.towns) {
+    for (const town of realTowns) {
       const a = frame.lngLatToWorld(lngLat);
       const km = a.distanceTo(frame.lngLatToWorld(town.lngLat));
       if (km < bestKm) {
@@ -169,7 +176,7 @@ async function main() {
         best = town;
       }
     }
-    return best && bestKm < 8 ? t('near', { place: best.name }) : t('pickedPlace');
+    return best && bestKm < 3 ? t('near', { place: best.name }) : t('pickedPlace');
   };
 
   // ---- Choosing a home ---------------------------------------------------
@@ -185,10 +192,8 @@ async function main() {
     homeLngLat = lngLat;
     homeCell = cell;
     // Start fetching houses now so "See my street" opens fast.
-    housesFor = fetchOsmHouses(lngLat, 450, 5000).then((osm) => {
-      const k = illustrativeTown(cell, osm);
-      return { houses: [...osm, ...k.houses], lanes: k.lanes };
-    });
+    // Real buildings and roads for this place (pre-extracted; see apps/web/scripts/fetch-areas.py).
+    housesFor = loadAreaFor(lngLat).catch(() => null);
     const local: SlideSource[] = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 1.2, max: 8, near: { cell, radiusKm: FOCUS_KM } });
     // Valley hotspots whose runout passes near the home count too.
     for (const h of hotspotSources) {
@@ -202,12 +207,16 @@ async function main() {
     // If the home area is at risk, "higher ground" must be outside it.
     if (risk.level !== 'low') for (const i of neighbourhood(hm, cell, 2)) avoid[i] = 1;
     const named = new Map<number, string>();
-    for (const c of centres ?? []) {
-      const ci = nearestCell(hm, c.location.coordinates);
-      if (ci !== null) named.set(ci, c.name);
+    for (const c of centres) {
+      const ci = nearestCell(hm, c.lngLat);
+      if (ci !== null && !named.has(ci)) named.set(ci, c.name);
     }
     // Prefer a named evacuation centre; otherwise any safe higher ground.
-    const route = (named.size ? routeToSafeGround(hm, hy, cell, avoid, 25, named) : null) ?? routeToSafeGround(hm, hy, cell, avoid);
+    // Prefer a named centre only if it is reasonably close; otherwise the nearest higher ground.
+    const plain = routeToSafeGround(hm, hy, cell, avoid);
+    const viaCentre = named.size ? routeToSafeGround(hm, hy, cell, avoid, 20, named) : null;
+    const route =
+      viaCentre && (!plain || viaCentre.distanceKm <= Math.max(3, plain.distanceKm * 2.5)) ? viaCentre : plain;
     home.setLabels(t('yourHome'), route?.targetName ?? t('higherGround'));
 
     homePos = cellWorld(cell);
@@ -253,7 +262,7 @@ async function main() {
   const enterStreet = async () => {
     if (!homeLngLat || !housesFor || inStreet) return;
     ui!.setStreet('loading');
-    const { houses, lanes } = await housesFor;
+    const area = await housesFor;
     if (!homeLngLat) return;
     if (!street) {
       street = createStreet({
@@ -262,8 +271,7 @@ async function main() {
         hy,
         home: homeLngLat,
         homeCell,
-        houses,
-        lanes,
+        area,
         slides: localSlides,
         homeLabel: t('yourHome'),
         slideLabels: { warn: t('slopeWarn'), active: t('slopeActive') },
@@ -286,12 +294,13 @@ async function main() {
     let target = f.clone();
     // From across the road, slightly to one side, at roughly first-floor height.
     const side = new THREE.Vector3(street.homeFront.z, 0, -street.homeFront.x);
-    let pos = f.clone().addScaledVector(street.homeFront, 34).addScaledVector(side, 16).add(new THREE.Vector3(0, 7, 0));
+    // Real neighbourhoods are irregular: a higher oblique view shows the street pattern and the water.
+    let pos = f.clone().addScaledVector(street.homeFront, 95).addScaledVector(side, 45).add(new THREE.Vector3(0, 65, 0));
     if (street.slideMid) {
       // Stand behind the home, looking up the hillside: houses in front, the slope above them.
       const toSlide = street.slideMid.clone().sub(f).setY(0).normalize();
       target = f.clone().lerp(street.slideMid, 0.55);
-      pos = f.clone().addScaledVector(toSlide, -70).add(new THREE.Vector3(toSlide.z * 18, 24, -toSlide.x * 18));
+      pos = f.clone().addScaledVector(toSlide, -110).add(new THREE.Vector3(toSlide.z * 30, 55, -toSlide.x * 30));
     }
     streetShot = { target: target.clone(), position: pos.clone() };
     controls.target.copy(target);
@@ -340,7 +349,7 @@ async function main() {
     director.flyTo(overview, 2400, () => (controls.autoRotate = true));
   };
 
-  ui = createResidentUi(KELANTAN.towns, {
+  ui = createResidentUi(realTowns.slice(0, 20), {
     onPick: (town) => selectHome(town.lngLat, town.name),
     onLocate: () => {
       if (!navigator.geolocation) return ui!.note(t('noLocation'));
@@ -401,32 +410,40 @@ async function main() {
   layoutShift();
   ui.ready();
 
-  // Places where both hazards meet: the valley floor at the foot of a flagged slope's runout,
-  // for the steepest flagged slope near each of these towns.
-  const hillPlaces = ['Gua Musang', 'Dabong', 'Kuala Krai'].flatMap((name) => {
-    const tw = frame.lngLatToWorld(KELANTAN.towns.find((t) => t.name === name)!.lngLat);
-    const near = hotspotSources
-      .map((h) => ({ h, d: cellWorld(h.cell).setY(0).distanceTo(tw.setY(0)) }))
-      .filter((x) => x.d < 25)
-      .sort((a, b) => b.h.slopeDeg - a.h.slopeDeg)[0];
-    if (!near) return [];
-    const path = near.h.path;
-    let foot = path[path.length - 1];
-    for (let k = path.length - 1; k >= 0 && hy.riverMask[path[k]]; k--) foot = path[Math.max(0, k - 1)];
-    const r = Math.floor(foot / hm.cols);
-    return [{ name: `Below the hills near ${name}`, lngLat: cellLngLat(hm, foot - r * hm.cols, r) }];
-  });
+  // Places where both hazards meet: REAL villages that a flagged slope's runout reaches
+  // (the same test the resident view runs), preferring ones that also face flooding.
+  const hillPlaces: Town[] = [];
+  {
+    const scored: { town: Town; score: number }[] = [];
+    for (const v of real.villages) {
+      if (v.kind === 'city') continue;
+      const cell = nearestCell(hm, v.lngLat);
+      if (cell === null || hy.seaMask[cell] || hy.slopeDeg[cell] > 25) continue;
+      const local = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 0.8, max: 6, near: { cell, radiusKm: 2.5 } });
+      if (!local.length) continue;
+      const r = assessHome(hm, hy, cell, local);
+      if (r.slideLevel !== 'high' || !r.slide) continue;
+      scored.push({ town: { name: v.name, lngLat: v.lngLat, note: r.floodLevel !== 'low' ? 'landslide + flood' : 'below steep slopes' }, score: r.slide.slopeDeg + (r.floodLevel !== 'low' ? 15 : 0) });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    for (const s of scored) if (hillPlaces.length < 3 && !hillPlaces.some((p) => p.name === s.town.name)) hillPlaces.push(s.town);
+  }
   // Lead with one flood place and one landslide place; everything else is searchable.
-  const byName = (n: string) => KELANTAN.towns.find((t) => t.name === n)!;
-  const ordered = [byName('Kuala Krai'), ...hillPlaces.slice(0, 1), byName('Dabong'), byName('Tanah Merah'), byName('Kota Bharu')];
-  const allPlaces = [...ordered, ...KELANTAN.towns.filter((t) => !ordered.includes(t)), ...hillPlaces.slice(1)];
+  const ordered = [realByName('Kuala Krai'), ...hillPlaces.slice(0, 1), realByName('Dabong'), realByName('Tanah Merah'), realByName('Kota Bharu')].filter(
+    (x): x is Town => !!x,
+  );
+  const allPlaces = [...ordered, ...hillPlaces.slice(1), ...realTowns.filter((t) => !ordered.some((o) => o.name === t.name))];
   ui.setPlaces(allPlaces);
 
   // Workstream C's data, when the API is up. Until then: local stand-ins.
-  let centres: EvacCentre[] | null = null;
+  // Real candidate evacuation centres (schools, community halls) from C's data.
+  let centres: { name: string; lngLat: LngLat }[] = real.centres;
   const loadApiData = () => {
+    // Prefer the API's copies (same source, maintained by C) when it's running.
     void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...allPlaces, ...v]));
-    void fetchEvacCentres(KELANTAN.id).then((c) => (centres = c));
+    void fetchEvacCentres(KELANTAN.id).then((c: EvacCentre[] | null) => {
+      if (c?.length) centres = c.map((x) => ({ name: x.name, lngLat: x.location.coordinates }));
+    });
   };
 
   // ---- Control room: live events (or the scripted mock), Tech HUD, human approval ----------
@@ -488,7 +505,7 @@ async function main() {
     alertShown = false;
     control.reset();
     home.set(null, null, 0, timer.getElapsed());
-    const ll = KELANTAN.towns.find((x) => x.name === AGENT_VILLAGE)!.lngLat;
+    const ll = realByName(AGENT_VILLAGE)!.lngLat;
     agentVillageCell = nearestCell(hm, ll)!;
     if (hub.mode === 'live' && !usingMock) {
       try {
@@ -585,12 +602,12 @@ async function main() {
     // Landing: loop the Dec 2014 replay so flood and landslides play out on the terrain.
     const landing = document.body.dataset.view === 'landing' && document.body.dataset.mode !== 'control' && !homePos;
     if (landing) {
-      targetHour = hour = hour >= REPLAY_HOURS + 6 ? 0 : hour + dt * 3.2;
+      targetHour = hour = hour >= REPLAY_HOURS + 24 ? 0 : hour + dt * (REPLAY_HOURS / 26);
     } else if (wasLanding) hour = targetHour = NOW_HOUR;
     wasLanding = landing;
     // Replay time eases towards its target: forward slowly, back quickly.
     // Slow the replay right down while a landslide surges, so it can be seen.
-    const rate = targetHour > hour ? (inStreet && street?.slideSurging ? 0.15 : 4) : 14;
+    const rate = targetHour > hour ? (inStreet && street?.slideSurging ? 0.15 : 10) : 40;
     hour = targetHour > hour ? Math.min(targetHour, hour + dt * rate) : Math.max(targetHour, hour - dt * rate);
     focus.amount += (focusTarget - focus.amount) * Math.min(1, dt * 2.5);
     // Control room replay: when the main river passes the Warning rise, Stream Processing → agent.
@@ -639,7 +656,7 @@ async function main() {
   });
 
   // Dev handle for quick checks in the console.
-  Object.assign(window, { __mw: { hm, hy, depthAt, camera, controls, getStreet: () => street } });
+  Object.assign(window, { __mw: { hm, hy, depthAt, camera, controls, getStreet: () => street, hillPlaces } });
 }
 
 main().catch((err) => {
