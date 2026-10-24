@@ -21,6 +21,8 @@ export interface ResultView {
   upstreamSlopes: number;
   /** True when the landslide part comes from the agent's screening (GET /hazards), false for the local estimate. */
   screening?: boolean;
+  /** Demo fallback (?landslide=terrain): the terrain estimate stands in for the screening, said so on the card. */
+  illustrative?: boolean;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => {
@@ -64,7 +66,7 @@ export function describe(v: ResultView) {
   } else if (risk.slideLevel === 'medium') slide.push(t('slideMedium', { d: fmtDistance(risk.slideDistM / 1000) }));
   else slide.push(t('slideLow'));
   // Say which landslide model this is (the agent's screening, or the offline terrain estimate).
-  if (v.screening !== undefined && risk.slideLevel !== 'low') slide.push(v.screening ? t('slideScreen') : t('slideEstimate'));
+  if (v.screening !== undefined && risk.slideLevel !== 'low') slide.push(v.illustrative ? t('slideIllustrative') : v.screening ? t('slideScreen') : t('slideEstimate'));
   if (v.upstreamSlopes > 0) slide.push(v.upstreamSlopes === 1 ? t('slideUpstreamOne') : t('slideUpstream', { n: v.upstreamSlopes }));
 
   const action =
@@ -154,13 +156,40 @@ export function createResidentUi(
     } catch { if (mine === searchRevision) note.textContent = t('addressFailed'); }
   };
 
+  // Choose on press, not on click: a click needs press and release on the same element, and late search
+  // results re-rendering the list between the two used to drop the click through to the map. Keyboard
+  // activation (Enter/Space) still arrives as a click with detail 0.
+  const onChoose = (b: HTMLButtonElement, fn: () => void) => {
+    b.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      input.blur(); // done typing: close the phone keyboard, and let shortcuts reach the page again
+      fn();
+    });
+    b.addEventListener('click', (e) => e.detail === 0 && (input.blur(), fn()));
+  };
+  // Results that arrive while the pointer is over the list wait until it leaves, so options don't move under it.
+  let pointerOverList = false;
+  let pendingRender = false;
+  suggestions.addEventListener('pointerenter', () => (pointerOverList = true));
+  suggestions.addEventListener('pointerleave', () => {
+    pointerOverList = false;
+    if (pendingRender) {
+      pendingRender = false;
+      renderSuggestions();
+    }
+  });
+  const refreshSuggestions = () => {
+    if (pointerOverList) pendingRender = true;
+    else renderSuggestions();
+  };
   const renderSuggestions = () => {
     const q = input.value.trim();
     const local = q ? matchPlaces(q, places) : places.slice(0, 5);
     const seen = new Set(local.map((p) => p.name.toLowerCase()));
     const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, addresses.length ? 4 : 10);
     suggestions.innerHTML = '';
-    // Address results precede broad place matches; every selection still needs pin confirmation.
+    // Address results precede broad place matches.
     for (const a of addresses.slice(0, 5)) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -169,7 +198,7 @@ export function createResidentUi(
       const n = document.createElement('small');
       n.textContent = a.precision === 'place' ? 'place' : a.precision === 'street' ? 'street' : t('addressNote');
       b.appendChild(n);
-      b.addEventListener('click', () => void chooseAddress(a));
+      onChoose(b, () => void chooseAddress(a));
       suggestions.appendChild(b);
     }
     for (const town of matches) {
@@ -184,7 +213,7 @@ export function createResidentUi(
         if (town.note) n.classList.add('hazard-tag');
         b.appendChild(n);
       }
-      b.addEventListener('click', () => h.onPick(town));
+      onChoose(b, () => h.onPick(town));
       suggestions.appendChild(b);
     }
     note.textContent = q && !matches.length && !addresses.length ? t('noMatch') : '';
@@ -203,7 +232,7 @@ export function createResidentUi(
       if (input.value.trim() !== q) return;
       remote = hits;
       addresses = found;
-      if (hits.length || found.length) renderSuggestions();
+      if (hits.length || found.length) refreshSuggestions();
     }, 250);
   });
   $('place-form').addEventListener('submit', async (e) => {
@@ -216,7 +245,7 @@ export function createResidentUi(
     const [hits, found] = await Promise.all([searchPlaces(q), h.searchAddresses?.(q) ?? Promise.resolve([])]);
     if (mine !== searchRevision) return;
     remote = hits; addresses = found; renderSuggestions();
-    note.textContent = found.length || matchPlaces(q, places).length || hits.length ? 'Choose a matching address or village below, then confirm its pin.' : t('noMatch');
+    note.textContent = found.length || matchPlaces(q, places).length || hits.length ? 'Choose a matching address or village below.' : t('noMatch');
   });
   $('btn-locate').addEventListener('click', h.onLocate);
   $('btn-way').addEventListener('click', h.onShowWay);

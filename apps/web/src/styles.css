@@ -439,3 +439,8 @@ body.recording #render-performance { display: block; }
 /* Who planned an alert. */
 .planned-by { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; border: 1px solid var(--rule-strong); color: var(--muted); vertical-align: middle; }
 .planned-gemini { border-color: #7aa7d9; color: #2f6fb0; }
+
+/* Recording preset (?demo=1): tells the person recording when everything is warmed up. */
+.demo-chip { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 9; font-family: var(--mono); font-size: 11px; padding: 6px 10px; border-radius: 3px; background: var(--ink); color: var(--card); opacity: 0.9; pointer-events: none; transition: opacity 0.6s ease; }
+.demo-chip.ready { background: #2e6b3a; }
+.demo-chip.quiet { opacity: 0; }

@@ -40,6 +40,7 @@ const COPY = {
   slideLow: 'No unstable slopes near your home.',
   slideScreen: 'Landslide screening on cited rain thresholds: shows where to check first, not an on-site survey.',
   slideEstimate: 'Terrain estimate (the landslide screening is offline): illustrative thresholds.',
+  slideIllustrative: 'Illustrative terrain estimate for this demo, not the agent\'s landslide screening.',
   slideUpstream: '{n} unstable slopes upstream could send mud and debris into the river.',
   slideUpstreamOne: '1 unstable slope upstream could send mud and debris into the river.',
   floodLow: 'Your area is not expected to flood.',

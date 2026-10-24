@@ -112,6 +112,9 @@ async function main() {
   // loaded, the resident card, the map's landslide hollows and the street view all use the same runouts,
   // so the app never says "landslide HIGH" where the agent sees none. Until then (or offline) the local
   // terrain estimate stands in, labelled as such.
+  // ?landslide=terrain: demo fallback — keep the frontend's own terrain landslide model (labelled illustrative)
+  // instead of the agent's screening, e.g. while the screening has no warning-level slopes in the replay.
+  const landslideModel: 'screening' | 'terrain' = params.get('landslide') === 'terrain' ? 'terrain' : 'screening';
   let screening: ScreenRunout[] | null = null;
   let screenSources: SlideSource[] | null = null;
   const toSlideSource = (r: ScreenRunout): SlideSource | null => {
@@ -534,7 +537,7 @@ async function main() {
     const upstreamSlopes = hotspotSources.filter((h) => hm.elevM[h.cell] > hm.elevM[cell] + 50 && cellWorld(h.cell).distanceTo(cellWorld(cell)) < 30).length;
     closeRoute(false);
     journey = null;
-    ui!.showResult({ place, risk, nowHour: NOW_HOUR, route, upstreamSlopes, screening: !!screening });
+    ui!.showResult({ place, risk, nowHour: NOW_HOUR, route, upstreamSlopes, screening: !!screening, illustrative: landslideModel === 'terrain' });
     homePlace = place;
     refreshOfficial();
     syncUrl({ place, lngLat, named: namedPlace });
@@ -726,8 +729,11 @@ async function main() {
     director.cancel();
   });
   stage.pointerTarget.addEventListener('pointerup', (e) => {
-    // Only a quick, deliberate tap on the map picks a place (not drags, not the control room).
-    if (inStreet || document.body.dataset.mode === 'control' || e.target !== stage.pointerTarget || performance.now() - downAt > 450) return;
+    // Only a quick, deliberate tap on the map picks a place (not drags, not the control room). The press must
+    // have started on the map too: a choice made on press in the search list must not count as a map tap.
+    const pressedAt = downAt;
+    downAt = -Infinity;
+    if (inStreet || document.body.dataset.mode === 'control' || e.target !== stage.pointerTarget || performance.now() - pressedAt > 450) return;
     if (down.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 6) return;
     const rect = stage.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
@@ -914,7 +920,7 @@ async function main() {
       else refreshHazards(true);
       if (m === 'live') {
         loadApiData();
-        if (!screening) void loadScreening(KELANTAN.id).then((r) => r && applyScreening(r));
+        if (!screening && landslideModel === 'screening') void loadScreening(KELANTAN.id).then((r) => r && applyScreening(r));
         // A home chosen before the API connected (e.g. opened from a link) gets its route now.
         if (homeLngLat && !journey && !routeFixture) void requestJourney();
         void fetchSaintTasks().then((tasks) => tasks?.forEach((task) => control.task(task)));
@@ -1157,11 +1163,46 @@ async function main() {
   document.getElementById('mode-control')!.addEventListener('click', () => setMode('control'));
 
   document.body.classList.toggle('recording', params.has('demo'));
-  // ---- Recording presets (?demo=1, keys 1–6) -------------------------------------------
+  // ---- Recording presets (?demo=1, keys 1–8) -------------------------------------------
+  // 1 landing · 2 Kuala Krai card · 3 Kuala Krai street flood · 4 landslide street · 5 control room + agent ·
+  // 6 approve the alert · 7 route screen for the open place · 8 address demo (Jalan Guchil Jaya).
   const pick = (name: string) => {
     const p = allPlaces.find((x) => x.name === name || x.name.includes(name));
     if (p) selectHome(p.lngLat, p.name);
   };
+  const GUCHIL: { lngLat: LngLat; label: string } = { lngLat: [102.21628, 5.54085], label: 'Jalan Guchil Jaya, Kuala Krai' };
+  if (params.has('demo')) {
+    // Warm everything a recording touches (road graph, landslide screening, building outlines) before the first
+    // take, and say when it's ready, so nothing pauses on camera.
+    const chip = document.createElement('div');
+    chip.className = 'demo-chip';
+    chip.textContent = 'Demo · warming up…';
+    document.body.append(chip);
+    const ts = replayDate(NOW_HOUR).toISOString();
+    const warm = async () => {
+      const slidePlace = () => realByName(hillPlaces[0]?.name ?? 'Kampung Jabir') ?? realByName('Kampung Jabir');
+      const kk = realByName('Kuala Krai');
+      const jobs: Promise<unknown>[] = [
+        fetchEvacuationRoute(KELANTAN.id, { lngLat: GUCHIL.lngLat, travel: 'car', mode: 'replay', ts }),
+        ...(kk ? [fetchEvacuationRoute(KELANTAN.id, { lngLat: kk.lngLat, travel: 'car', mode: 'replay', ts }), loadAreaFor(kk.lngLat)] : []),
+      ];
+      if (landslideModel === 'screening') jobs.push(loadScreening(KELANTAN.id));
+      await Promise.allSettled(jobs);
+      const sp = slidePlace();
+      if (sp) await loadAreaFor(sp.lngLat).catch(() => null);
+      chip.textContent = 'Demo ready · 1 landing · 2 card · 3 flood street · 4 landslide street · 5 control room · 6 approve · 7 route · 8 address';
+      chip.classList.add('ready');
+      window.setTimeout(() => chip.classList.add('quiet'), 6000);
+    };
+    // Start once the API is connected (or the scripted demo is running); give up waiting after 30 s.
+    const started = performance.now();
+    const waitLive = window.setInterval(() => {
+      if (hub.mode === 'live' || hub.mode === 'mock' || performance.now() - started > 30000) {
+        window.clearInterval(waitLive);
+        void warm();
+      }
+    }, 400);
+  }
   window.addEventListener('keydown', (e) => {
     if (!params.has('demo') || (e.target instanceof HTMLElement && (e.target.matches('input, textarea, select, button') || e.target.isContentEditable))) return;
     const k = e.key;
@@ -1169,6 +1210,8 @@ async function main() {
     if (k === '2') (setMode('resident'), pick('Kuala Krai'));
     if (k === '3') (setMode('resident'), pick('Kuala Krai'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
     if (k === '4') (setMode('resident'), pick(hillPlaces[0]?.name ?? 'Kampung Jabir'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
+    if (k === '7') document.getElementById('btn-way')!.click();
+    if (k === '8') (setMode('resident'), (homePrecision = 'address'), selectHome(GUCHIL.lngLat, GUCHIL.label, false));
     if (k === '5') (setMode('control'), window.setTimeout(() => void startAgent(), 2400));
     if (k === '6' && control.currentAlert?.status === 'verified') void decide(control.currentAlert._id, 'approve');
   });
