@@ -10,7 +10,8 @@
 //         attempt 1: Flash-Lite quick draft (no tools, no flood info)  → 6 checks
 //         attempts 2–4: Flash with tools refines, using the failure reasons → 6 checks
 //       A tailored village keeps its rules alert if Gemini's plan fails.
-//     → area-wide district warning (template, no Gemini) only for anything still unplanned.
+//     → area-wide district EVACUATE warning (template, no Gemini) only for anything still unplanned,
+//       and district ADVISORIES for villages near a river at alert+ or where the model can't judge.
 //   Nothing is sent here: every alert waits for a human to approve it.
 //
 // Every step is an AgentStep (Tech HUD). Alerts are saved after each attempt so the UI can show
@@ -19,7 +20,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRun, Alert, Village } from "@monsoonwatch/shared";
 import { buildAndVerifyVillage, replanFeedback } from "./build-alerts";
-import { GEMINI_DEFAULTS, buildAreaWarnings, countBy, coverageSummary, rulesSummary, selectForGemini, type AreaWarning, type PlannedBy } from "./coverage";
+import { GEMINI_DEFAULTS, accountabilitySummary, buildAdvisories, buildAreaWarnings, countBy, coverageSummary, rulesSummary, selectForGemini, type AreaWarning, type PlannedBy } from "./coverage";
 import { geminiAI, type AgentAI, type RefineFeedback } from "./gemini-planners";
 import { planAllByRules, type GeminiReason } from "./rules-planner";
 import type { AtRiskVillage, VillagePlan } from "./schemas";
@@ -73,7 +74,7 @@ export interface RunResult {
   rulesAlerts: Alert[];
   /** Who ended up covering each at-risk village. */
   plannedBy: Map<string, PlannedBy>;
-  /** Fallback drafts needing approval; not saved yet (shared contract pending, see coverage.ts). */
+  /** District drafts needing approval — kind "evacuate" (fallback) and "advisory"; not saved yet (shared contract pending, see coverage.ts). */
   areaWarnings: AreaWarning[];
   atRisk: number;
 }
@@ -206,21 +207,32 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       }
     }
 
-    // 4. Fallback: area-wide district warnings (template, no AI) for anything still unplanned
+    // 4. Fallback: area-wide district EVACUATE warnings (template, no AI) for anything still unplanned
     for (const f of fallback) plannedBy.set(f.village._id, "area-wide");
-    const areaWarnings = buildAreaWarnings(fallback, { regionId: s.region._id, runId, languages: s.region.languages });
-    for (const w of areaWarnings) {
+    const evacuate = buildAreaWarnings(fallback, { regionId: s.region._id, runId, languages: s.region.languages });
+    for (const w of evacuate) {
       await emitStep({
         runId, actor: "Agent", kind: "info", status: "ok",
-        summary: `Fallback: area-wide ${w.level.toUpperCase()} ${w.hazard} warning drafted for ${w.district}: ${w.villageIds.length} villages, ${w.people.toLocaleString()} people (template, no AI; needs approval)${test}`,
+        summary: `Fallback: area-wide ${w.level.toUpperCase()} ${w.hazard} EVACUATE warning drafted for ${w.district}: ${w.villageIds.length} villages, ${w.people.toLocaleString()} people, ${w.vulnerable.toLocaleString()} vulnerable (pickups for officials to arrange; template, no AI; needs approval)${test}`.slice(0, 300),
       });
     }
     await emitStep({ runId, actor: "Agent", kind: "info", status: plannedBy.size === atRisk.length ? "ok" : "fail", summary: `${coverageSummary(plannedBy, atRisk.length)}${test}` });
 
+    // 5. Advisories: villages near a river at alert+ ("watch") or where the model can't judge ("unknown")
+    const advisories = buildAdvisories(shortlist.screen, { regionId: s.region._id, runId, languages: s.region.languages });
+    for (const w of advisories) {
+      await emitStep({
+        runId, actor: "Agent", kind: "info", status: "ok",
+        summary: `Advisory (${w.level.toUpperCase()}) drafted for ${w.district}: ${w.villageIds.length} villages, ${w.people.toLocaleString()} people: ${w.basis} (template, no AI; needs approval)${test}`.slice(0, 300),
+      });
+    }
+    await emitStep({ runId, actor: "Agent", kind: "info", status: "ok", summary: `${accountabilitySummary(shortlist.screen, advisories, s.villages.length)}${test}`.slice(0, 300) });
+    const areaWarnings = [...evacuate, ...advisories];
+
     const geminiVerified = outcomes.filter((o) => o.passed).reduce((n, o) => n + o.alerts.length, 0);
     await emitStep({
       runId, actor: "Agent", kind: "info", status: "ok",
-      summary: `Run finished: ${rulesAlerts.length + geminiVerified} verified alert(s) waiting for approval (${rulesAlerts.length} by rules, ${geminiVerified} by Gemini); ${areaWarnings.length} area-wide warning(s) drafted${test}`,
+      summary: `Run finished: ${rulesAlerts.length + geminiVerified} verified alert(s) waiting for approval (${rulesAlerts.length} by rules, ${geminiVerified} by Gemini); ${evacuate.length} area-wide evacuate warning(s) and ${advisories.length} advisory(ies) drafted${test}`,
     });
     run.status = "done";
     run.finishedAt = new Date().toISOString();

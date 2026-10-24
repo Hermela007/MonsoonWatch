@@ -75,7 +75,8 @@ export function buildServer(opts: { webRoot?: string; serveWeb?: boolean; public
       prefix: "/",
       cacheControl: false,
       setHeaders(res, path) {
-        if (path.includes("/assets/")) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        // `path` uses the OS separator (backslashes on Windows), so normalise before matching.
+        if (path.replaceAll("\\", "/").includes("/assets/")) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         else res.setHeader("Cache-Control", "no-cache");
       },
     });

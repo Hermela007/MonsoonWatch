@@ -15,6 +15,7 @@ import type { Village } from "@monsoonwatch/shared";
 import { interactJson } from "./gemini";
 import { haversineKm } from "./geo";
 import { MODELS } from "./models";
+import { GEMINI_CENTRES_SHOWN } from "./rules-planner";
 import { planRoute, type RoadGraph, type RouteMode } from "./route";
 import { OrchestratorPlanSchema, VillagePlanSchema, type AtRiskVillage, type OrchestratorPlan, type VillagePlan } from "./schemas";
 import type { Shortlist } from "./shortlist";
@@ -56,13 +57,15 @@ export interface AgentAI {
 const tag = (s: Situation) => (s.isTestData ? " [TEST DATA]" : "");
 
 /** Nearest centres only (the real region has hundreds): keeps prompts and tool output small. */
-export const MAX_CENTRES_SHOWN = 12;
+export const MAX_CENTRES_SHOWN = GEMINI_CENTRES_SHOWN;
 
 function centresFor(s: Situation, village: Village) {
   return s.centres
+    .filter((c) => s.centreStatusById?.get(c._id) !== "at_risk") // never offer a centre C's model says is at risk
     .map((c) => ({
       id: c._id, name: c.name, capacity: c.capacity, headcount: c.headcount,
       freePlaces: c.capacity - c.headcount, elevationM: c.elevationM,
+      floodStatus: s.centreStatusById?.get(c._id) ?? "unknown",
       distanceKm: Math.round(haversineKm(village.location.coordinates, c.location.coordinates) * 10) / 10,
     }))
     .sort((a, b) => a.distanceKm - b.distanceKm)
@@ -89,7 +92,7 @@ function villageTools(task: VillageTask): AgentTool[] {
       decl: {
         type: "function",
         name: "list_evac_centres",
-        description: `The ${MAX_CENTRES_SHOWN} nearest evacuation centres with free places and straight-line distance from the village, nearest first.`,
+        description: `The ${MAX_CENTRES_SHOWN} nearest evacuation centres (centres at risk of flooding are left out) with free places, flood status and straight-line distance from the village, nearest first.`,
         parameters: { type: "object", properties: {}, required: [] },
       },
       run: () => centresFor(s, village),

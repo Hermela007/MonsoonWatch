@@ -24,6 +24,9 @@ The plan:
   "en"), each at most 500 characters (SMS/WhatsApp). Say: the danger, when, which centre, how
   people will be moved, and that bedridden/disabled residents will be collected first. Calm,
   clear, no jargon. Do not invent phone numbers or names.
+  Each message MUST START with the level word for the alert's level, in capitals — Malay:
+  WASPADA (alert), AMARAN (warning), BAHAYA (danger); English: ALERT, WARNING, DANGER — e.g.
+  "BAHAYA: …" / "DANGER: …". Never use another level's word as the headline.
 - reasoning — one or two sentences.
 
 Your plan is checked by deterministic code (thresholds, routes, capacity, freshness, language,

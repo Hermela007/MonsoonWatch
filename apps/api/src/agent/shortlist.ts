@@ -66,6 +66,9 @@ export interface RiskScreen {
   atRisk: VillageRisk[];
   /** Gauge at alert+ nearby but no concrete evidence at the village. */
   watch: { village: Village; level: AlertLevel }[];
+  /** No risk signal, but the flood model can't say: nearest road "unknown" (no gauge in range) or no road within coverageKm. Never "safe". */
+  unknown: { village: Village; reason: string }[];
+  /** No risk signal and the nearest road was assessed (clear / outside the floodplain). */
   noSignal: Village[];
 }
 
@@ -77,6 +80,7 @@ export interface DistrictSummary {
   landslideRunout: number;
   floodModelGap: number;
   watch: number;
+  unknown: number;
   noSignal: number;
 }
 
@@ -91,6 +95,7 @@ export interface Shortlist {
   omitted: {
     atRiskOverCap: number;
     watch: number;
+    unknown: number;
     noSignal: number;
     centresFar: number;
     centresOverCap: number;
@@ -211,8 +216,17 @@ export function screenVillages(s: Situation, opts: ShortlistOptions = {}): RiskS
   const runouts = LineIndex.of(s.hazards.landslide.runouts.map((r) => ({ coords: r.coordinates, level: levelFromRisk(r.risk) })));
   // Unknown ≠ safe: without the assessed set, the flood model covers nothing.
   const assessed = LineIndex.of(s.assessedRoadIds ? s.roads.filter((r) => s.assessedRoadIds!.has(String(r.id))).map((r) => ({ coords: r.geometry.coordinates })) : []);
+  // C's per-segment status (when loaded): the nearest road within coverageKm says whether the model can judge this spot.
+  const allRoads = s.roadStatusOf ? LineIndex.of(s.roads.map((r) => ({ coords: r.geometry.coordinates, id: String(r.id) }))) : null;
+  /** null = the model can judge it; otherwise why it can't (unknown ≠ safe). */
+  const modelBlindSpot = (p: LngLat): string | null => {
+    if (!allRoads) return assessed.nearest(p, o.coverageKm) ? null : `flood model has no road data within ${o.coverageKm} km`;
+    const near = allRoads.nearest(p, o.coverageKm);
+    if (!near?.id) return `no mapped road within ${o.coverageKm} km — flood model can't assess this spot`;
+    return s.roadStatusOf!(near.id) === "unknown" ? "nearest road's flood status is unknown (no river gauge in range)" : null;
+  };
 
-  const screen: RiskScreen = { atRisk: [], watch: [], noSignal: [] };
+  const screen: RiskScreen = { atRisk: [], watch: [], unknown: [], noSignal: [] };
   for (const v of s.villages) {
     const p = v.location.coordinates;
     const signals: RiskSignal[] = [];
@@ -233,12 +247,14 @@ export function screenVillages(s: Situation, opts: ShortlistOptions = {}): RiskS
     if (road) signals.push({ kind: "flooded_road", level: null, km: road.km, ...(floodGauge && { sourceId: floodGauge.id }), text: `flooded road ${km1(road.km)} km${floodGauge ? ` (flooded from gauge ${floodGauge.id})` : ""} (approximate flood model)` });
     const ls = runouts.nearest(p, o.runoutNearKm);
     if (ls) signals.push({ kind: "landslide_runout", level: ls.level, km: ls.km, text: `landslide runout ${ls.level!.toUpperCase()} ${km1(ls.km)} km (screening)` });
-    const gap = !road && gaugeKm <= o.gapGaugeKm && !assessed.nearest(p, o.coverageKm);
-    if (gap) signals.push({ kind: "flood_model_gap", level: null, km: gaugeKm, text: `flood model has no road data within ${o.coverageKm} km (unknown, not safe)` });
+    const blind = road ? null : modelBlindSpot(p);
+    const gap = !road && gaugeKm <= o.gapGaugeKm && blind !== null;
+    if (gap) signals.push({ kind: "flood_model_gap", level: null, km: gaugeKm, text: `${blind} (unknown, not safe)` });
 
     const concrete = (road ? 1 : 0) + (ls ? 1 : 0);
     if (concrete === 0 && !gap) {
       if (floodLevel) screen.watch.push({ village: v, level: floodLevel });
+      else if (blind) screen.unknown.push({ village: v, reason: blind });
       else screen.noSignal.push(v);
       continue;
     }
@@ -255,11 +271,11 @@ export function screenVillages(s: Situation, opts: ShortlistOptions = {}): RiskS
 }
 
 /** Per-district counts of villages (at risk, watch, no signal) in the given sets. */
-export function summariseDistricts(atRisk: VillageRisk[], watch: RiskScreen["watch"], noSignal: Village[]): DistrictSummary[] {
+export function summariseDistricts(atRisk: VillageRisk[], watch: RiskScreen["watch"], noSignal: Village[], unknown: RiskScreen["unknown"] = []): DistrictSummary[] {
   const by = new Map<string, DistrictSummary>();
   const get = (d: string) => {
     let x = by.get(d);
-    if (!x) by.set(d, (x = { district: d, atRisk: 0, highestLevel: null, floodedRoad: 0, landslideRunout: 0, floodModelGap: 0, watch: 0, noSignal: 0 }));
+    if (!x) by.set(d, (x = { district: d, atRisk: 0, highestLevel: null, floodedRoad: 0, landslideRunout: 0, floodModelGap: 0, watch: 0, unknown: 0, noSignal: 0 }));
     return x;
   };
   for (const r of atRisk) {
@@ -271,6 +287,7 @@ export function summariseDistricts(atRisk: VillageRisk[], watch: RiskScreen["wat
     if (r.signals.some((sig) => sig.kind === "flood_model_gap")) x.floodModelGap++;
   }
   for (const w of watch) get(w.village.district).watch++;
+  for (const u of unknown) get(u.village.district).unknown++;
   for (const v of noSignal) get(v.district).noSignal++;
   return [...by.values()].sort((a, b) =>
     (b.highestLevel ? LEVEL_RANK[b.highestLevel] : 0) - (a.highestLevel ? LEVEL_RANK[a.highestLevel] : 0) || b.atRisk - a.atRisk || a.district.localeCompare(b.district));
@@ -293,10 +310,11 @@ export function shortlistForArgon(s: Situation, opts: ShortlistOptions = {}): Sh
 
   return {
     screen, villages, centres, stations, knowledge,
-    notSent: summariseDistricts(overCap, screen.watch, screen.noSignal),
+    notSent: summariseDistricts(overCap, screen.watch, screen.noSignal, screen.unknown),
     omitted: {
       atRiskOverCap: overCap.length,
       watch: screen.watch.length,
+      unknown: screen.unknown.length,
       noSignal: screen.noSignal.length,
       centresFar: s.centres.length - near.length,
       centresOverCap: near.length - centres.length,
@@ -311,8 +329,9 @@ export function shortlistSummary(sl: Shortlist): string {
   const m = sl.omitted;
   const left = [
     m.atRiskOverCap > 0 ? `${m.atRiskOverCap} at-risk villages over the cap (covered by queue / area-wide warnings)` : "",
-    `${m.watch} watch villages (gauge only, no flooding or runout at the village)`,
-    `${m.noSignal} villages with no risk signal`,
+    `${m.watch} watch villages (gauge at alert+ nearby, no flooding or runout at the village — advisory)`,
+    m.unknown > 0 ? `${m.unknown} villages where the flood model can't judge (unknown, advisory)` : "",
+    `${m.noSignal} villages with no risk signal (nearest road assessed)`,
     m.centresFar + m.centresOverCap > 0 ? `${m.centresFar + m.centresOverCap} centres far from them` : "",
     m.stationsNoReading > 0 ? `${m.stationsNoReading} stations with no reading` : "",
     m.knowledgeOverCap > 0 ? `${m.knowledgeOverCap} documents` : "",

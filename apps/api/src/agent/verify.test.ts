@@ -26,7 +26,7 @@ function makeAlert(over: Partial<Alert> = {}): Alert {
     _id: "a1", regionId: "kelantan", runId: "r1", villageId: "v1", level: "warning", hazard: "flood",
     evacCentreId: "c1", people: 300,
     route: { type: "LineString", coordinates: [[102.2, 5.3], [102.2, 5.32], [102.22, 5.32]] },
-    messages: [{ lang: "ms", text: "Amaran banjir" }, { lang: "en", text: "Flood warning" }],
+    messages: [{ lang: "ms", text: "AMARAN banjir" }, { lang: "en", text: "WARNING: flood" }],
     verification: [], status: "draft", ...over,
   };
 }
@@ -69,6 +69,15 @@ test("stale live reading fails freshness; replay mode skips it", () => {
   assert.equal(live.find((x) => x.check === "freshness")!.passed, false);
   const replay = verifyAlert(makeAlert(), makeCtx({ mode: "replay", evidence: { station, latestReading: old, riskEvents: [] } }));
   assert.equal(replay.find((x) => x.check === "freshness")!.passed, true);
+});
+
+test("message headline must match the alert level (a DANGER alert can't say 'FLOOD WARNING')", () => {
+  const danger = makeAlert({ level: "danger", messages: [{ lang: "ms", text: "BAHAYA banjir" }, { lang: "en", text: "FLOOD WARNING: go now" }] });
+  const r = verifyAlert(danger, makeCtx()).find((x) => x.check === "language")!;
+  assert.equal(r.passed, false);
+  assert.match(r.detail, /en must start with "DANGER"/);
+  const ok = makeAlert({ messages: [{ lang: "ms", text: "  amaran banjir" }, { lang: "en", text: "Warning: flood" }] }); // case-insensitive, leading spaces ok
+  assert.equal(verifyAlert(ok, makeCtx()).find((x) => x.check === "language")!.passed, true);
 });
 
 test("missing Malay message fails the language check", () => {

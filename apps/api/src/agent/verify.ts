@@ -183,17 +183,28 @@ export function checkFreshness(_alert: Alert, ctx: VerifyContext): VerificationR
   return ageMin <= maxMin ? pass("freshness", detail) : fail("freshness", `${detail} — station may be stale`);
 }
 
-// 5. Language: every region language present, non-empty, fits SMS/WhatsApp length.
+/** The word each message must START with, so the text never states a different level than the alert. */
+export const LEVEL_WORDS: Record<string, Record<Exclude<RiskLevel, "normal">, string>> = {
+  ms: { alert: "WASPADA", warning: "AMARAN", danger: "BAHAYA" },
+  en: { alert: "ALERT", warning: "WARNING", danger: "DANGER" },
+};
+
+// 5. Language: every region language present, non-empty, fits SMS/WhatsApp length, and (Malay /
+// English) starts with the alert level's word — e.g. a DANGER alert can't say "FLOOD WARNING".
 export function checkLanguage(alert: Alert, ctx: VerifyContext): VerificationResult {
   const max = ctx.options?.maxMessageChars ?? DEFAULTS.maxMessageChars;
   const problems: string[] = [];
   for (const lang of ctx.region.languages) {
     const msg = alert.messages.find((m) => m.lang === lang);
+    const word = alert.level !== "normal" ? LEVEL_WORDS[lang]?.[alert.level] : undefined;
     if (!msg || msg.text.trim() === "") problems.push(`missing ${lang}`);
     else if (msg.text.length > max) problems.push(`${lang} is ${msg.text.length} chars (max ${max})`);
+    else if (word && !msg.text.trimStart().toUpperCase().startsWith(word)) {
+      problems.push(`${lang} must start with "${word}" (alert level ${alert.level.toUpperCase()}), got "${msg.text.trimStart().slice(0, 30)}…"`);
+    }
   }
   return problems.length === 0
-    ? pass("language", `${ctx.region.languages.join(" + ")} present, ≤ ${max} chars`)
+    ? pass("language", `${ctx.region.languages.join(" + ")} present, ≤ ${max} chars, level word matches`)
     : fail("language", problems.join("; "));
 }
 
