@@ -24,7 +24,12 @@ const SAINT_LABEL: Record<SaintTask['type'], string> = {
 };
 
 /** Control-room panels: the alert under review (with checks and approval) and the Tech HUD. */
-export function createControlUi(h: { onReplay: () => void; onRun: () => void; onDecide: (d: 'approve' | 'reject') => void }) {
+export function createControlUi(h: {
+  onReplay: () => void;
+  onRun: () => void;
+  onDecide: (d: 'approve' | 'reject') => void;
+  onTaskDecide: (taskId: string, d: 'approve' | 'reject') => void;
+}) {
   const steps = new Map<string, HTMLElement>();
   const tasks = new Map<string, HTMLElement>();
   const list = $('hud-list');
@@ -115,6 +120,16 @@ export function createControlUi(h: { onReplay: () => void; onRun: () => void; on
       }
       row.className = `task ${t.status}`;
       row.innerHTML = `<b>${SAINT_LABEL[t.type]}</b><span>${esc(t.detail)}</span><em>${t.status.replace('_', ' ')}</em>`;
+      // Spending (and anything else Saint flags) needs a person: show the decision right on the task.
+      if (t.status === 'awaiting_approval') {
+        const row2 = document.createElement('div');
+        row2.className = 'task-actions';
+        row2.innerHTML = `<button type="button" class="btn btn-primary">Approve</button><button type="button" class="btn">Decline</button>`;
+        const [ok, no] = row2.querySelectorAll('button');
+        ok.addEventListener('click', () => h.onTaskDecide(t._id, 'approve'));
+        no.addEventListener('click', () => h.onTaskDecide(t._id, 'reject'));
+        row.appendChild(row2);
+      }
     },
     note(text: string) {
       this.step({ _id: `note-${Date.now()}`, runId: '', ts: new Date().toISOString(), actor: 'MonsoonWatch', kind: 'info', summary: text, status: 'ok' });

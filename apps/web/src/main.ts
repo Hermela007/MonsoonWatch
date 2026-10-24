@@ -437,6 +437,11 @@ async function main() {
     },
     onRun: () => startAgent(),
     onDecide: (d) => void decide(d),
+    onTaskDecide: (taskId, d) => {
+      // No Saint-task approval route exists in the shared API yet (§1.3), so this is handled locally.
+      if (hub.mode === 'live' && !usingMock) control.note('Saint task approval has no API route yet — recorded locally for the demo');
+      mockAgent.decideTask(taskId, d, 'Duty officer');
+    },
   });
   const hub = createEventHub({
     forceMock: params.has('mock'),

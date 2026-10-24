@@ -149,6 +149,9 @@ h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: u
 .tasks li em { grid-row: 1; grid-column: 2; font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--faint); }
 .tasks li.done em { color: var(--ink); }
 .tasks li.awaiting_approval em { color: var(--slide); }
+.tasks li.failed em { color: var(--faint); }
+.task-actions { grid-column: 1 / -1; display: grid; grid-template-columns: 2fr 1fr; gap: 8px; margin-top: 8px; }
+.task-actions .btn { min-height: 36px; font-size: 13px; }
 
 /* Tech HUD */
 #hud { right: 24px; top: 64px; bottom: 24px; width: 420px; display: flex; flex-direction: column; background: rgba(251, 250, 248, 0.94); border: 1px solid var(--rule); border-radius: 4px; backdrop-filter: blur(8px); }
