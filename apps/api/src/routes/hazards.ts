@@ -1,5 +1,5 @@
-// C6: GET /regions/:id/hazards?ts=<ISO>&mode=live|replay — shared `Hazards` (+ approximate, notes,
-// gauges, worst). Defaults: ts = now, mode = live. A date-only ts ("2014-12-24") means the END of that
+// C6: GET /regions/:id/hazards?ts=<ISO>&mode=live|replay — shared `Hazards` + extras (provenance, road status
+// counts, unknown/landslide road ids, coverage, sources, limitations; see HazardsResult). Defaults: ts = now, mode = live. A date-only ts ("2014-12-24") means the END of that
 // day in Malaysia time (UTC+8), matching replay.tick timestamps (end-of-day MYT).
 import type { FastifyInstance } from "fastify";
 import { HttpError } from "../errors";
@@ -14,10 +14,15 @@ export function parseHazardsTs(raw: string | undefined): Date {
   return ts;
 }
 
+export function parseHazardsMode(raw: string | undefined): "live" | "replay" {
+  const mode = raw ?? "live";
+  if (mode !== "live" && mode !== "replay") throw new HttpError(400, "bad_request", `mode must be "live" or "replay", got "${mode}"`);
+  return mode;
+}
+
 export async function hazardsRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string }; Querystring: { ts?: string; mode?: string } }>("/regions/:id/hazards", async (req): Promise<HazardsResult> => {
-    const mode = req.query.mode ?? "live";
-    if (mode !== "live" && mode !== "replay") throw new HttpError(400, "bad_request", `mode must be "live" or "replay", got "${mode}"`);
+    const mode = parseHazardsMode(req.query.mode);
     const ts = parseHazardsTs(req.query.ts);
     try {
       return await getHazards(req.params.id, ts, mode);

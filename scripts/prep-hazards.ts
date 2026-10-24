@@ -10,6 +10,7 @@
 //     gaugeId      nearest usable JPS river gauge on the same named river; if the river has no name or
 //                  no gauge, the nearest usable gauge overall. gaugeDistM = straight-line distance.
 //     cellId       nearest GloFAS cell (Region.glofasCells) — drives the replay
+//   evac centres get the same `hazard` fields at their point (no bridge flag).
 //   river stations get extra field `hazardGauge` { usable, groundM, riverName, riverDistM, cellId }.
 //     usable = has thresholds, a real location (locationSource nominatim/manual; district-centre
 //     locations are too coarse) and a live level within 10 m of the valley floor (lowest DEM within 1 km)
@@ -19,7 +20,7 @@ import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import type { AnyBulkWriteOperation } from "mongodb";
-import { COLLECTIONS, type LngLat, type Region, type Station } from "@monsoonwatch/shared";
+import { COLLECTIONS, type EvacCentre, type LngLat, type Region, type Station } from "@monsoonwatch/shared";
 import { closeDb, getDb } from "@monsoonwatch/api/db";
 import { env } from "@monsoonwatch/api/env";
 import { elevationAt, loadElevationGrid } from "@monsoonwatch/api/terrain";
@@ -216,6 +217,37 @@ try {
   }
   if (ops.length) await geo.bulkWrite(ops, { ordered: false });
   console.log(`✅ ${n} road segments: hazard fields set (${bridges} bridge segments use end-point ground; ${noGround} outside the DEM)`);
+
+  // Evac centres: same fields at the centre point (centre status, GET /regions/:id/evac-centres).
+  const centres = await db.collection<EvacCentre>(COLLECTIONS.evacCentres).find({ regionId: env.regionId }, { projection: { location: 1 } }).toArray();
+  const centreOps: AnyBulkWriteOperation<EvacCentre>[] = centres.map((c) => {
+    const at = c.location.coordinates;
+    const groundM = elevationAt(grid, at[0], at[1]);
+    const river = nearestRiver(at);
+    const sameRiver = river.name ? usableGauges.filter((g) => g.riverName === river.name) : [];
+    const pool = sameRiver.length ? sameRiver : usableGauges;
+    const gauge = pool.reduce((a, g) => (distM(at, g.at) < distM(at, a.at) ? g : a), pool[0]!);
+    return {
+      updateOne: {
+        filter: { _id: c._id },
+        update: {
+          $set: {
+            hazard: {
+              groundM: groundM === null ? null : Math.round(groundM * 10) / 10,
+              riverDistM: Number.isFinite(river.m) ? Math.round(river.m) : null,
+              riverName: river.name ?? null,
+              gaugeId: gauge?.id ?? null,
+              gaugeDistM: gauge ? Math.round(distM(at, gauge.at)) : null,
+              gaugeSameRiver: sameRiver.length > 0,
+              cellId: nearestCell(at),
+            },
+          },
+        } as never,
+      },
+    };
+  });
+  if (centreOps.length) await db.collection<EvacCentre>(COLLECTIONS.evacCentres).bulkWrite(centreOps, { ordered: false });
+  console.log(`✅ ${centreOps.length} evac centres: hazard fields set`);
 } catch (err) {
   console.error(`❌ ${err instanceof Error ? err.message : err}`);
   process.exitCode = 1;
