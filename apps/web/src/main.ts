@@ -87,7 +87,7 @@ async function main() {
     const r = Math.floor(h.cell / hm.cols);
     return boundary.inside(cellLngLat(hm, h.cell - r * hm.cols, r));
   });
-  const hotspots = createLandslides(hotspotSources, hm, frame, stage.fogColor, { tubeRadiusKm: 0.09, labelled: 1, labelText: 'Landslide risk', labelSpacingKm: 60 });
+  const hotspots = createLandslides(hotspotSources, hm, frame, stage.fogColor, { mask: boundary.texture, tubeRadiusKm: 0.09, labelled: 1, labelText: 'Landslide risk', labelSpacingKm: 60 });
   scene.add(hotspots.group);
 
   // Atlas: real named rivers and towns inside Kelantan; neighbours named just beyond the border.
@@ -247,7 +247,7 @@ async function main() {
       scene.remove(slides.group);
       slides.dispose();
     }
-    slides = createLandslides(local, hm, frame, stage.fogColor);
+    slides = createLandslides(local, hm, frame, stage.fogColor, { mask: boundary.texture });
     scene.add(slides.group);
 
     focus.centre.copy(homePos);
@@ -466,6 +466,9 @@ async function main() {
       const local = slopesNear(cell);
       const r = assessHome(hm, hy, cell, local);
       if (r.slideLevel !== 'high' || !r.slide) continue;
+      // Feature only slopes inside Kelantan: the model has no ground beyond the border to show them on.
+      const sr = Math.floor(r.slide.cell / hm.cols);
+      if (!boundary.inside(cellLngLat(hm, r.slide.cell - sr * hm.cols, sr))) continue;
       const both = r.floodLevel !== 'low';
       scored.push({ town: { name: v.name, lngLat: v.lngLat, note: both ? 'landslide + flood' : 'landslide' }, score: r.slide.slopeDeg + (both ? 100 : 0) });
     }

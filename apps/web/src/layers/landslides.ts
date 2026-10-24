@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { FOG } from '../theme';
+import { FOG, THEME } from '../theme';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import type { GeoFrame } from '../geo/region';
 import { cellLngLat, gridCoords, sampleField, type Heightmap } from '../terrain/heightmap';
@@ -24,21 +24,35 @@ float fbm(vec2 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { v += a
 
 const vertexShader = /* glsl */ `
 attribute vec2 aSlide;   // x = along (0 crown → 1 toe), y = across (-1..1)
+attribute vec2 aMaskUv;  // position in the state-boundary mask (same mapping as the terrain)
+varying vec2 vMaskUv;
 uniform float uFront;
 uniform float uFail;
 uniform float uLift;
+uniform float uPit;      // 1 for the visible surface (sunk into a hollow), 0 for the stencil lid
+uniform float uDepth;    // scar depth (world km)
 varying vec2 vSlide;
+varying float vPit;
 varying vec3 vWorld;
 varying float vViewDist;
 ${NOISE}
 void main() {
   vSlide = aSlide;
+  vMaskUv = aMaskUv;
   vec4 w = modelMatrix * vec4(position, 1.0);
   // The deposit stands proud of the slope: a lumpy lobe at the toe once the debris has arrived.
   float across = 1.0 - aSlide.y * aSlide.y;
   float lobe = smoothstep(0.7, 0.95, aSlide.x) * smoothstep(0.75, 1.0, uFront) * uFail;
   float lumps = 0.6 + 0.8 * fbm(w.xz * 9.0);
   w.y += uLift * (1.0 + 1.6 * lobe * across * lumps);
+  // Concave: a deep spoon-shaped hollow at the crown and a shallow channel down the track, opening as the
+  // material leaves. Drawn through a hole in the terrain (stencil), so the rim and nearer ground hide it.
+  float passed = 1.0 - smoothstep(uFront - 0.05, uFront + 0.01, aSlide.x);
+  float scar = smoothstep(0.0, 0.035, aSlide.x) * (1.0 - smoothstep(0.16, 0.34, aSlide.x)) * pow(across, 0.7);
+  float channel = 0.28 * smoothstep(0.18, 0.32, aSlide.x) * (1.0 - smoothstep(0.7, 0.86, aSlide.x)) * pow(across, 0.9);
+  // Always a hollow (slides start in concave hollows on hillsides); it deepens where the slope has failed.
+  vPit = max(scar, channel) * mix(0.6, 1.0, passed * uFail);
+  w.y -= uPit * uDepth * vPit;
   vWorld = w.xyz;
   vec4 mv = viewMatrix * w;
   vViewDist = -mv.z;
@@ -52,66 +66,118 @@ uniform float uFail;
 uniform float uWarn;
 uniform float uMoving;
 uniform float uTime;
-uniform float uHatch;
 uniform vec3 uRisk;
+uniform vec3 uPaper;
+uniform vec3 uLine;
+uniform vec3 uLineStrong;
+uniform vec3 uSunDir;
+uniform float uElevScale; // world units per metre of elevation
 uniform vec3 uFogCol;
 uniform float uFogDensity;
+uniform sampler2D uMask;
+varying vec2 vMaskUv;
 varying vec2 vSlide;
 varying vec3 vWorld;
 varying float vViewDist;
+varying float vPit;
 ${NOISE}
+// Same hairline grid as the terrain, so it carries on into the hollow and bends down with it.
+float gridLine(vec2 p, float period, float w) {
+  vec2 c = p / period;
+  vec2 g = abs(fract(c - 0.5) - 0.5) / max(fwidth(c), vec2(1e-4));
+  return 1.0 - min(min(g.x, g.y) / w, 1.0);
+}
 void main() {
+  // The model is Kelantan only: no ground is drawn beyond the border, so nothing to slide on there.
+  if (texture2D(uMask, vMaskUv).r < 0.5) discard;
   float u = vSlide.x;
   float a = abs(vSlide.y);
-  float aa = fwidth(vSlide.y) * 1.5;
-  float border = smoothstep(1.0 - 2.5 * aa, 1.0 - aa, a);
   float fog = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
+  vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+  n *= sign(n.y + 1e-5); // the screen-derivative normal can point down; the ground always faces up
+  float diff = clamp(dot(n, uSunDir), 0.0, 1.0);
+  // Edge feather: at the rim the hollow's surface meets the terrain, so its colour must match it there.
+  float inner = smoothstep(1.0, 0.55, a) * smoothstep(0.0, 0.03, u) * smoothstep(1.0, 0.9, u);
+  float failed = uFail * step(u, uFront);
+  vec3 ground = uPaper * (0.6 + 0.48 * diff); // the terrain's own shading
+  // Ombre down the slide: deep red where it would tear away, orange down the track, soft yellow where the
+  // debris would come to rest. Lit like the ground so it sits in the terrain, not on it.
+  // (Linear colours: the output pass converts to sRGB.)
+  vec3 ombre = mix(vec3(0.56, 0.055, 0.025), vec3(0.80, 0.22, 0.03), smoothstep(0.06, 0.5, u));
+  ombre = mix(ombre, vec3(0.86, 0.52, 0.09), smoothstep(0.5, 0.95, u));
+  ombre *= 0.72 + 0.4 * diff;
   vec3 col;
-  float alpha;
-  if (uFail < 0.5 || u > uFront) {
-    // Not (yet) failed here: the zone that could fail, as map hatching with a crisp outline.
-    float hatch = step(0.72, fract((vWorld.x + vWorld.z) / uHatch));
-    alpha = max(max(border, hatch * 0.5), 0.1) * mix(0.75, 1.0, uWarn);
-    col = uRisk;
-    // Tension cracks at the crown, spreading downslope as the rain approaches the threshold.
+  if (failed < 0.5) {
+    // At risk: the ground itself, in a hollow, with a warm wash strongest in its deepest part and
+    // strengthening as the rain approaches the slope's threshold.
+    float wash = (0.78 + 0.2 * uWarn) * inner * mix(0.8, 1.0, smoothstep(0.0, 0.5, vPit));
+    col = mix(ground, ombre, wash);
+    // Tension cracks at the crown, spreading downslope as the rain nears the threshold.
     if (uFail < 0.5 && uWarn > 0.0) {
-      float zone = 1.0 - smoothstep(0.04, 0.06 + 0.22 * uWarn, u);
-      float jag = u * 70.0 + fbm(vec2(vSlide.y * 3.0, u * 12.0)) * 4.0;
-      float crack = smoothstep(0.8, 0.96, abs(sin(jag))) * zone * step(a, 0.9);
-      col = mix(col, vec3(0.16, 0.07, 0.04), crack);
-      alpha = max(alpha, crack);
+      float zone = 1.0 - smoothstep(0.03, 0.05 + 0.2 * uWarn, u);
+      float jag = u * 90.0 + fbm(vec2(vSlide.y * 3.0, u * 12.0)) * 5.0;
+      float crack = smoothstep(0.9, 0.98, abs(sin(jag))) * zone * step(a, 0.85);
+      col = mix(col, vec3(0.2, 0.12, 0.08), crack * 0.85);
     }
-    if (alpha < 0.02) discard;
   } else {
-    // Failed: soil exposed. Scar at the crown (dark, bowl-shaded), scoured track, lumpy deposit at the toe.
-    vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-    float light = 0.55 + 0.5 * clamp(dot(n, normalize(vec3(-0.5, 0.85, 0.3))), 0.0, 1.0);
-    float grain = fbm(vWorld.xz * 14.0);
-    float scar = 1.0 - smoothstep(0.12, 0.3, u);
-    float lobe = smoothstep(0.72, 0.9, u);
-    // Streaks along the flow, running while the debris moves.
-    float streak = fbm(vec2(vSlide.y * 5.0, u * 30.0 - uTime * 3.0 * uMoving));
-    // Display colours (this material isn't colour-managed): wet dark soil in the scar, paler scoured
-    // earth on the track, warm mixed debris on the deposit.
-    vec3 track = mix(vec3(0.62, 0.50, 0.40), vec3(0.74, 0.63, 0.52), streak);
-    vec3 scarCol = mix(vec3(0.22, 0.14, 0.09), vec3(0.42, 0.29, 0.20), a * a + 0.35 * grain);
-    vec3 lobeCol = mix(vec3(0.45, 0.32, 0.22), vec3(0.62, 0.47, 0.34), grain);
-    col = mix(track, scarCol, scar);
-    col = mix(col, lobeCol, lobe);
-    col *= light;
-    // The torn crown: a dark rim around the scar's upper edge.
-    float rim = scar * smoothstep(0.82, 0.95, a) + (1.0 - smoothstep(0.0, 0.03, u));
-    col = mix(col, vec3(0.12, 0.07, 0.04), clamp(rim, 0.0, 1.0) * 0.8);
-    // The moving front: a brighter, lumpy band with a ragged edge.
-    float frontBand = uMoving * smoothstep(uFront - 0.08, uFront, u);
-    col = mix(col, vec3(0.66, 0.52, 0.38) * light, frontBand * (0.5 + 0.5 * grain));
-    // Risk colour only as a thin outline, so it still reads as a hazard on the map.
-    col = mix(col, uRisk, border * 0.6);
-    alpha = 1.0;
+    // Failed: exposed soil, darker in the scar, paler where the track was scoured, mixed at the toe.
+    float grain = fbm(vWorld.xz * 16.0);
+    float streak = fbm(vec2(vSlide.y * 6.0, u * 40.0 - uTime * 3.0 * uMoving));
+    float scar = 1.0 - smoothstep(0.1, 0.3, u);
+    vec3 soil = mix(vec3(0.66, 0.55, 0.45), vec3(0.76, 0.66, 0.56), streak);
+    soil = mix(soil, mix(vec3(0.50, 0.38, 0.29), vec3(0.62, 0.50, 0.40), grain), scar);
+    soil *= 0.55 + 0.6 * diff;
+    float frontBand = uMoving * smoothstep(uFront - 0.06, uFront, u);
+    soil = mix(soil, soil * 1.12, frontBand);
+    // Still carries a trace of the ombre, so failed slopes stay legible against the terrain.
+    col = mix(ground, mix(soil, ombre, 0.3), inner);
   }
-  gl_FragColor = vec4(mix(col, uFogCol, fog), alpha);
+  // Ambient occlusion: less sky reaches the floor of the hollow.
+  col *= 1.0 - 0.28 * smoothstep(0.15, 1.0, vPit);
+  // The crown: one fine line where the ground would tear (or has torn) away.
+  float crownLine = (1.0 - smoothstep(0.0, fwidth(u) * 1.5, abs(u - 0.012))) * step(a, 0.95);
+  col = mix(col, uLineStrong * 0.7, crownLine * mix(0.55, 0.9, max(uWarn, failed)));
+  // Grid and 50 m contours continue into the hollow: they bend down with it, which is what reads as concave.
+  float fadeG = 1.0 - smoothstep(60.0, 260.0, vViewDist);
+  col = mix(col, uLine, gridLine(vWorld.xz, 0.1, 0.6) * 0.16 * (1.0 - smoothstep(3.0, 14.0, vViewDist)));
+  col = mix(col, uLine, gridLine(vWorld.xz, 0.25, 0.7) * 0.26 * (1.0 - smoothstep(8.0, 45.0, vViewDist)));
+  col = mix(col, uLine, gridLine(vWorld.xz, 1.0, 0.8) * 0.45 * fadeG);
+  float ce = vWorld.y / (uElevScale * 50.0);
+  float cl = abs(fract(ce - 0.5) - 0.5) / max(fwidth(ce), 1e-4);
+  col = mix(col, uLineStrong, (1.0 - min(cl / 0.7, 1.0)) * 0.35 * inner * (1.0 - smoothstep(10.0, 60.0, vViewDist)));
+  gl_FragColor = vec4(mix(col, uFogCol, fog), 1.0);
 }
 `;
+
+/** Smooth 1D value noise in [0, 1] (deterministic), for natural outlines. */
+function valueNoise(x: number) {
+  const i = Math.floor(x);
+  const f = x - i;
+  const h = (n: number) => {
+    const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  const w = f * f * (3 - 2 * f);
+  return h(i) * (1 - w) + h(i + 1) * w;
+}
+
+/**
+ * The modelled runout steps cell to cell (~0.4 km), which reads as a wiggly line. Keep every other point
+ * and round the corners (Chaikin) so the slide follows the slope as one smooth sweep.
+ */
+function smoothPath(pts: THREE.Vector3[]) {
+  let p = pts.filter((_, i) => i % 2 === 0 || i === pts.length - 1);
+  if (p.length < 3) return pts;
+  for (let it = 0; it < 3; it++) {
+    const out = [p[0]];
+    for (let i = 0; i < p.length - 1; i++) {
+      out.push(p[i].clone().lerp(p[i + 1], 0.25), p[i].clone().lerp(p[i + 1], 0.75));
+    }
+    out.push(p[p.length - 1]);
+    p = out;
+  }
+  return p;
+}
 
 /**
  * Landslides on the valley map, played from the real Dec 2014 rain: the zone that could fail (hatched),
@@ -123,7 +189,7 @@ export function createLandslides(
   hm: Heightmap,
   frame: GeoFrame,
   fogColor: THREE.Color,
-  opts: { tubeRadiusKm?: number; labelled?: number; labelText?: string; labelSpacingKm?: number } = {},
+  opts: { mask: THREE.Texture; tubeRadiusKm?: number; labelled?: number; labelText?: string; labelSpacingKm?: number },
 ) {
   const group = new THREE.Group();
   const owned: { dispose(): void }[] = [];
@@ -144,29 +210,38 @@ export function createLandslides(
   };
 
   /** A strip draped on the terrain: wide spoon at the crown, narrower track, rounded tongue at the toe. */
-  const buildStrip = (curve: THREE.CatmullRomCurve3, lengthKm: number, scale: number) => {
+  const buildStrip = (curve: THREE.CatmullRomCurve3, lengthKm: number, scale: number, seed: number) => {
     const along = Math.round(THREE.MathUtils.clamp(lengthKm / 0.04, 40, 220));
     const pos = new Float32Array(along * ACROSS * 3);
     const uv = new Float32Array(along * ACROSS * 2);
+    const maskUv = new Float32Array(along * ACROSS * 2);
+    const [minLon, minLat, maxLon, maxLat] = hm.bbox;
     const p = new THREE.Vector3();
     const t = new THREE.Vector3();
     for (let i = 0; i < along; i++) {
       const u = i / (along - 1);
       curve.getPointAt(u, p);
       curve.getTangentAt(u, t).setY(0).normalize();
-      const head = Math.sqrt(THREE.MathUtils.clamp(u / 0.05, 0, 1)); // rounded crown
-      const toe = u > 0.88 ? Math.sqrt(Math.max(0, 1 - ((u - 0.88) / 0.12) ** 2)) : 1; // rounded tongue
-      // Widest at the crown, tapering down the track, a modest fan where the debris spreads out.
-      const spoon = THREE.MathUtils.lerp(0.13, 0.055, THREE.MathUtils.smoothstep(u, 0.06, 0.35));
-      const fan = 0.035 * THREE.MathUtils.smoothstep(u, 0.72, 0.92);
-      const hw = Math.max(0.004, (spoon + fan) * head * toe) * widthK * scale;
+      // Natural outline: a blunt, angular crown that opens at once, sides that wander, a track that
+      // narrows unevenly and runs out to nothing — no rounded ends.
+      const head = THREE.MathUtils.smoothstep(u, 0, 0.012);
+      const taper = 1 - 0.9 * THREE.MathUtils.smoothstep(u, 0.55, 1);
+      const body = THREE.MathUtils.lerp(0.12, 0.06, THREE.MathUtils.smoothstep(u, 0.05, 0.4));
+      const wobble = 0.78 + 0.44 * valueNoise(u * lengthKm * 2.2 + seed);
+      const lean = (valueNoise(u * lengthKm * 1.3 + seed * 1.7) - 0.5) * 0.5; // the hollow sits a little off-centre
+      const hw = Math.max(0.004, body * head * taper * wobble) * widthK * scale;
       for (let j = 0; j < ACROSS; j++) {
         const a = (j / (ACROSS - 1)) * 2 - 1;
-        const x = p.x - t.z * a * hw;
-        const z = p.z + t.x * a * hw;
+        // Each side wanders on its own.
+        const side = a < 0 ? 0.85 + 0.3 * valueNoise(u * lengthKm * 3.1 + seed * 2.3) : 0.85 + 0.3 * valueNoise(u * lengthKm * 2.7 + seed * 3.1);
+        const off = (a * side + lean * (1 - a * a)) * hw;
+        const x = p.x - t.z * off;
+        const z = p.z + t.x * off;
         const k = i * ACROSS + j;
         pos.set([x, groundY(x, z), z], k * 3);
         uv.set([u, a], k * 2);
+        const [lon, lat] = frame.worldToLngLat({ x, z });
+        maskUv.set([(lon - minLon) / (maxLon - minLon), (lat - minLat) / (maxLat - minLat)], k * 2);
       }
     }
     const index: number[] = [];
@@ -179,6 +254,7 @@ export function createLandslides(
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('aSlide', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('aMaskUv', new THREE.BufferAttribute(maskUv, 2));
     geo.setIndex(index);
     owned.push(geo);
     return geo;
@@ -201,15 +277,16 @@ export function createLandslides(
 
   const labelledAt: THREE.Vector3[] = [];
   const labelObjs: CSS2DObject[] = [];
-  const slides = sources.map((s) => {
-    const pts = s.path.map((cell) => {
+  const slides = sources.map((s, si) => {
+    const raw = s.path.map((cell) => {
       const r = Math.floor(cell / hm.cols);
       return frame.lngLatToWorld(cellLngLat(hm, cell - r * hm.cols, r), Math.max(hm.elevM[cell], 0));
     });
-    if (pts.length === 1) pts.push(pts[0].clone().add(new THREE.Vector3(0.05, 0, 0.05)));
+    if (raw.length === 1) raw.push(raw[0].clone().add(new THREE.Vector3(0.05, 0, 0.05)));
+    const pts = smoothPath(raw);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
     const lengthKm = Math.max(0.2, curve.getLength());
-    const geos = SCALES.map((sc) => buildStrip(curve, lengthKm, sc));
+    const geos = SCALES.map((sc) => buildStrip(curve, lengthKm, sc, s.cell % 997));
     const mat = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
@@ -227,16 +304,52 @@ export function createLandslides(
         uMoving: { value: 0 },
         uTime: { value: 0 },
         uLift: { value: 0.02 },
-        uHatch: { value: 0.06 },
+        uPit: { value: 1 },
+        uDepth: { value: 0.07 },
         uRisk: { value: risk },
+        uPaper: { value: THEME.paper },
+        uLine: { value: THEME.line },
+        uLineStrong: { value: THEME.lineStrong },
+        uSunDir: { value: new THREE.Vector3(-0.55, 0.75, -0.4).normalize() },
+        uElevScale: { value: frame.elevToY(1) },
         uFogCol: { value: fogColor },
         uFogDensity: FOG,
+        uMask: { value: opts.mask },
       },
     });
     owned.push(mat);
+    mat.depthTest = false;
+    mat.stencilWrite = true;
+    mat.stencilFunc = THREE.EqualStencilFunc;
+    mat.stencilZPass = THREE.KeepStencilOp;
     const mesh = new THREE.Mesh(geos[0], mat);
-    mesh.renderOrder = 2;
+    mesh.renderOrder = 4;
     group.add(mesh);
+    // The lid: the slide's footprint at the surface, invisible, marking (stencil) where its ground is
+    // visible. Once the slope fails the sunken surface is drawn only there, without a depth test, so it
+    // reads as a hollow cut into the hillside.
+    const stencilRef = (si % 254) + 1;
+    mat.stencilRef = stencilRef;
+    const lidMat = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader: 'uniform sampler2D uMask; varying vec2 vMaskUv; void main() { if (texture2D(uMask, vMaskUv).r < 0.5) discard; gl_FragColor = vec4(0.0); }',
+      transparent: true,
+      colorWrite: false,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -8,
+      polygonOffsetUnits: -60,
+      stencilWrite: true,
+      stencilRef,
+      stencilFunc: THREE.AlwaysStencilFunc,
+      stencilZPass: THREE.ReplaceStencilOp,
+      uniforms: { uFront: mat.uniforms.uFront, uFail: mat.uniforms.uFail, uLift: mat.uniforms.uLift, uPit: { value: 0 }, uDepth: mat.uniforms.uDepth, uMask: mat.uniforms.uMask },
+    });
+    owned.push(lidMat);
+    const lid = new THREE.Mesh(geos[0], lidMat);
+    lid.renderOrder = 3;
+    lid.visible = false;
+    group.add(lid);
 
     const crown = pts[0].clone();
     const anchor = new THREE.Object3D();
@@ -260,7 +373,7 @@ export function createLandslides(
     const plume = new THREE.Sprite(plumeMat);
     plume.visible = false;
     group.add(plume);
-    return { source: s, curve, mesh, mat, geos, crown, plume, plumeMat, start: triggerHour(s.triggerRainAcc), failedAt: -1 };
+    return { source: s, curve, mesh, mat, lid, stencilRef, geos, crown, plume, plumeMat, start: triggerHour(s.triggerRainAcc), failedAt: -1 };
   });
 
   const tmp = new THREE.Vector3();
@@ -287,8 +400,11 @@ export function createLandslides(
         u.uWarn.value = THREE.MathUtils.clamp((ratio - WARN_FROM) / (1 - WARN_FROM), 0, 1);
         u.uTime.value = timeS;
         u.uLift.value = 0.05 * SCALES[si];
-        u.uHatch.value = 0.06 * SCALES[si];
-        if (sl.mesh.geometry !== sl.geos[si]) sl.mesh.geometry = sl.geos[si];
+        u.uDepth.value = 0.16 * widthK * SCALES[si];
+        if (sl.mesh.geometry !== sl.geos[si]) sl.mesh.geometry = sl.lid.geometry = sl.geos[si];
+        // Before failure: draped on the slope like any overlay. After: a hollow seen through its lid.
+        // The hollow is drawn through its lid (stencil) at all times.
+        sl.lid.visible = true;
         // Dust at the moving front.
         sl.plume.visible = failed && t < 1.4;
         if (sl.plume.visible) {

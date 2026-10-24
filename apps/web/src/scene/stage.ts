@@ -38,7 +38,7 @@ export function createStage(container: HTMLElement, opts: { bloom: boolean; maxP
   controls.autoRotateSpeed = 0.35;
 
   // Multisampled target: without it the composer silently drops the canvas antialiasing.
-  const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
+  const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType, stencilBuffer: true }));
   const renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
   const bloom = opts.bloom ? new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.5, 0.85) : null;

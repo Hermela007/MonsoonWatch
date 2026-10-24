@@ -70,10 +70,14 @@ void main() {
   vec3 col = uPaper * (0.6 + 0.48 * diff);
   col *= 1.0 - smoothstep(12.0, 40.0, vSlope) * 0.08;
 
-  // Grid: 1 km minor, 5 km major, fading with distance.
+  // Grid at four scales, draped on the relief so the lines bend over hills and down valleys:
+  // 100 m and 250 m (close up), 1 km, 5 km — each fading in once it is large enough on screen to read.
   float fade = 1.0 - smoothstep(60.0, 260.0, vViewDist);
-  col = mix(col, uLine, gridLine(vWorld.xz, 1.0, 1.0) * 0.55 * fade);
-  col = mix(col, uLineStrong, gridLine(vWorld.xz, 5.0, 1.2) * 0.6 * fade);
+  // Hairlines: density gives the texture (and the sense of form), not weight.
+  col = mix(col, uLine, gridLine(vWorld.xz, 0.1, 0.6) * 0.16 * (1.0 - smoothstep(3.0, 14.0, vViewDist)));
+  col = mix(col, uLine, gridLine(vWorld.xz, 0.25, 0.7) * 0.26 * (1.0 - smoothstep(8.0, 45.0, vViewDist)));
+  col = mix(col, uLine, gridLine(vWorld.xz, 1.0, 0.8) * 0.45 * fade);
+  col = mix(col, uLineStrong, gridLine(vWorld.xz, 5.0, 0.9) * 0.5 * fade);
   // Faint 100 m contours.
   float ce = vElev / 100.0;
   float cl = abs(fract(ce - 0.5) - 0.5) / max(fwidth(ce), 1e-4);
@@ -86,8 +90,8 @@ void main() {
 
   // Landslide susceptibility (slope x accumulated rain): the only warm colour on the terrain.
   float risk = smoothstep(18.0, 35.0, vSlope) * smoothstep(0.15, 0.9, uRainAcc) * step(40.0, vElev);
-  float pulse = 0.85 + 0.15 * sin(uTime * 2.0 - vWorld.z * 0.5);
-  col = mix(col, uRiskCol, risk * 0.7 * pulse * mix(1.0, inFocus, uFocusOn));
+  // Kept faint: the slide hollows carry the hazard; this only hints at which slopes are wetting up.
+  col = mix(col, uRiskCol, risk * 0.18 * mix(1.0, inFocus, uFocusOn));
 
   // Outside the home's area: recede into paper.
   col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.18);
