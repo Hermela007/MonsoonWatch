@@ -72,6 +72,23 @@ export interface Village {
   location: { type: "Point"; coordinates: LngLat };
   population: number;
   district: string;
+  // Vulnerable residents (§1.7 decision 3). COUNTS ONLY — never names or addresses.
+  vulnerable?: VulnerableCounts;
+}
+
+export type VulnerableCategory = "bedridden" | "disabled" | "elderly" | "noTransport";
+export type VulnerableCounts = Record<VulnerableCategory, number> & {
+  source: string; // where the numbers come from, e.g. "Estimated from DOSM 2020 census rates"
+  estimated: boolean; // true → UI labels the counts "Estimated"
+};
+
+// One planned pickup group inside an Alert. `order` is 1-based across all of a village's alerts.
+export type PickupVehicle = "boat" | "4x4" | "ambulance" | "bus";
+export interface Pickup {
+  category: VulnerableCategory;
+  people: number;
+  vehicle: PickupVehicle;
+  order: number;
 }
 
 export interface EvacCentre {
@@ -96,7 +113,7 @@ export interface Report {
   // embeddings are added by Atlas automated embedding / Voyage — never sent to the client
 }
 
-export type CheckName = "threshold" | "route" | "capacity" | "freshness" | "language";
+export type CheckName = "threshold" | "route" | "capacity" | "freshness" | "language" | "vulnerable";
 export interface VerificationResult {
   check: CheckName;
   passed: boolean;
@@ -116,6 +133,7 @@ export interface Alert {
   etaHours?: number;
   evacCentreId: string;
   people: number; // how many people this alert sends to evacCentreId (capacity check uses this)
+  pickups?: Pickup[]; // vulnerable-people pickups planned for this alert (§1.7 decision 3)
   route: { type: "LineString"; coordinates: LngLat[] };
   messages: { lang: string; text: string }[];
   verification: VerificationResult[];
