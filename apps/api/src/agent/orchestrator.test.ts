@@ -25,7 +25,7 @@ const naive: VillagePlan = {
       { category: "elderly", people: 40, vehicle: "bus", order: 2 },
       { category: "noTransport", people: 25, vehicle: "bus", order: 3 },
     ],
-    messages: msg("Amaran banjir. Pergi ke SK Manik Urai.", "Flood warning. Go to SK Manik Urai."),
+    messages: msg("BAHAYA banjir. Pergi ke SK Manik Urai.", "DANGER: flood. Go to SK Manik Urai."),
   }],
 };
 
@@ -40,12 +40,12 @@ const fixed: VillagePlan = {
         { category: "disabled", people: 8, vehicle: "boat", order: 2 },
         { category: "elderly", people: 40, vehicle: "boat", order: 3 },
       ],
-      messages: msg("Amaran banjir. Bot ke SMK Kuala Krai.", "Flood warning. Boats to SMK Kuala Krai."),
+      messages: msg("BAHAYA banjir. Bot ke SMK Kuala Krai.", "DANGER: flood. Boats to SMK Kuala Krai."),
     },
     {
       evacCentreId: "test-sk-manik-urai", people: 50, routeMode: "road",
       pickups: [{ category: "noTransport", people: 25, vehicle: "bus", order: 4 }],
-      messages: msg("Amaran banjir. Bas ke SK Manik Urai.", "Flood warning. Bus to SK Manik Urai."),
+      messages: msg("BAHAYA banjir. Bas ke SK Manik Urai.", "DANGER: flood. Bus to SK Manik Urai."),
     },
   ],
 };
@@ -60,7 +60,7 @@ const tualang: VillagePlan = {
       { category: "elderly", people: 20, vehicle: "bus", order: 3 },
       { category: "noTransport", people: 10, vehicle: "bus", order: 4 },
     ],
-    messages: msg("Amaran banjir. Pergi ke Dewan Tualang.", "Flood warning. Go to Dewan Tualang."),
+    messages: msg("AMARAN banjir. Pergi ke Dewan Tualang.", "WARNING: flood. Go to Dewan Tualang."),
   }],
 };
 

@@ -9,7 +9,9 @@ Return a plan in the schema:
 - routeMode — "road" or "boat", your best guess.
 - pickups — every vulnerable resident in a pickup; order bedridden, disabled, elderly, then
   people without transport (1, 2, 3 … across all groups); a sensible vehicle for each.
-- messages — one alert per language listed ("ms" and "en"), each at most 500 characters.
+- messages — one alert per language listed ("ms" and "en"), each at most 500 characters, each
+  STARTING with the level word in capitals: Malay WASPADA / AMARAN / BAHAYA, English ALERT /
+  WARNING / DANGER for alert / warning / danger (e.g. "BAHAYA: …", "DANGER: …").
 - reasoning — one sentence.
 
 Be fast and sensible. This draft is checked by deterministic code straight away; if it fails,

@@ -31,7 +31,10 @@ export const RULES = {
 };
 
 export type GeminiReason = "no_route" | "no_centre_with_space" | "conflicting_signals" | "check_failed";
-export type FallbackReason = "off_network" | "no_population";
+export type FallbackReason = "off_network" | "no_population" | "too_big";
+
+/** Centres a Gemini subagent is shown (list_evac_centres / the draft prompt): the nearest N. */
+export const GEMINI_CENTRES_SHOWN = 12;
 
 export type RulesResult =
   | { ok: true; risk: VillageRisk; claim: AtRiskVillage; built: BuiltVillage; alloc: Map<string, number>; boatGroups: number }
@@ -283,6 +286,16 @@ export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: 
     take(boat.reached);
   }
   if (left > 0) {
+    // Too big for what Gemini could use (the GEMINI_CENTRES_SHOWN nearest centres it is shown) →
+    // no Gemini attempt can pass the capacity check: area-wide warning straight away.
+    const ceiling = s.centres
+      .map((c) => ({ c, km: haversineKm(v.location.coordinates, c.location.coordinates) }))
+      .sort((a, b) => a.km - b.km)
+      .slice(0, GEMINI_CENTRES_SHOWN)
+      .reduce((n, x) => n + Math.max(0, ledger.free(x.c)), 0);
+    if (v.population > ceiling) {
+      return no("fallback", "too_big", `${v.name}: ${v.population.toLocaleString()} people but only ${ceiling.toLocaleString()} free places at the ${GEMINI_CENTRES_SHOWN} nearest centres — area-wide warning (no plan could fit)`);
+    }
     if (groups.length === 0) {
       const anyNear = candidates.some((c) => haversineKm(v.location.coordinates, c.location.coordinates) <= RULES.maxRouteKm);
       return anyNear

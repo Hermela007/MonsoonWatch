@@ -15,6 +15,7 @@ import type { Village } from "@monsoonwatch/shared";
 import { interactJson } from "./gemini";
 import { haversineKm } from "./geo";
 import { MODELS } from "./models";
+import { GEMINI_CENTRES_SHOWN } from "./rules-planner";
 import { planRoute, type RoadGraph, type RouteMode } from "./route";
 import { OrchestratorPlanSchema, VillagePlanSchema, type AtRiskVillage, type OrchestratorPlan, type VillagePlan } from "./schemas";
 import type { Shortlist } from "./shortlist";
@@ -56,7 +57,7 @@ export interface AgentAI {
 const tag = (s: Situation) => (s.isTestData ? " [TEST DATA]" : "");
 
 /** Nearest centres only (the real region has hundreds): keeps prompts and tool output small. */
-export const MAX_CENTRES_SHOWN = 12;
+export const MAX_CENTRES_SHOWN = GEMINI_CENTRES_SHOWN;
 
 function centresFor(s: Situation, village: Village) {
   return s.centres

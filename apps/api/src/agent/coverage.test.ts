@@ -24,11 +24,19 @@ test("Gemini gets every fix first (urgency order), then the top tailored village
   assert.deepEqual(overCap, []);
 });
 
-test("over the cap: fixes beyond it go to the fallback; tailoring is dropped first", () => {
-  const results = [gem(0), gem(1), gem(2), ok(3)];
-  const { picks, overCap } = selectForGemini(results, { cap: 2, tailorTop: 5 });
-  assert.deepEqual(picks.map((p) => p.risk.village._id), ["v0", "v1"]);
-  assert.deepEqual(overCap.map((p) => p.risk.village._id), ["v2"]);
+test("over the cap: half the slots stay reserved for tailoring; fixes beyond the rest go to the fallback", () => {
+  const results = [gem(0), gem(1), gem(2), gem(3), ok(4), ok(5), ok(6)];
+  const { picks, overCap } = selectForGemini(results, { cap: 4, tailorTop: 5, preferred: ["v6", "v3"] });
+  // Argon's order first in both lists: fixes v3 then v0; tailored v6 then v4.
+  assert.deepEqual(picks.map((p) => [p.risk.village._id, p.why]), [["v3", "fix"], ["v0", "fix"], ["v6", "tailor"], ["v4", "tailor"]]);
+  assert.deepEqual(overCap.map((p) => p.risk.village._id), ["v1", "v2"]);
+});
+
+test("unused tailoring slots go to fixes, and unused fix slots to tailoring", () => {
+  const fixesOnly = selectForGemini([gem(0), gem(1), gem(2)], { cap: 2, tailorTop: 5 });
+  assert.deepEqual(fixesOnly.picks.map((p) => p.risk.village._id), ["v0", "v1"]);
+  const fewFixes = selectForGemini([gem(0), ok(1), ok(2), ok(3), ok(4)], { cap: 4, tailorTop: 5 });
+  assert.deepEqual(fewFixes.picks.map((p) => p.why), ["fix", "tailor", "tailor", "tailor"]);
 });
 
 test("summaries count rules, Gemini reasons and fallback; coverage flags anything missing", () => {

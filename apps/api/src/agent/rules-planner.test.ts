@@ -98,20 +98,27 @@ test("why code can't plan: no road or boat route / no space → Gemini; conflict
   const island = road(9); // a road piece connected to nothing
   island.geometry.coordinates = [[102.2, 5.1], [102.21, 5.1]];
   island.properties = { ...island.properties, from: "i0", to: "i1" };
-  const s = situation({ roads: [...ROADS, island], centres: [centre("C1", 2, 80)], hazards: FLOODED_R0 });
+  const island2 = road(8); // another unconnected piece, with a 300-place centre on it
+  island2.geometry.coordinates = [[102.3, 5.3], [102.31, 5.3]];
+  island2.properties = { ...island2.properties, from: "j0", to: "j1" };
+  const far2: EvacCentre = { ...centre("C2", 0, 300), location: { type: "Point", coordinates: [102.31, 5.3] } };
+  const s = situation({ roads: [...ROADS, island, island2], centres: [centre("C1", 2, 80), far2], hazards: FLOODED_R0 });
   const isolated = village("isolated", [102.2, 5.1], 50); // C1 is 23 km away but not connected
-  const big = village("big", node(1), 300); // road to C1, but 80 places
+  const big = village("big", node(1), 300); // road to C1 (80 places); C2's 300 places exist but can't be reached by code
+  const huge = village("huge", node(1), 5000); // more than all 12 nearest centres together (380)
   const conflict = village("conflict", node(1), 10);
   const far = village("far", [102.0, 5.2], 10); // 22 km from any road
   const empty = village("empty", node(1), 0);
   const { results } = plan(s, [
-    risk(isolated), risk(big),
+    risk(isolated), risk(big), risk(huge),
     risk(conflict, [{ kind: "flooded_road", level: null, km: 0.1, text: "flooded road" }]),
     risk(far), risk(empty),
   ]);
   assert.deepEqual(results.map((r) => (r.ok ? "ok" : `${r.to}:${r.reason}`)), [
-    "gemini:no_route", "gemini:no_centre_with_space", "gemini:conflicting_signals", "fallback:off_network", "fallback:no_population",
+    "gemini:no_route", "gemini:no_centre_with_space", "fallback:too_big", "gemini:conflicting_signals", "fallback:off_network", "fallback:no_population",
   ]);
+  const tooBig = results[2]!;
+  assert.ok(!tooBig.ok && /5,000 people but only 380 free places at the 12 nearest centres/.test(tooBig.detail), !tooBig.ok ? tooBig.detail : "");
 });
 
 test("conflict only when a gauge and a river event about the SAME station disagree", () => {

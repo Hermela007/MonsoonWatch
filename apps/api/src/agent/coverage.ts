@@ -32,21 +32,26 @@ export interface GeminiPick {
 }
 
 /**
- * Which villages Gemini gets: every rules failure it can fix (urgency order), then the top
- * `tailorTop` rules-planned villages (Argon's order first), up to `cap`. Fixes over the cap go to
- * the fallback; tailored villages over the cap simply keep their rules alert. Pure.
+ * Which villages Gemini gets (pure), both lists in Argon's order first, then urgency (screen order):
+ *   - fixes: rules failures Gemini can fix (unfixable ones — too big, off network — never get here)
+ *   - tailored: the top `tailorTop` rules-planned villages, for a Gemini-tailored message
+ * Up to half the cap is RESERVED for tailored villages, so Argon's top picks are never crowded out
+ * by fixes; slots either list doesn't use go to the other. Fixes over the cap go to the fallback;
+ * tailored villages over the cap simply keep their rules alert.
  */
 export function selectForGemini(results: RulesResult[], opts: { cap: number; tailorTop: number; preferred?: string[] }) {
-  const fixes: GeminiPick[] = results.flatMap((r) => (!r.ok && r.to === "gemini" ? [{ risk: r.risk, claim: r.claim, why: "fix" as const, reason: r.reason, detail: r.detail }] : []));
-  const ok = results.filter((r) => r.ok);
+  const cap = Math.max(0, opts.cap);
   const rank = new Map((opts.preferred ?? []).map((id, i) => [id, i]));
-  const tailor: GeminiPick[] = [...ok]
-    .sort((a, b) => (rank.get(a.risk.village._id) ?? Infinity) - (rank.get(b.risk.village._id) ?? Infinity)) // stable: screen order otherwise
+  const byArgon = <T extends { risk: VillageRisk }>(list: T[]) =>
+    [...list].sort((a, b) => (rank.get(a.risk.village._id) ?? Infinity) - (rank.get(b.risk.village._id) ?? Infinity)); // stable: screen order otherwise
+  const fixes: GeminiPick[] = byArgon(results.flatMap((r) => (!r.ok && r.to === "gemini" ? [{ risk: r.risk, claim: r.claim, why: "fix" as const, reason: r.reason, detail: r.detail }] : [])));
+  const tailorable: GeminiPick[] = byArgon(results.filter((r) => r.ok))
     .slice(0, opts.tailorTop)
     .map((r) => ({ risk: r.risk, claim: r.claim, why: "tailor" as const }));
-  const picks = [...fixes, ...tailor].slice(0, Math.max(0, opts.cap));
-  const picked = new Set(picks.map((p) => p.risk.village._id));
-  return { picks, overCap: fixes.filter((f) => !picked.has(f.risk.village._id)) };
+  const reserved = Math.min(tailorable.length, Math.floor(cap / 2));
+  const fixPicks = fixes.slice(0, cap - reserved);
+  const tailorPicks = tailorable.slice(0, cap - fixPicks.length);
+  return { picks: [...fixPicks, ...tailorPicks], overCap: fixes.slice(fixPicks.length) };
 }
 
 export function countBy<T extends string>(items: T[]): Partial<Record<T, number>> {
