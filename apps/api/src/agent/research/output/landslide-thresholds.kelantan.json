@@ -1,0 +1,310 @@
+{
+  "regionId": "kelantan",
+  "generatedAt": "2026-10-24T12:19:25.294Z",
+  "method": "deep-research-preview-04-2026 report → gemini-4-argon extraction → deterministic checks",
+  "label": "Screening thresholds from published sources — not a site-specific geotechnical assessment",
+  "decision": "Option A (team, 24 Oct): alert = national empirical 3-day threshold (50% landslide probability; may over-warn in Kelantan's monsoon); warning and danger = published operational 1-day criteria (JKR/JICA early-warning criterion; MetMalaysia continuous-heavy-rain danger warning). Mixed windows: each level is checked against its own window. Screening use only.",
+  "check": {
+    "passed": true,
+    "problems": [],
+    "warnings": [
+      "Mixed accumulation windows (alert 3-day, warning 1-day, danger 1-day): each level must be checked against its own window"
+    ]
+  },
+  "levels": [
+    {
+      "level": "alert",
+      "days": 3,
+      "mm": 47.66,
+      "caveat": "A three-day cumulative rainfall of 47.66 mm is a frequent and entirely benign occurrence in Kelantan during the Northeast Monsoon, meaning this generalized national threshold would likely cause frequent false alarms.",
+      "source": "https://www.mdpi.com/2073-4433/15/5/599"
+    },
+    {
+      "level": "warning",
+      "days": 1,
+      "mm": 100,
+      "caveat": "This operational criterion was established for Federal Roads generally and can be rendered irrelevant during extreme Northeast Monsoon events in Kelantan when daily rainfall routinely surpasses 300 mm to 500 mm.",
+      "source": "https://openjicareport.jica.go.jp/pdf/11679701_01.pdf"
+    },
+    {
+      "level": "danger",
+      "days": 1,
+      "mm": 240,
+      "caveat": "This threshold is a national meteorological continuous heavy rain advisory rather than a site-specific geotechnical landslide threshold calibrated for Kelantan's residual soils.",
+      "source": "https://ahacentre.org/flash-update/flash-update-no-01-flooding-and-landslides-in-malaysia-6-march-2023/"
+    }
+  ],
+  "regionLandslide": {
+    "slopeMinDeg": 25,
+    "rainThresholdsMm": [
+      {
+        "days": 1,
+        "mm": 100
+      },
+      {
+        "days": 1,
+        "mm": 240
+      },
+      {
+        "days": 3,
+        "mm": 47.66
+      }
+    ],
+    "citations": [
+      {
+        "title": "https://www.mdpi.com/2073-4433/15/5/599",
+        "url": "https://www.mdpi.com/2073-4433/15/5/599"
+      },
+      {
+        "title": "https://openjicareport.jica.go.jp/pdf/11679701_01.pdf",
+        "url": "https://openjicareport.jica.go.jp/pdf/11679701_01.pdf"
+      },
+      {
+        "title": "https://ahacentre.org/flash-update/flash-update-no-01-flooding-and-landslides-in-malaysia-6-march-2023/",
+        "url": "https://ahacentre.org/flash-update/flash-update-no-01-flooding-and-landslides-in-malaysia-6-march-2023/"
+      },
+      {
+        "title": "https://www.cidb.gov.my/wp-content/uploads/2022/11/GP_Landslide-Vulneability-Index-and-Risk-Analysis-for-Critical-Infrastructure-in-Malaysia-1.pdf",
+        "url": "https://www.cidb.gov.my/wp-content/uploads/2022/11/GP_Landslide-Vulneability-Index-and-Risk-Analysis-for-Critical-Infrastructure-in-Malaysia-1.pdf"
+      }
+    ]
+  },
+  "extraction": {
+    "slopeMinDeg": 25,
+    "slopeSource": 6,
+    "rainThresholdsMm": [
+      {
+        "level": "alert",
+        "days": 3,
+        "mm": 47.66,
+        "source": 1,
+        "quote": "a three-day cumulative rainfall of 47.66 mm—which represents a 50% landslide probability alert on a generalized national scale",
+        "caveat": "A three-day cumulative rainfall of 47.66 mm is a frequent and entirely benign occurrence in Kelantan during the Northeast Monsoon, meaning this generalized national threshold would likely cause frequent false alarms."
+      },
+      {
+        "level": "warning",
+        "days": 1,
+        "mm": 100,
+        "source": 2,
+        "quote": "The explicit rainfall threshold to trigger a Level 4 Danger alert in these guidelines is set at continuous rainfall exceeding 100 mm per day",
+        "caveat": "This operational criterion was established for Federal Roads generally and can be rendered irrelevant during extreme Northeast Monsoon events in Kelantan when daily rainfall routinely surpasses 300 mm to 500 mm."
+      },
+      {
+        "level": "danger",
+        "days": 1,
+        "mm": 240,
+        "source": 3,
+        "quote": "the ultimate \"Danger\" level is triggered when continuous heavy rain is expected to exceed a cumulative total of 240 mm per day",
+        "caveat": "This threshold is a national meteorological continuous heavy rain advisory rather than a site-specific geotechnical landslide threshold calibrated for Kelantan's residual soils."
+      }
+    ],
+    "notes": "Thresholds were mapped according to the screening model criteria: 'alert' corresponds to the national empirical 3-day cumulative threshold for 50% landslide probability (47.66 mm, Source 1 / inline citation 4); 'warning' corresponds to the JKR/JICA operational 1-day criterion (>100 mm/day, Source 2 / inline citation 5); and 'danger' corresponds to the MetMalaysia 1-day continuous heavy rain danger advisory (>240 mm/day, Source 3 / inline citation 6). The minimum landslide-prone slope angle of 25 degrees (Class 3 terrain requiring mandatory EIA and LVA) is supported by Malaysian hilly terrain guidelines (Source 6 / inline citations 1, 2, 3). Major caveats apply when transposing Peninsular Malaysian thresholds to the Kelantan River Basin: empirical studies are heavily biased toward the West Coast and Cameron Highlands, often rely on rain gauges 5 to 20 km from failure sites, and do not account for the wetter hydro-geomorphological baseline of the East Coast during the Northeast Monsoon (where 5-day antecedent rainfall and extreme multi-day deluges, such as the 1,295 mm over 3 days in December 2014, govern failure)."
+  },
+  "sources": [
+    {
+      "index": 1,
+      "url": "https://www.mdpi.com/2073-4433/15/5/599",
+      "title": "https://www.mdpi.com/2073-4433/15/5/599"
+    },
+    {
+      "index": 2,
+      "url": "https://openjicareport.jica.go.jp/pdf/11679701_01.pdf",
+      "title": "https://openjicareport.jica.go.jp/pdf/11679701_01.pdf"
+    },
+    {
+      "index": 3,
+      "url": "https://ahacentre.org/flash-update/flash-update-no-01-flooding-and-landslides-in-malaysia-6-march-2023/",
+      "title": "https://ahacentre.org/flash-update/flash-update-no-01-flooding-and-landslides-in-malaysia-6-march-2023/"
+    },
+    {
+      "index": 4,
+      "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4438086/",
+      "title": "https://pmc.ncbi.nlm.nih.gov/articles/PMC4438086/"
+    },
+    {
+      "index": 5,
+      "url": "https://www.researchgate.net/publication/308792068_RAINFALL_ANALYSIS_OF_THE_KELANTAN_BIG_YELLOW_FLOOD_2014",
+      "title": "https://www.researchgate.net/publication/308792068_RAINFALL_ANALYSIS_OF_THE_KELANTAN_BIG_YELLOW_FLOOD_2014"
+    },
+    {
+      "index": 6,
+      "url": "https://www.cidb.gov.my/wp-content/uploads/2022/11/GP_Landslide-Vulneability-Index-and-Risk-Analysis-for-Critical-Infrastructure-in-Malaysia-1.pdf",
+      "title": "https://www.cidb.gov.my/wp-content/uploads/2022/11/GP_Landslide-Vulneability-Index-and-Risk-Analysis-for-Critical-Infrastructure-in-Malaysia-1.pdf"
+    },
+    {
+      "index": 7,
+      "url": "https://www.researchgate.net/publication/353921022_Empirically_Based_Rainfall_Threshold_for_Landslides_Occurrence_in_Peninsular_Malaysia",
+      "title": "https://www.researchgate.net/publication/353921022_Empirically_Based_Rainfall_Threshold_for_Landslides_Occurrence_in_Peninsular_Malaysia"
+    },
+    {
+      "index": 8,
+      "url": "http://irep.iium.edu.my/87849/",
+      "title": "http://irep.iium.edu.my/87849/"
+    },
+    {
+      "index": 9,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQELO6MHI69svInBHvpMPoZ17kvYgI4hTrJFg0Ym3y0pf2K6SD6Fbm0eRjjN0oPBwV_RBXiDenYPGP1hqjHgghUdcJbkRC0O5lCIJ7De9nKGvthR5AmZAcONNWHkUvI=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQELO6MHI69svInBHvpMPoZ17kvYgI4hTrJFg0Ym3y0pf2K6SD6Fbm0eRjjN0oPBwV_RBXiDenYPGP1hqjHgghUdcJbkRC0O5lCIJ7De9nKGvthR5AmZAcONNWHkUvI="
+    },
+    {
+      "index": 10,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEs7kGIjSV2dly_rHFMd6sH0GQTWlYnOVNZQqZiK7AAgZMoaEBe1wyesYAFRtmSh0cq77yc9RZ0tV0-gTen9tKAfK8eVzjJ0h3NdQnaBaKuA828uvrEyRh09K2J3QFr_b5SF6wL-zoh4-3pNOf0XhfLVrZcHygdv_YU3UE1HTFRZMXl50T66A9etXhGDmYVjW1MV8HQ5ZWDm9HcoYmDRQMCoreXbjf1O4MZcRTXo-sVwPwDmGTENIbx8QD0x5Pqc1nwVDgSw_W2uRY=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEs7kGIjSV2dly_rHFMd6sH0GQTWlYnOVNZQqZiK7AAgZMoaEBe1wyesYAFRtmSh0cq77yc9RZ0tV0-gTen9tKAfK8eVzjJ0h3NdQnaBaKuA828uvrEyRh09K2J3QFr_b5SF6wL-zoh4-3pNOf0XhfLVrZcHygdv_YU3UE1HTFRZMXl50T66A9etXhGDmYVjW1MV8HQ5ZWDm9HcoYmDRQMCoreXbjf1O4MZcRTXo-sVwPwDmGTENIbx8QD0x5Pqc1nwVDgSw_W2uRY="
+    },
+    {
+      "index": 11,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGdxn5fZLG6WUfQzFfbhAJagc_cPbrZwpm4WupKot8oltPVDmnbahmD-kOdYeY8OulERzNPThNk0n01k1n6nSTntsVibh0IwI0jb1wfZYK7gauOTy1mU0N5aKM779ziJdVxMJofPzSzxM_R9JsR1ps9hw6l5c7vtNm8UZiuCtXgmty0ET_pRCGTQJsfTx1cgstm3NNJbxQcuhI581unDKgjc6eQgA962NwIQrm1W3cxL0iK6888WtkPE7YaKw==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGdxn5fZLG6WUfQzFfbhAJagc_cPbrZwpm4WupKot8oltPVDmnbahmD-kOdYeY8OulERzNPThNk0n01k1n6nSTntsVibh0IwI0jb1wfZYK7gauOTy1mU0N5aKM779ziJdVxMJofPzSzxM_R9JsR1ps9hw6l5c7vtNm8UZiuCtXgmty0ET_pRCGTQJsfTx1cgstm3NNJbxQcuhI581unDKgjc6eQgA962NwIQrm1W3cxL0iK6888WtkPE7YaKw=="
+    },
+    {
+      "index": 12,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHgaybDX31QUg3NpLEcr3u0Z-Vz18MAgdBLTvdVuA4ZJ-DFojnr-e2tn46qopdrIPYL8HhohXMfEJQATD8-7meNyGvYjvlkc3jy9B57YBIP_Dy1jEI3HPV2JFiig2Y=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHgaybDX31QUg3NpLEcr3u0Z-Vz18MAgdBLTvdVuA4ZJ-DFojnr-e2tn46qopdrIPYL8HhohXMfEJQATD8-7meNyGvYjvlkc3jy9B57YBIP_Dy1jEI3HPV2JFiig2Y="
+    },
+    {
+      "index": 13,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGAyrgT80gIfdtez_XbaHPFD6_ahNMQ0rTj51ajpmzZI0iPA2Nm8MUUf1iWH_b6t_W0kS34X5-CysNe6h6QgEmaeg4q4k2lBPzLMCbmg2oznYSyRM0TLhourk9WcKJOLEX9XbrJaodkyaoMLw==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGAyrgT80gIfdtez_XbaHPFD6_ahNMQ0rTj51ajpmzZI0iPA2Nm8MUUf1iWH_b6t_W0kS34X5-CysNe6h6QgEmaeg4q4k2lBPzLMCbmg2oznYSyRM0TLhourk9WcKJOLEX9XbrJaodkyaoMLw=="
+    },
+    {
+      "index": 14,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEBB9iDv8PxeJOaDCszkL2iho8HNPp8mRLLgcvH5W1A3wNKIpk95bj4B_y6Zjp692wYkDOUMtE5IyN2iGYWNwpSYAzl50da7LTOrTjZtQxfRnCHPpp3F8IN5hOIyM-UOvbgSDVdaer4Mm5Q-Em_k21AvcRp56PXhEB5vzWFbqF-COwqZZDikMauRQ8-GxuERbgZ38DCUQgPSvUbi_Qs",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEBB9iDv8PxeJOaDCszkL2iho8HNPp8mRLLgcvH5W1A3wNKIpk95bj4B_y6Zjp692wYkDOUMtE5IyN2iGYWNwpSYAzl50da7LTOrTjZtQxfRnCHPpp3F8IN5hOIyM-UOvbgSDVdaer4Mm5Q-Em_k21AvcRp56PXhEB5vzWFbqF-COwqZZDikMauRQ8-GxuERbgZ38DCUQgPSvUbi_Qs"
+    },
+    {
+      "index": 15,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHiRA8Nz1TS80JDsGpaMz4JLqcH0C771gy_oljBcrc3uSGl9j1KF2WCs6t32tP4TiyZxQ3tQDuYExCs5QhRzteX-0S23oGMF3gtz4XMiEK3nBZZOJh1HFxVu506znaR27aFQKeipPHJ",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHiRA8Nz1TS80JDsGpaMz4JLqcH0C771gy_oljBcrc3uSGl9j1KF2WCs6t32tP4TiyZxQ3tQDuYExCs5QhRzteX-0S23oGMF3gtz4XMiEK3nBZZOJh1HFxVu506znaR27aFQKeipPHJ"
+    },
+    {
+      "index": 16,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGgPBGDAdUn_Rp3ECpXW_xQobRbmZmiYNX8GmLHWhks006kPDYkceng2atbipFkoczYDftdEwD5k2pucv3fUVIOApa3kceq28xUHaAagyVv7LRA4LP0CnJBDuOmNYel4k8xYxYJnZQhWyRly8HFffjimYgVJDhIPL4sbY66XjhwHD_YVz8W-AlIR_z-rrvMliJu7QpMB37724GthfDkt-GEVpp7A32NfDPuE8FBiD2q",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGgPBGDAdUn_Rp3ECpXW_xQobRbmZmiYNX8GmLHWhks006kPDYkceng2atbipFkoczYDftdEwD5k2pucv3fUVIOApa3kceq28xUHaAagyVv7LRA4LP0CnJBDuOmNYel4k8xYxYJnZQhWyRly8HFffjimYgVJDhIPL4sbY66XjhwHD_YVz8W-AlIR_z-rrvMliJu7QpMB37724GthfDkt-GEVpp7A32NfDPuE8FBiD2q"
+    },
+    {
+      "index": 17,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFT-qBDlz4NTXB1G3jvs_EkOTyq3aWiGL1JLGL6wwQzc30Y7aYxTeQ6iTSbAenFF7q9BgdPbDOFN5JoprtcdWgsxcEVaxPP6zydOidoLYOrKKTCnKI0w4ULzWtjarimf9KksT3xsuBzYMmB4NGECOWMNF88ZDfoILKDYHQ1hhUrGCRsSXrgK0BGJnPhBygWioP1m2Ht_PsG2niQEFothkUX",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFT-qBDlz4NTXB1G3jvs_EkOTyq3aWiGL1JLGL6wwQzc30Y7aYxTeQ6iTSbAenFF7q9BgdPbDOFN5JoprtcdWgsxcEVaxPP6zydOidoLYOrKKTCnKI0w4ULzWtjarimf9KksT3xsuBzYMmB4NGECOWMNF88ZDfoILKDYHQ1hhUrGCRsSXrgK0BGJnPhBygWioP1m2Ht_PsG2niQEFothkUX"
+    },
+    {
+      "index": 18,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGIgScmLh0NvQ5XxOAc2quUpnYxjOk4W07OnfbKyP86giLIK0DM_4Eri06mJ5Lgi7KEy9mIGN31MoPjqfq-vetz_WKn9rfIYl92c4yzMzLujJijepKmn4k9jF1BjIH_xqayIOS0zTi6EJchRLp9EjxQdg5DQhlmSdyt5ZUh7i3h-DwoWOjnwgLt3QTijNJ42vPGYn9JNBlN_P4dxN1_iPAMjtX9n72CRiRFSikoI3WpCtlL8FamzoRtVVR2oo-vZg==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGIgScmLh0NvQ5XxOAc2quUpnYxjOk4W07OnfbKyP86giLIK0DM_4Eri06mJ5Lgi7KEy9mIGN31MoPjqfq-vetz_WKn9rfIYl92c4yzMzLujJijepKmn4k9jF1BjIH_xqayIOS0zTi6EJchRLp9EjxQdg5DQhlmSdyt5ZUh7i3h-DwoWOjnwgLt3QTijNJ42vPGYn9JNBlN_P4dxN1_iPAMjtX9n72CRiRFSikoI3WpCtlL8FamzoRtVVR2oo-vZg=="
+    },
+    {
+      "index": 19,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEI2JQNF0tDeoM7MhutHP2z7AcwU366cR_kffdeNOX7KjN8XiBF8rX1zbqfY954QC_2qDwASZLvcrABPC444sFrtKdf9Y4ET7thBMP5-wQoQgLGzARZRRoMqJGV1LAP3LKLBlvdm83Ljb1g3_Qol2nj5gVVYGeBtijMiOrbJSZcoFt7C7gCE9iNzhLgq8Ii7yVj98B_ihFXIXMCvObscSwC3YM6793QMESCfND7EYGdf2LBlbAlUbrQpkF3fV766rDX74uzJbIoboRvok-EBj_HjQ==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEI2JQNF0tDeoM7MhutHP2z7AcwU366cR_kffdeNOX7KjN8XiBF8rX1zbqfY954QC_2qDwASZLvcrABPC444sFrtKdf9Y4ET7thBMP5-wQoQgLGzARZRRoMqJGV1LAP3LKLBlvdm83Ljb1g3_Qol2nj5gVVYGeBtijMiOrbJSZcoFt7C7gCE9iNzhLgq8Ii7yVj98B_ihFXIXMCvObscSwC3YM6793QMESCfND7EYGdf2LBlbAlUbrQpkF3fV766rDX74uzJbIoboRvok-EBj_HjQ=="
+    },
+    {
+      "index": 20,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEXgrAFnycDCtbyYOSedZM1nRDH9zYhU41BPCH89_3u_Li3UalMDlZsZZVoCBD-5Kkqy0zRajOoUlrWY2vasHOECdrl3D9ecW08d7fkIoLG4xQVbltj",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEXgrAFnycDCtbyYOSedZM1nRDH9zYhU41BPCH89_3u_Li3UalMDlZsZZVoCBD-5Kkqy0zRajOoUlrWY2vasHOECdrl3D9ecW08d7fkIoLG4xQVbltj"
+    },
+    {
+      "index": 21,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGS-owiwv7yud0hQBA6eRgaDTj5W8m91Px4faz6N806CvxO1xjGlzpqzaFVZwJa4c6cIZJNep9dGIemMm3hPhOaWjmM7GlKgyh4qUd3GioyEeR7QPhcWhcmjtDNoJ0D64W7ySWYs9YpA0T2p-bKyawtpYa7Cb_8kC7wz-5FRw==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGS-owiwv7yud0hQBA6eRgaDTj5W8m91Px4faz6N806CvxO1xjGlzpqzaFVZwJa4c6cIZJNep9dGIemMm3hPhOaWjmM7GlKgyh4qUd3GioyEeR7QPhcWhcmjtDNoJ0D64W7ySWYs9YpA0T2p-bKyawtpYa7Cb_8kC7wz-5FRw=="
+    },
+    {
+      "index": 22,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFVSX6sNxLkFjIphQuoiN2oR1DZt9GldVDhMUrBdAV6Kh6NWbcRB2VdMwNpIs5-XN9_Xv5hMNn4jDc3mNqPIlV14KWkjmOQbFIrySvBDmw5IKubbRfABCAyx3_6a_WlW-3JI5jIGUUnoggAZRtAa_h0vdCOouXBTp8dBxiFCXIWYn_Mt9zItExqIc4JAaboSExtewDM3_gVL_PBe9Ekiuxqrz0g4kebtgofUbZunKXidqxLX5XdUt506QnPd8Zr-0F9fms_F4ooEJEkmZ2ENieX",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFVSX6sNxLkFjIphQuoiN2oR1DZt9GldVDhMUrBdAV6Kh6NWbcRB2VdMwNpIs5-XN9_Xv5hMNn4jDc3mNqPIlV14KWkjmOQbFIrySvBDmw5IKubbRfABCAyx3_6a_WlW-3JI5jIGUUnoggAZRtAa_h0vdCOouXBTp8dBxiFCXIWYn_Mt9zItExqIc4JAaboSExtewDM3_gVL_PBe9Ekiuxqrz0g4kebtgofUbZunKXidqxLX5XdUt506QnPd8Zr-0F9fms_F4ooEJEkmZ2ENieX"
+    },
+    {
+      "index": 23,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHNLd7PwO5Y6EEAd7HOUPCsjZhZTc4nPhoixfoyZnQzJEZzHDkBd2Fr2KwkyVCzwwbB8v1o3zTBFWH3nRvKUblF9VmaYOQRPy6pYSukbUKe28MsimLe_YFwx6shCC-0S7dPfTEgwTnGMzeM7imTAPzFMZyTdOzeTMrh_zfja2rNpbY8STX6_z9MViKRod3kvETgf-0h5fEIWAPYtjdTeKfhOw==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHNLd7PwO5Y6EEAd7HOUPCsjZhZTc4nPhoixfoyZnQzJEZzHDkBd2Fr2KwkyVCzwwbB8v1o3zTBFWH3nRvKUblF9VmaYOQRPy6pYSukbUKe28MsimLe_YFwx6shCC-0S7dPfTEgwTnGMzeM7imTAPzFMZyTdOzeTMrh_zfja2rNpbY8STX6_z9MViKRod3kvETgf-0h5fEIWAPYtjdTeKfhOw=="
+    },
+    {
+      "index": 24,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGtob5NMJln9Vrkm_BserTVKUlOaMjGNj5tqOmsrBcjZwwr4D-s_VY4duSD5kalLBy_QC8t_IjA_Z_4ou986xDhQxpVm98xNlIVEL1yLeIGmCBFckhH-q1CWg_XT8kyxhzTUap9kSr6zgdIr3_am5O8Tw5G738FhRiXE9F6M8S1PXBudY80F87RqdkC2xsaWJSb5mZ4q-FuwcsvQP6M8u5F0BKBCkKKVo9Tk4uyKm0KGV_KgILIPGDSwpRuUI3Y",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGtob5NMJln9Vrkm_BserTVKUlOaMjGNj5tqOmsrBcjZwwr4D-s_VY4duSD5kalLBy_QC8t_IjA_Z_4ou986xDhQxpVm98xNlIVEL1yLeIGmCBFckhH-q1CWg_XT8kyxhzTUap9kSr6zgdIr3_am5O8Tw5G738FhRiXE9F6M8S1PXBudY80F87RqdkC2xsaWJSb5mZ4q-FuwcsvQP6M8u5F0BKBCkKKVo9Tk4uyKm0KGV_KgILIPGDSwpRuUI3Y"
+    },
+    {
+      "index": 25,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEU48rTjstL8a5y5pw_QFT5bfPDN1d0isj5aAsL-U_5w7lmvXuaQGAeDQE52gh89rK85vu10mh3yzHrfIk5_lNYQ4kN8i4n4pfwgjfnr6jRZPcJpbC9SrIvPsK5DCeWpQcpXZ7ZxnREWpPlfD6lRqkq5ciEhrRWxt-JaBJUgYNkqwRk_YbWGM78CR0DsX-QjQHUvGtbfDzU4so2swCoEENfdlLgAMLzkdqGep6EaTVVgn0x2vWE81LBH7xVJOyshO02_-HoQuPYxcwo6nfOrF1uhcVwAHNp78rknV7q5l73T56Q-Lo=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEU48rTjstL8a5y5pw_QFT5bfPDN1d0isj5aAsL-U_5w7lmvXuaQGAeDQE52gh89rK85vu10mh3yzHrfIk5_lNYQ4kN8i4n4pfwgjfnr6jRZPcJpbC9SrIvPsK5DCeWpQcpXZ7ZxnREWpPlfD6lRqkq5ciEhrRWxt-JaBJUgYNkqwRk_YbWGM78CR0DsX-QjQHUvGtbfDzU4so2swCoEENfdlLgAMLzkdqGep6EaTVVgn0x2vWE81LBH7xVJOyshO02_-HoQuPYxcwo6nfOrF1uhcVwAHNp78rknV7q5l73T56Q-Lo="
+    },
+    {
+      "index": 26,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHqseJMfWuk3iuxbNaM8FhMOR0ArV5jLTszgEDIyXjqBOj12bIWLnfulqiWJeVoO_cx-FIbbNrBBUaK5BFNhcPa8dkOSJrYU6MAhd41l_FTYk8HLgZ9vYC-HdNG-fCu2w==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHqseJMfWuk3iuxbNaM8FhMOR0ArV5jLTszgEDIyXjqBOj12bIWLnfulqiWJeVoO_cx-FIbbNrBBUaK5BFNhcPa8dkOSJrYU6MAhd41l_FTYk8HLgZ9vYC-HdNG-fCu2w=="
+    },
+    {
+      "index": 27,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEdA8P1p8xrc8rWPgu5qz67dtAbAkY3v1m8iZxTISBhb8v1lzSioJoJ12EgfGZWgzjhvRKxJu4mePGKNtsxYPvKyV6534O2fBGn5awTsmcI3Iy64_4V2IeYBQUHFGwKQRU6gp4=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEdA8P1p8xrc8rWPgu5qz67dtAbAkY3v1m8iZxTISBhb8v1lzSioJoJ12EgfGZWgzjhvRKxJu4mePGKNtsxYPvKyV6534O2fBGn5awTsmcI3Iy64_4V2IeYBQUHFGwKQRU6gp4="
+    },
+    {
+      "index": 28,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE7enpGEl7f11oUMTvZN1_DRDe5d7Ns3EeziuWOkrWy73745aLIcb__dx0Ig-ed_VPHNavryC9HtHLHJsth2SmAGVkmErfm9gYcqdN7UTgh6gCAgKmZZwy7IPNincPD1g==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE7enpGEl7f11oUMTvZN1_DRDe5d7Ns3EeziuWOkrWy73745aLIcb__dx0Ig-ed_VPHNavryC9HtHLHJsth2SmAGVkmErfm9gYcqdN7UTgh6gCAgKmZZwy7IPNincPD1g=="
+    },
+    {
+      "index": 29,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUyOQoUshAof_Hmj-OUPjp9VG_dS2GoRxOiXTBY-dtriOqZw1-Uh_do99BYgrZMOmv7sYW-imHA8LIQn5umCQewK4qxrbP0VsaATrbWl1pxItUeoXak_JLAvq-btAX1WY67tn9CqCBcFaHEjeFJau2fWBDyU8xblBOpQy9kzU1iSn_aDUUPGo=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUyOQoUshAof_Hmj-OUPjp9VG_dS2GoRxOiXTBY-dtriOqZw1-Uh_do99BYgrZMOmv7sYW-imHA8LIQn5umCQewK4qxrbP0VsaATrbWl1pxItUeoXak_JLAvq-btAX1WY67tn9CqCBcFaHEjeFJau2fWBDyU8xblBOpQy9kzU1iSn_aDUUPGo="
+    },
+    {
+      "index": 30,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFQ07A1yxHiZg4ulj3lMA6Kmhqqs49YRKnH9T4NjWQDAGUlDE7i2eJ6J_hS8NjQSOWo5YWhOd_zzY5YFhQGo9Uj8WSI-9N7Ye9m7SD4DWnoa-5Rt6TS1K4_xqPGooH2C0m86UrQxuwtL7jxxuoL6yfjETw=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFQ07A1yxHiZg4ulj3lMA6Kmhqqs49YRKnH9T4NjWQDAGUlDE7i2eJ6J_hS8NjQSOWo5YWhOd_zzY5YFhQGo9Uj8WSI-9N7Ye9m7SD4DWnoa-5Rt6TS1K4_xqPGooH2C0m86UrQxuwtL7jxxuoL6yfjETw="
+    },
+    {
+      "index": 31,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGAyQlNatVtYQezcrvg1rN-5cLerbIWt3Aj-HAWTiETUhCOUV2HzNGBn5xs5BsfFYmL5g3EA2WePlA9PNX7R83usHpD_rINAO-bZGFbxpTZGrPDI3bIXB6-HHFgC_Q=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGAyQlNatVtYQezcrvg1rN-5cLerbIWt3Aj-HAWTiETUhCOUV2HzNGBn5xs5BsfFYmL5g3EA2WePlA9PNX7R83usHpD_rINAO-bZGFbxpTZGrPDI3bIXB6-HHFgC_Q="
+    },
+    {
+      "index": 32,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHV5kTr7vN9ybp7pHYhgCeOsrEi2F_7d7fTJq-T8qL0yCVRWbedToaXpNFmNuNTVkIdIUQ5je-RYd_S1Bq9JFh-cO5gadOfRZgIkb_OKg5u3lN17svtw_LM42zo7le2c_SZ_-plYPk3grnpR2BFpqfanCRh9Aw=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHV5kTr7vN9ybp7pHYhgCeOsrEi2F_7d7fTJq-T8qL0yCVRWbedToaXpNFmNuNTVkIdIUQ5je-RYd_S1Bq9JFh-cO5gadOfRZgIkb_OKg5u3lN17svtw_LM42zo7le2c_SZ_-plYPk3grnpR2BFpqfanCRh9Aw="
+    },
+    {
+      "index": 33,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEJvPh26YF8r4vV-wWlVjSZnGgzq32XBb6cBPDPItXOUvcrdFKhr7sfk2N6w7st2vnU_2L5kvDXEt1I0HUdRwmCKBOsE-TF01MqEUZuoL2KmPe1R0YfMZZqnHdfMOTIKK-S0F-UQEEdRlXL2u-0CLfhiFVJbRlaaiRJ-B5MqqEF3DOa9gIF0IAk52wqjlzvGQ-R4QcBWftzwyFyoVU0vcTAmEUNyg==",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEJvPh26YF8r4vV-wWlVjSZnGgzq32XBb6cBPDPItXOUvcrdFKhr7sfk2N6w7st2vnU_2L5kvDXEt1I0HUdRwmCKBOsE-TF01MqEUZuoL2KmPe1R0YfMZZqnHdfMOTIKK-S0F-UQEEdRlXL2u-0CLfhiFVJbRlaaiRJ-B5MqqEF3DOa9gIF0IAk52wqjlzvGQ-R4QcBWftzwyFyoVU0vcTAmEUNyg=="
+    },
+    {
+      "index": 34,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHC2F47FstznKHf_zk75cpnec8B_Gw-ue6jq0RiZ0w7-PT06P1t957BCOZZ7mR9E9oai5vjqNyosF8ow0ClAqs8_2WZHBkLQb3kBXMg0sbW6uu4s58MqN57jJDKxdsRO5aBWXKbZLI203R-mRdALFDC4CVebuA5L3i53FWqF2jaMFHbepYrxdIU20MxUQmFXSMDZdqUFgpbhtvscG-vGrNjUPahqHEgzy-CUe2gE-8=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHC2F47FstznKHf_zk75cpnec8B_Gw-ue6jq0RiZ0w7-PT06P1t957BCOZZ7mR9E9oai5vjqNyosF8ow0ClAqs8_2WZHBkLQb3kBXMg0sbW6uu4s58MqN57jJDKxdsRO5aBWXKbZLI203R-mRdALFDC4CVebuA5L3i53FWqF2jaMFHbepYrxdIU20MxUQmFXSMDZdqUFgpbhtvscG-vGrNjUPahqHEgzy-CUe2gE-8="
+    },
+    {
+      "index": 35,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGGUblHak4HIe60LePRDqAOcR7Am5k4VSHruUKH03mJR9_h9q0DA6AUNWn_MDmdBDWhn-QsZB4jofyUTTq_P7O0qlAYiL-3hLP5sKCLrU1wzaeO-Qoxb39PkX7TEAPSXXNGcjpjmygVrs-kLDBTM8T3qhYmC2xp-tXiKpx8QVtnQ5jjzzP-3nUhZb-pgeoKqsG8PuuzVy_8IriST0coU0RD",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGGUblHak4HIe60LePRDqAOcR7Am5k4VSHruUKH03mJR9_h9q0DA6AUNWn_MDmdBDWhn-QsZB4jofyUTTq_P7O0qlAYiL-3hLP5sKCLrU1wzaeO-Qoxb39PkX7TEAPSXXNGcjpjmygVrs-kLDBTM8T3qhYmC2xp-tXiKpx8QVtnQ5jjzzP-3nUhZb-pgeoKqsG8PuuzVy_8IriST0coU0RD"
+    },
+    {
+      "index": 36,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGE0N3jYkq8P_B7a9Eun_Wza5SGS8mvgOZXxB526HvWif-tXdkwAMlcKGrkm4j7KWCZC0GG-oPgAG75TAYrdn32qtfjJnmCAAf48lmEBx01ZuzvsSCujh-SPSyZH6hDFrOjbpXGYroAR7nqsUQ8eFiUCpirbOpVAZ47weMsGxL4NItnpJAAfauB1S3y",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGE0N3jYkq8P_B7a9Eun_Wza5SGS8mvgOZXxB526HvWif-tXdkwAMlcKGrkm4j7KWCZC0GG-oPgAG75TAYrdn32qtfjJnmCAAf48lmEBx01ZuzvsSCujh-SPSyZH6hDFrOjbpXGYroAR7nqsUQ8eFiUCpirbOpVAZ47weMsGxL4NItnpJAAfauB1S3y"
+    },
+    {
+      "index": 37,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEFjx2neLLfDnUYY88DEVK4JuEZqvporPMoxBPN1qJGtMlqi0RXwRVfJp7qCQxjH-a-jxUaLp_cmp-NpAmIn5K9AcqtNpwDOdkgu1eeWKbfxKN5S6hlpLxj-kNC-wvhQei44m8=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEFjx2neLLfDnUYY88DEVK4JuEZqvporPMoxBPN1qJGtMlqi0RXwRVfJp7qCQxjH-a-jxUaLp_cmp-NpAmIn5K9AcqtNpwDOdkgu1eeWKbfxKN5S6hlpLxj-kNC-wvhQei44m8="
+    },
+    {
+      "index": 38,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHrOAaFWZDiMcMynGTyH58LqwvoSqj__Uslf6e1-roc_eV03pbu_n5tS6IsriIk1qR8s9JYYb0v3Lhtfjp9utgb16YGLA0wSHvI8KtKmWmpkRYLsjEKGXLz2ywBTnQx1aWN1DKCnW33gphssjVnPB5lrcYMCaY=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHrOAaFWZDiMcMynGTyH58LqwvoSqj__Uslf6e1-roc_eV03pbu_n5tS6IsriIk1qR8s9JYYb0v3Lhtfjp9utgb16YGLA0wSHvI8KtKmWmpkRYLsjEKGXLz2ywBTnQx1aWN1DKCnW33gphssjVnPB5lrcYMCaY="
+    },
+    {
+      "index": 39,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGIo2L3cWxVbJcRs8PbPWlTfzPkhrhq78CsinHSG5QhNldgVQfdDzwsxxCE728bCbRjvpYOqUswVn_3FQa7Ns2bl9e5cVjKt-n17if04HMUuR4pO5EQofYKW0nLTqgsO43di0DSMiDI0GbwvVi7mfTVSVWp1bCxzJKLzFf50nKs7__uW6NnJp2L8EvyuV784pZiTeo=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGIo2L3cWxVbJcRs8PbPWlTfzPkhrhq78CsinHSG5QhNldgVQfdDzwsxxCE728bCbRjvpYOqUswVn_3FQa7Ns2bl9e5cVjKt-n17if04HMUuR4pO5EQofYKW0nLTqgsO43di0DSMiDI0GbwvVi7mfTVSVWp1bCxzJKLzFf50nKs7__uW6NnJp2L8EvyuV784pZiTeo="
+    },
+    {
+      "index": 40,
+      "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEFUeScVDeOl_Myum2Ds9FKF6I9C99w3T9pmsztWu2RhveDg-k4BYiTTDviBPcaYoB76Xf3TxhDnp7iaCleTHgguZEB3KzWhkcW28ARVD2h7fHVvOHyoAjtnNVqkNIECELAdtclHjqhCw-xo9o3nvKF6Bl0p-q3nrf_nlYS9A0LygQ_0V5zxebUpZ3epTJqLJLnLblPtTFd85YRmbtbO1FdJEghA4pI8_LSDxqugxsYaJVPiIlvhcme6KoqOqKmSeAZL6orhd8=",
+      "title": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEFUeScVDeOl_Myum2Ds9FKF6I9C99w3T9pmsztWu2RhveDg-k4BYiTTDviBPcaYoB76Xf3TxhDnp7iaCleTHgguZEB3KzWhkcW28ARVD2h7fHVvOHyoAjtnNVqkNIECELAdtclHjqhCw-xo9o3nvKF6Bl0p-q3nrf_nlYS9A0LygQ_0V5zxebUpZ3epTJqLJLnLblPtTFd85YRmbtbO1FdJEghA4pI8_LSDxqugxsYaJVPiIlvhcme6KoqOqKmSeAZL6orhd8="
+    },
+    {
+      "index": 41,
+      "url": "https://generativelanguage.googleapis.com/v1beta/interactions/v1_ChdGSnpjYXFmQU5NZUh4czBQZ3Ftd21BRRIXRkp6Y2FxZkFOTWVIeHMwUGdxbXdtQUU?stream=false",
+      "title": "https://generativelanguage.googleapis.com/v1beta/interactions/v1_ChdGSnpjYXFmQU5NZUh4czBQZ3Ftd21BRRIXRkp6Y2FxZkFOTWVIeHMwUGdxbXdtQUU?stream=false"
+    }
+  ]
+}
