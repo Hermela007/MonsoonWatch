@@ -16,6 +16,8 @@ export interface Situation {
   knowledge: KnowledgeChunk[];
   /** GloFAS main-channel cells (discharge m³/s, reconstructed) — the river evidence in the 2014 replay. */
   glofas?: { id: string; label: string; lngLat: LngLat; latest: Reading | null }[];
+  /** Road segments the flood model assessed (others are unknown, not safe). Not sent to Gemini. */
+  assessedRoadIds?: ReadonlySet<string>;
   /** Caveats from the hazard models (approximate flood model, screening landslide model). */
   hazardNotes?: string[];
   /** True for the sample scenario: shown in HUD summaries so test output is never mistaken for real. */
