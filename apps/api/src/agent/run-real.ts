@@ -56,7 +56,10 @@ try {
     const ok = results.filter((r) => r.ok);
     const alerts = ok.flatMap((r) => r.built.alerts);
     const split = ok.filter((r) => r.built.alerts.length > 1).length;
+    const boatVillages = ok.filter((r) => r.boatGroups > 0);
+    const allBoat = boatVillages.filter((r) => r.boatGroups === r.built.alerts.length).length;
     console.log(`  rules alerts: ${alerts.length} for ${ok.length} villages (${split} split across centres); ${new Set(alerts.map((a) => a.evacCentreId)).size} centres used`);
+    console.log(`  by dry road only: ${ok.length - boatVillages.length} villages · with boats: ${boatVillages.length} (${allBoat} all by boat, ${boatVillages.length - allBoat} road + boat)`);
 
     const { picks, overCap } = selectForGemini(results, { cap: geminiCap, tailorTop: GEMINI_DEFAULTS.tailorTop });
     const fixes = picks.filter((p) => p.why === "fix");
@@ -76,8 +79,11 @@ try {
 
     const check = ok.length + picks.filter((p) => p.why === "fix").length + fallback.length;
     console.log(`\nCoverage: ${screen.atRisk.length} at risk = ${ok.length} rules (${picks.length - fixes.length} of them also tailored by Gemini) + ${fixes.length} Gemini fixes + ${fallback.length} fallback → ${check === screen.atRisk.length ? "every village covered" : `MISMATCH (${check})`}`);
-    const sample = alerts[0];
-    if (sample) console.log(`\nExample rules alert (${sample._id}):\n  ${sample.messages.map((m) => `[${m.lang}] ${m.text}`).join("\n  ")}`);
+    for (const sample of [alerts.find((a) => !boatVillages.some((r) => r.built.alerts.includes(a))), boatVillages[0]?.built.alerts.find((a) => a.pickups?.length)]) {
+      if (!sample) continue;
+      console.log(`\nExample rules alert (${sample._id}; pickups: ${(sample.pickups ?? []).map((p) => `${p.order}.${p.category}×${p.people} ${p.vehicle}`).join(", ") || "none"}):`);
+      console.log(`  ${sample.messages.map((m) => `[${m.lang}] ${m.text}`).join("\n  ")}`);
+    }
     process.exit(0);
   }
   console.log(`Running the agent on REAL ${mode} data @ ${at.toISOString()} (run ${runId}, Gemini cap ${geminiCap})…\n`);

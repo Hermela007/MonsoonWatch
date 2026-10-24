@@ -13,8 +13,8 @@ const risk = (i: number, district = `D${i % 3}`, level: AlertLevel = LEVELS[i % 
   concrete: 1, gaugeKm: 2, vulnerable: 3,
 });
 const claim = (r: VillageRisk) => ({ villageId: r.village._id } as AtRiskVillage);
-const ok = (i: number): RulesResult => ({ ok: true, risk: risk(i), claim: claim(risk(i)), built: { alerts: [], routes: [], planErrors: [], results: [], passed: true }, alloc: new Map() });
-const gem = (i: number, reason: "no_dry_route" | "no_centre_with_space" = "no_dry_route"): RulesResult => ({ ok: false, risk: risk(i), claim: claim(risk(i)), to: "gemini", reason, detail: "x" });
+const ok = (i: number): RulesResult => ({ ok: true, risk: risk(i), claim: claim(risk(i)), built: { alerts: [], routes: [], planErrors: [], results: [], passed: true }, alloc: new Map(), boatGroups: 0 });
+const gem = (i: number, reason: "no_route" | "no_centre_with_space" = "no_route"): RulesResult => ({ ok: false, risk: risk(i), claim: claim(risk(i)), to: "gemini", reason, detail: "x" });
 const fb = (i: number): RulesResult => ({ ok: false, risk: risk(i), claim: claim(risk(i)), to: "fallback", reason: "off_network", detail: "x" });
 
 test("Gemini gets every fix first (urgency order), then the top tailored villages (Argon's order first), up to the cap", () => {
@@ -33,7 +33,7 @@ test("over the cap: fixes beyond it go to the fallback; tailoring is dropped fir
 
 test("summaries count rules, Gemini reasons and fallback; coverage flags anything missing", () => {
   const results = [ok(0), ok(1), gem(2), gem(3, "no_centre_with_space"), fb(4)];
-  assert.equal(rulesSummary(results), "Rules planner (no AI): 2/5 at-risk villages planned + verified; 2 need Gemini (no dry route 1, no centre with space 1); 1 fallback only (off network 1)");
+  assert.equal(rulesSummary(results), "Rules planner (no AI): 2/5 at-risk villages planned + verified; 2 need Gemini (no route 1, no centre with space 1); 1 fallback only (off network 1)");
   const by = new Map([["v0", "rules"], ["v1", "gemini"], ["v2", "area-wide"]] as const);
   assert.equal(coverageSummary(new Map(by), 3), "Coverage: 3 at-risk villages → 1 rules alerts, 1 Gemini alerts, 1 in area-wide fallback warnings");
   assert.match(coverageSummary(new Map(by), 4), /1 MISSING/);

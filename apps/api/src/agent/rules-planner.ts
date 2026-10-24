@@ -1,13 +1,14 @@
 // Deterministic village planner — no Gemini. Gives EVERY at-risk village its own alert, most
 // urgent first, through the same checks as Gemini's plans (build-alerts.ts → verify.ts):
-//   1. usable centres only (not at risk; see centreStatus), nearest by DRY road first
-//      (one Dijkstra per village, route.ts routesToNearestTargets — roads only, never a straight line)
+//   1. usable centres only (not at risk; see centreStatus), nearest by DRY road first; whoever
+//      can't go by dry road goes by BOAT (flooded roads as a stand-in for channels). One Dijkstra
+//      per mode per village (route.ts routesToNearestTargets — roads only, never a straight line)
 //   2. capacity allocated across villages with a running ledger (no double-booking); a village
 //      is split across up to 4 centres if one has no room
-//   3. vulnerable pickups from vulnerable.ts (dry route → ambulance / bus), split with the groups
-//   4. template message (ms + en) naming the centre, the roads and the distance
-// Villages it can't plan go to Gemini with the reason (no dry route, no centre with space,
-// conflicting signals, a failed check) or straight to the area-wide fallback (off the road
+//   3. vulnerable pickups from vulnerable.ts (dry → ambulance / bus; any boat group → all by boat)
+//   4. template message (ms + en) naming the centre, the roads (or boat) and the distance
+// Villages it can't plan go to Gemini with the reason (no road or boat route, no centre with
+// space, conflicting signals, a failed check) or straight to the area-wide fallback (off the road
 // network, no population) where Gemini can't help either.
 
 import type { EvacCentre, Pickup, Village } from "@monsoonwatch/shared";
@@ -29,11 +30,11 @@ export const RULES = {
   centreRunoutKm: 1,
 };
 
-export type GeminiReason = "no_dry_route" | "no_centre_with_space" | "conflicting_signals" | "check_failed";
+export type GeminiReason = "no_route" | "no_centre_with_space" | "conflicting_signals" | "check_failed";
 export type FallbackReason = "off_network" | "no_population";
 
 export type RulesResult =
-  | { ok: true; risk: VillageRisk; claim: AtRiskVillage; built: BuiltVillage; alloc: Map<string, number> }
+  | { ok: true; risk: VillageRisk; claim: AtRiskVillage; built: BuiltVillage; alloc: Map<string, number>; boatGroups: number }
   | { ok: false; risk: VillageRisk; claim: AtRiskVillage; to: "gemini"; reason: GeminiReason; detail: string }
   | { ok: false; risk: VillageRisk; claim: AtRiskVillage; to: "fallback"; reason: FallbackReason; detail: string };
 
@@ -159,8 +160,27 @@ export function templateMessages(args: {
   const km = route.lengthKm.toFixed(1);
   const split = people < village.population;
   const first = pickups[0];
+  const boat = route.mode === "boat";
   const make = (lang: "ms" | "en", withRoads: boolean) => {
     const L = LEVEL_TEXT[lang][claim.level as AlertLevel], H = HAZARD_TEXT[lang][claim.hazard];
+    if (boat) {
+      const flooded = route.crossesFlood;
+      return lang === "ms"
+        ? [
+            `${L} ${H} untuk ${village.name}.`,
+            `${split ? `${people} penduduk: bot` : "Bot"} akan membawa anda ke ${centre.name} (${km} km${flooded ? " melalui jalan yang dinaiki air" : " dengan bot"}).`,
+            "Tunggu di tempat tinggi yang selamat; jangan berjalan atau memandu dalam air banjir.",
+            first ? `${CATEGORY_TEXT.ms[first.category][0]!.toUpperCase()}${CATEGORY_TEXT.ms[first.category].slice(1)} dijemput dahulu.` : "",
+            "Ikut arahan pihak berkuasa.",
+          ].filter(Boolean).join(" ")
+        : [
+            `${L}: ${H} risk for ${village.name}.`,
+            `${split ? `${people} residents: boats` : "Boats"} will take you to ${centre.name} (${km} km${flooded ? " over flooded roads" : " by boat"}).`,
+            "Wait at the highest safe point; do not walk or drive through floodwater.",
+            first ? `${CATEGORY_TEXT.en[first.category][0]!.toUpperCase()}${CATEGORY_TEXT.en[first.category].slice(1)} residents are picked up first.` : "",
+            "Follow official instructions.",
+          ].filter(Boolean).join(" ");
+    }
     if (lang === "ms") {
       return [
         `${L} ${H} untuk ${village.name}.`,
@@ -234,35 +254,53 @@ export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: 
   if (startSnapKm === null || startSnapKm > MAX_SNAP_KM.car) {
     return no("fallback", "off_network", `${v.name}: ${startSnapKm === null ? "no road data" : `${startSnapKm} km from the nearest mapped road`}`);
   }
-  if (reached.length === 0) {
-    const anyNear = candidates.some((c) => haversineKm(v.location.coordinates, c.location.coordinates) <= RULES.maxRouteKm);
-    return anyNear
-      ? no("gemini", "no_dry_route", `${v.name}: no dry road to any usable centre with space within ${RULES.maxRouteKm} km (boat?)`)
-      : no("gemini", "no_centre_with_space", `${v.name}: no usable centre with free places within ${RULES.maxRouteKm} km`);
-  }
 
-  // Allocate nearest-by-road first, up to maxGroups centres.
+  // Allocate nearest-by-dry-road first, then by boat for whoever is left, up to maxGroups centres.
   const alloc = new Map<string, number>();
   const groups: { centre: EvacCentre; route: RouteResult; people: number }[] = [];
   let left = v.population;
-  for (const r of reached) {
-    if (left === 0 || groups.length === RULES.maxGroups) break;
-    const c = byId.get(r.id)!;
-    const take = Math.min(left, ledger.free(c));
-    if (take <= 0) continue;
-    groups.push({ centre: c, route: r.route, people: take });
-    alloc.set(c._id, take);
-    left -= take;
+  const take = (found: typeof reached) => {
+    for (const r of found) {
+      if (left === 0 || groups.length === RULES.maxGroups) break;
+      const c = byId.get(r.id)!;
+      const n = Math.min(left, ledger.free(c) - (alloc.get(c._id) ?? 0));
+      if (n <= 0) continue;
+      groups.push({ centre: c, route: r.route, people: n });
+      alloc.set(c._id, (alloc.get(c._id) ?? 0) + n);
+      left -= n;
+    }
+  };
+  take(reached);
+  if (left > 0 && groups.length < RULES.maxGroups) {
+    // Boat: follows roads as a stand-in for channels and may cross flooded segments (route check allows boats there).
+    const open = candidates.filter((c) => !alloc.has(c._id));
+    const boat = routesToNearestTargets(graph, ctx.blocked, v.location.coordinates, open.map((c) => ({ id: c._id, lngLat: c.location.coordinates })), {
+      maxKm: RULES.maxRouteKm,
+      maxSnapKm: MAX_SNAP_KM.boat,
+      mode: "boat",
+      enough: (r) => r.length >= RULES.maxGroups * 2 || r.reduce((n, x) => n + ledger.free(byId.get(x.id)!), 0) >= left,
+    });
+    take(boat.reached);
   }
   if (left > 0) {
-    return no("gemini", "no_centre_with_space", `${v.name}: only ${v.population - left} of ${v.population} places free at the ${groups.length} nearest dry-road centres`);
+    if (groups.length === 0) {
+      const anyNear = candidates.some((c) => haversineKm(v.location.coordinates, c.location.coordinates) <= RULES.maxRouteKm);
+      return anyNear
+        ? no("gemini", "no_route", `${v.name}: no road or boat connection to any usable centre with space within ${RULES.maxRouteKm} km`)
+        : no("gemini", "no_centre_with_space", `${v.name}: no usable centre with free places within ${RULES.maxRouteKm} km`);
+    }
+    return no("gemini", "no_centre_with_space", `${v.name}: only ${v.population - left} of ${v.population} places free at the ${groups.length} nearest reachable centres (road or boat)`);
   }
 
-  const pickups = splitPickups(suggestPickups(v, false), groups.map((g) => g.people));
+  // Any boat group → all pickups by boat (vulnerable.ts: boats only where the route crosses floodwater; allowed everywhere).
+  const boatGroups = groups.filter((g) => g.route.mode === "boat").length;
+  const pickups = splitPickups(suggestPickups(v, boatGroups > 0), groups.map((g) => g.people));
   const plan: VillagePlan = {
-    reasoning: "Rules planner (no AI): nearest usable centres by dry road, capacity booked across villages, vulnerable pickups by priority.",
+    reasoning: boatGroups
+      ? "Rules planner (no AI): no dry road for everyone — boats along flooded roads (stand-in for channels) to the nearest usable centres, all pickups by boat, capacity booked across villages."
+      : "Rules planner (no AI): nearest usable centres by dry road, capacity booked across villages, vulnerable pickups by priority.",
     groups: groups.map((g, i): VillageGroup => ({
-      evacCentreId: g.centre._id, people: g.people, routeMode: "road", pickups: pickups[i]!,
+      evacCentreId: g.centre._id, people: g.people, routeMode: g.route.mode, pickups: pickups[i]!,
       messages: templateMessages({ languages: s.region.languages, village: v, claim, centre: g.centre, route: g.route, people: g.people, pickups: pickups[i]! }),
     })),
   };
@@ -276,7 +314,7 @@ export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: 
     return no("gemini", "check_failed", `${v.name}: ${why}`.slice(0, 300));
   }
   ledger.book(alloc);
-  return { ok: true, risk, claim, built, alloc };
+  return { ok: true, risk, claim, built, alloc, boatGroups };
 }
 
 /** Plan every at-risk village in urgency order (deterministic, synchronous). */

@@ -67,24 +67,50 @@ test("most urgent village first gets the nearest centre; the next is split witho
   assert.match(b!.built.alerts[0]!.messages.find((m) => m.lang === "ms")!.text, /50 penduduk: pergi ke Centre C1/);
 });
 
-test("why code can't plan: no dry route / no space → Gemini; conflicting signals → Gemini; off network / no population → fallback", () => {
-  const s = situation({
-    villages: [],
-    centres: [centre("C1", 2, 80)],
-    hazards: { blockedRoadIds: ["r0"], blockedRoads: { type: "MultiLineString", coordinates: [[node(0), node(1)]] }, landslide: { cells: [], runouts: [] } },
-  });
-  const cutOff = village("cut", node(0), 50); // its only road is flooded
-  const big = village("big", node(1), 300); // dry road to C1, but 80 places
+const FLOODED_R0 = { blockedRoadIds: ["r0"], blockedRoads: { type: "MultiLineString" as const, coordinates: [[node(0), node(1)]] }, landslide: { cells: [], runouts: [] } };
+
+test("cut off by water: planned by BOAT along the flooded road, all pickups by boat, same checks", () => {
+  const cut = village("cut", node(0), 50, { bedridden: 2, elderly: 4 }); // its only road (r0) is flooded
+  const s = situation({ centres: [centre("C1", 2, 80)], hazards: FLOODED_R0 });
+  const [r] = plan(s, [risk(cut)]).results;
+  assert.ok(r!.ok);
+  assert.equal(r.boatGroups, 1);
+  const a = r.built.alerts[0]!;
+  assert.equal(a.status, "verified");
+  assert.ok(a.verification.find((x) => x.check === "route")!.passed);
+  assert.deepEqual(a.pickups!.map((p) => [p.category, p.vehicle]), [["bedridden", "boat"], ["elderly", "boat"]]);
+  assert.match(a.messages.find((m) => m.lang === "en")!.text, /^WARNING: flood risk for Kampung cut\. Boats will take you to Centre C1 \(2\.2 km over flooded roads\)\. Wait at the highest safe point/);
+  assert.match(a.messages.find((m) => m.lang === "ms")!.text, /Bot akan membawa anda ke Centre C1 \(2\.2 km melalui jalan yang dinaiki air\)/);
+});
+
+test("road first, boat for the rest: 30 by dry road, 70 by boat; then every pickup goes by boat", () => {
+  const v = village("mix", node(1), 100, { disabled: 3 });
+  // "wet" sits at the end of the flooded road but 50 m up (gauge g at 12.5 m) → usable, reachable only by boat.
+  const s = situation({ centres: [centre("dry", 2, 30), centre("wet", 0, 200)], hazards: FLOODED_R0, floodGaugeByRoadId: new Map([["r0", "g"]]) });
+  const [r] = plan(s, [risk(v)]).results;
+  assert.ok(r!.ok, r!.ok ? "" : r!.detail);
+  assert.deepEqual(r.built.alerts.map((a) => [a.evacCentreId, a.people]), [["dry", 30], ["wet", 70]]);
+  assert.deepEqual(r.built.routes.map((x) => x.mode), ["road", "boat"]);
+  assert.ok(r.built.alerts.flatMap((a) => a.pickups ?? []).every((p) => p.vehicle === "boat"));
+});
+
+test("why code can't plan: no road or boat route / no space → Gemini; conflicting signals → Gemini; off network / no population → fallback", () => {
+  const island = road(9); // a road piece connected to nothing
+  island.geometry.coordinates = [[102.2, 5.1], [102.21, 5.1]];
+  island.properties = { ...island.properties, from: "i0", to: "i1" };
+  const s = situation({ roads: [...ROADS, island], centres: [centre("C1", 2, 80)], hazards: FLOODED_R0 });
+  const isolated = village("isolated", [102.2, 5.1], 50); // C1 is 23 km away but not connected
+  const big = village("big", node(1), 300); // road to C1, but 80 places
   const conflict = village("conflict", node(1), 10);
   const far = village("far", [102.0, 5.2], 10); // 22 km from any road
   const empty = village("empty", node(1), 0);
   const { results } = plan(s, [
-    risk(cutOff), risk(big),
+    risk(isolated), risk(big),
     risk(conflict, [{ kind: "flooded_road", level: null, km: 0.1, text: "flooded road" }]),
     risk(far), risk(empty),
   ]);
   assert.deepEqual(results.map((r) => (r.ok ? "ok" : `${r.to}:${r.reason}`)), [
-    "gemini:no_dry_route", "gemini:no_centre_with_space", "gemini:conflicting_signals", "fallback:off_network", "fallback:no_population",
+    "gemini:no_route", "gemini:no_centre_with_space", "gemini:conflicting_signals", "fallback:off_network", "fallback:no_population",
   ]);
 });
 

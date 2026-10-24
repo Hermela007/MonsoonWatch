@@ -224,16 +224,18 @@ const targetSnaps = new WeakMap<RoadGraph, Map<string, { id: string; km: number 
 export interface ReachedTarget { id: string; route: RouteResult }
 
 /**
- * One dry-road Dijkstra from `from` to the nearest targets, in road-distance order (one search
- * instead of one per target). Stops when `enough(reached)` says so or beyond `maxKm` of road.
- * Targets further than `maxSnapKm` from the network are skipped. Routes follow roads only.
+ * One Dijkstra from `from` to the nearest targets, in road-distance order (one search instead of
+ * one per target). Stops when `enough(reached)` says so or beyond `maxKm` of road. Targets further
+ * than `maxSnapKm` from the network are skipped. Routes follow roads only.
+ *   mode "road" (default): flooded segments are never used — dry routes only.
+ *   mode "boat": flooded segments may be used (roads as a stand-in for channels); `crossesFlood` says so.
  */
 export function routesToNearestTargets(
   graph: RoadGraph,
   blockedRoadIds: ReadonlySet<string>,
   from: LngLat,
   targets: RouteTarget[],
-  opts: { maxKm: number; maxSnapKm: number; enough: (reached: ReachedTarget[]) => boolean; excludeHighways?: ReadonlySet<string> },
+  opts: { maxKm: number; maxSnapKm: number; enough: (reached: ReachedTarget[]) => boolean; excludeHighways?: ReadonlySet<string>; mode?: RouteMode },
 ): { startSnapKm: number | null; reached: ReachedTarget[] } {
   const a = nearestNode(graph, from);
   if (!a) return { startSnapKm: null, reached: [] };
@@ -252,6 +254,7 @@ export function routesToNearestTargets(
     else atNode.set(n.id, [entry]);
   }
   const blocked = blockedRoadIds as Set<string>;
+  const mode = opts.mode ?? "road";
   const dist = new Map<string, number>([[a.id, 0]]);
   const prev = new Map<string, { node: string; edge: Edge }>();
   const heap = new MinHeap();
@@ -270,12 +273,14 @@ export function routesToNearestTargets(
         n = p.node;
       }
       for (const { t, snapKm } of here) {
-        reached.push({ id: t.id, route: { ...toResult(from, t.lngLat, path, "road", true, blocked, "Dry road route"), startSnapKm, endSnapKm: snapKm } });
+        const r = toResult(from, t.lngLat, path, mode, true, blocked, mode === "road" ? "Dry road route" : "Boat route");
+        const note = mode === "road" ? r.note : r.crossesFlood ? "Boat route across flooded road segments" : "Boat route (roads also dry)";
+        reached.push({ id: t.id, route: { ...r, note, startSnapKm, endSnapKm: snapKm } });
       }
       if (opts.enough(reached)) break;
     }
     for (const e of graph.adj.get(id) ?? []) {
-      if (blocked.has(e.seg.properties.id)) continue;
+      if (mode === "road" && blocked.has(e.seg.properties.id)) continue;
       if (opts.excludeHighways?.has(e.seg.properties.highway)) continue;
       const nd = k + e.seg.properties.lengthM;
       if (nd < (dist.get(e.to) ?? Infinity)) {

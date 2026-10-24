@@ -2,10 +2,10 @@
 //
 //   deterministic risk screen (shortlist.ts) → Argon reads the shortlist (assessment, ETAs, order)
 //     → rules planner (rules-planner.ts, no Gemini): every at-risk village, most urgent first —
-//       nearest usable centre by dry road, capacity booked across villages, pickups, template
-//       message, the same 6 checks → "verified" alerts (ids tagged ":rules:")
-//     → Gemini, capped (coverage.ts selectForGemini): villages the rules couldn't plan (no dry
-//       route, no centre with space, conflicting signals, a failed check) + the top 5 for tailored
+//       nearest usable centre by dry road (else by boat), capacity booked across villages, pickups,
+//       template message, the same 6 checks → "verified" alerts (ids tagged ":rules:")
+//     → Gemini, capped (coverage.ts selectForGemini): villages the rules couldn't plan (no road or
+//       boat route, no centre with space, conflicting signals, a failed check) + the top 5 for tailored
 //       messages, in batches of 6 until done or stopped. Per village:
 //         attempt 1: Flash-Lite quick draft (no tools, no flood info)  → 6 checks
 //         attempts 2–4: Flash with tools refines, using the failure reasons → 6 checks

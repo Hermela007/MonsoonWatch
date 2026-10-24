@@ -1,6 +1,6 @@
 // Coverage guarantee: EVERY at-risk village ends with an alert.
 //   1. "rules"     — the deterministic planner (rules-planner.ts) plans and verifies it, no Gemini
-//   2. "gemini"    — code couldn't (no dry route, no centre with space, conflicting signals, a
+//   2. "gemini"    — code couldn't (no road or boat route, no centre with space, conflicting signals, a
 //                    failed check), or it's one of the top few by urgency (tailored message):
 //                    Flash-Lite draft → Flash refine, the same checks. Capped (configurable).
 //   3. "area-wide" — fallback for anything still unplanned: a deterministic district warning
