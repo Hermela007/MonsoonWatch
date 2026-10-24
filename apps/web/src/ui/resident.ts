@@ -55,7 +55,7 @@ export function describe(v: ResultView) {
     }
   } else if (risk.slideLevel === 'medium') slide.push(t('slideMedium', { d: fmtDistance(risk.slideDistM / 1000) }));
   else slide.push(t('slideLow'));
-  if (v.upstreamSlopes > 0) slide.push(t('slideUpstream', { n: v.upstreamSlopes }));
+  if (v.upstreamSlopes > 0) slide.push(v.upstreamSlopes === 1 ? t('slideUpstreamOne') : t('slideUpstream', { n: v.upstreamSlopes }));
 
   const action =
     route && route.cells.length > 1
@@ -68,6 +68,7 @@ export function describe(v: ResultView) {
   const level = risk.level === 'high' ? t('riskHigh') : risk.level === 'medium' ? t('riskMedium') : t('riskLow');
   return {
     level,
+    when: leaveBy(v),
     hazards: [
       { key: 'flood', name: t('hazardFlood'), level: risk.floodLevel, levelText: levelText(risk.floodLevel), lines: flood },
       { key: 'slide', name: t('hazardSlide'), level: risk.slideLevel, levelText: levelText(risk.slideLevel), lines: slide },
@@ -76,6 +77,31 @@ export function describe(v: ResultView) {
     action,
     canRoute: !!route && route.cells.length > 1,
   };
+}
+
+/**
+ * When to leave, as a clock time rather than "in N hours": a margin before the water arrives, and a
+ * longer one before a slope may fail (landslides give little warning). Null when no departure is needed.
+ */
+export function leaveBy(v: ResultView): string | null {
+  const { risk, nowHour } = v;
+  const times: number[] = [];
+  if (risk.floodWetHour !== null) times.push(risk.floodWetHour - 6);
+  if (risk.slideLevel === 'high' && risk.slideHour !== null) times.push(risk.slideHour - 12);
+  if (!times.length) return risk.worstWetHour !== null ? t('beReady') : null;
+  const h = Math.min(...times);
+  if (h <= nowHour + 1) return t('leaveNow');
+  // Round down to the hour: a deadline should never be later than the estimate.
+  return t('leaveBy', { when: fmtTime(Math.floor(h)) });
+}
+
+/** An approved alert as the resident sees it: who approved it, where to go, what it says. */
+export interface OfficialAlertView {
+  approvedAt: string | null;
+  approvedBy: string | null;
+  centre: string;
+  people: number;
+  message: string;
 }
 
 export function createResidentUi(
@@ -197,6 +223,8 @@ export function createResidentUi(
         )
         .join('');
       $('risk-action').textContent = current.action;
+      $('risk-when').textContent = current.when ?? '';
+      $('risk-when').hidden = !current.when;
       $<HTMLButtonElement>('btn-way').disabled = !current.canRoute;
     },
     /** Landing loop: show the replay date/time rather than "Now / +h". */
@@ -210,6 +238,20 @@ export function createResidentUi(
       $('clock-tag').textContent = ahead > 48 ? t('laterDays', { d: Math.round(ahead / 24) }) : ahead > 0 ? t('later', { h: ahead }) : t('now');
       $('clock-time').textContent = fmtTime(hour);
       document.body.classList.toggle('future', ahead > 0);
+    },
+    /** The loop closed: an alert a duty officer approved for this place, shown above the model estimate. */
+    setOfficial(a: OfficialAlertView | null) {
+      const box = $('official');
+      box.hidden = !a;
+      if (!a) return;
+      const when = a.approvedAt
+        ? // Wall-clock time of the decision, as the control room shows it.
+          new Date(a.approvedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      $('official-kicker').textContent = t('officialKicker', { when, by: a.approvedBy ?? 'the duty officer' });
+      $('official-go').textContent = t('officialGo', { centre: a.centre });
+      $('official-msg').textContent = a.message;
+      $('official-people').textContent = a.people > 0 ? t('officialPeople', { n: a.people.toLocaleString('en-GB') }) : '';
     },
     setWhatIf(active: boolean) {
       $('btn-whatif').textContent = active ? t('backNow') : t('whatIf');

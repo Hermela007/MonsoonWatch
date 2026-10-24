@@ -1,6 +1,6 @@
 import './styles.css';
 import * as THREE from 'three';
-import { findSlideShot } from './scene/slideShot';
+import { findSlideShots, visibleBounds, type SlideShot } from './scene/slideShot';
 import { GeoFrame, KELANTAN, type LngLat, type Town } from './geo/region';
 import { loadTerrariumGrid } from './terrain/terrarium';
 import { cellLngLat, nearestCell } from './terrain/heightmap';
@@ -20,6 +20,7 @@ import { createResidentUi } from './ui/resident';
 import { createStreet } from './layers/street';
 import { loadAreaFor, type AreaData } from './data/areas';
 import { t } from './ui/copy';
+import { matchPlaces } from './ui/places';
 import { createEventHub } from './api/stream';
 import { decideAlert, fetchAgentRun, fetchSaintTasks, fetchReplayStatus, fetchStations, runAgent, setApiLive, startReplay, stopReplay, type ReplayStatus } from './api/client';
 import { createMockAgent } from './mock/agentScript';
@@ -134,6 +135,7 @@ async function main() {
   let whatIf = false;
   let homePos: THREE.Vector3 | null = null;
   let homeLngLat: LngLat | null = null;
+  let homePlace = '';
   let homeCell = -1;
   let housesFor: Promise<AreaData | null> | null = null;
   let localSlides: SlideSource[] = [];
@@ -144,10 +146,8 @@ async function main() {
   let streetShot: Shot | null = null;
   let shakeUntil = 0;
   let followSlide = true;
-  const followTarget = new THREE.Vector3();
-  const followDir = new THREE.Vector3();
-  let slideShot: { position: THREE.Vector3; target: THREE.Vector3 } | null = null; // landslide vantage (per street)
-  const followPos = new THREE.Vector3();
+  let slideShots: { wide: SlideShot; close: SlideShot } | null = null; // landslide street framing (per street)
+  let settledAt = -1;
   const shakeOff = new THREE.Vector3();
   let wasLanding = true;
   let lastBuried = 0;
@@ -155,6 +155,17 @@ async function main() {
   let lastTotal = 0;
   let viewShot: Shot | null = null;
   const focus: Focus = { centre: new THREE.Vector3(), radiusKm: FOCUS_KM, amount: 0 };
+  /** Keep the address shareable: ?place= (or ?at=lon,lat) for a home, #control for the officials' view. */
+  const syncUrl = (home: { place: string; lngLat: LngLat; named: boolean } | null) => {
+    const u = new URL(location.href);
+    u.searchParams.delete('place');
+    u.searchParams.delete('at');
+    u.searchParams.delete('view');
+    if (home && home.named) u.searchParams.set('place', home.place);
+    else if (home) u.searchParams.set('at', `${home.lngLat[0].toFixed(5)},${home.lngLat[1].toFixed(5)}`);
+    u.hash = document.body.dataset.mode === 'control' ? 'control' : '';
+    history.replaceState(null, '', u);
+  };
   let focusTarget = 0;
 
   // Landing: low oblique view up the valley from the south-east — hills, floodplain and slopes in one frame.
@@ -192,7 +203,7 @@ async function main() {
   };
 
   // ---- Choosing a home ---------------------------------------------------
-  const selectHome = (lngLat: LngLat, place: string) => {
+  const selectHome = (lngLat: LngLat, place: string, namedPlace = true) => {
     const cell = nearestCell(hm, lngLat);
     if (cell === null || hy.seaMask[cell]) {
       ui!.note(t('outside'));
@@ -247,6 +258,9 @@ async function main() {
     // Valley-wide flagged slopes within 30 km and higher than the home: debris can reach its river.
     const upstreamSlopes = hotspotSources.filter((h) => hm.elevM[h.cell] > hm.elevM[cell] + 50 && cellWorld(h.cell).distanceTo(cellWorld(cell)) < 30).length;
     ui!.showResult({ place, risk, nowHour: NOW_HOUR, route, upstreamSlopes });
+    homePlace = place;
+    refreshOfficial();
+    syncUrl({ place, lngLat, named: namedPlace });
     layoutShift();
 
     // Frame the home and its safe ground together.
@@ -267,7 +281,7 @@ async function main() {
 
   const enterStreet = async () => {
     if (!homeLngLat || !housesFor || inStreet) return;
-    slideShot = null;
+    slideShots = null;
     ui!.setStreet('loading');
     const area = await housesFor;
     if (!homeLngLat) return;
@@ -304,14 +318,20 @@ async function main() {
     // Real neighbourhoods are irregular: a higher oblique view shows the street pattern and the water.
     let pos = f.clone().addScaledVector(street.homeFront, 95).addScaledVector(side, 45).add(new THREE.Vector3(0, 65, 0));
     if (street.slideMid) {
-      // Stand behind the home, looking up the hillside: houses in front, the slope above them.
-      const toSlide = street.slideMid.clone().sub(f).setY(0).normalize();
-      // From the valley floor looking up the hillside: the slope fills the frame, the houses below it.
-      target = street.slideMid.clone().lerp(f, 0.3);
-      const span = Math.max(260, street.slideMid.clone().setY(0).distanceTo(f.clone().setY(0)) * 0.9);
-      pos = target.clone().addScaledVector(toSlide, -span).add(new THREE.Vector3(toSlide.z * span * 0.35, span * 0.55, -toSlide.x * span * 0.35));
+      // One wide shot that holds the crown, the runout and the home — kept for the whole landslide.
+      slideShots = findSlideShots(street, f, camera, visibleBounds(document.getElementById('result')));
+      if (slideShots) {
+        target = slideShots.wide.target.clone();
+        pos = slideShots.wide.position.clone();
+      } else {
+        const toSlide = street.slideMid.clone().sub(f).setY(0).normalize();
+        target = street.slideMid.clone().lerp(f, 0.3);
+        const span = Math.max(260, street.slideMid.clone().setY(0).distanceTo(f.clone().setY(0)) * 0.9);
+        pos = target.clone().addScaledVector(toSlide, -span).add(new THREE.Vector3(toSlide.z * span * 0.35, span * 0.55, -toSlide.x * span * 0.35));
+      }
     }
     streetShot = { target: target.clone(), position: pos.clone() };
+    controls.maxDistance = Math.max(1100, pos.distanceTo(target) * 1.2);
     controls.target.copy(target);
     camera.position.copy(pos).add(new THREE.Vector3(0, 60, 0));
     stage.setScene(street.scene);
@@ -347,6 +367,8 @@ async function main() {
     leaveStreet();
     disposeStreet();
     homeLngLat = null;
+    homePlace = '';
+    ui!.setOfficial(null);
     homeCell = -1;
     housesFor = null;
     home.set(null, null, 0, timer.getElapsed());
@@ -362,6 +384,7 @@ async function main() {
     ui!.showLanding();
     layoutShift();
     director.flyTo(overview, 2400);
+    syncUrl(null);
   };
 
   ui = createResidentUi(realTowns.slice(0, 20), {
@@ -374,7 +397,7 @@ async function main() {
           const lngLat: LngLat = [p.coords.longitude, p.coords.latitude];
           const [minLon, minLat, maxLon, maxLat] = KELANTAN.bbox;
           if (lngLat[0] < minLon || lngLat[0] > maxLon || lngLat[1] < minLat || lngLat[1] > maxLat) ui!.note(t('outside'));
-          else selectHome(lngLat, t('myLocation'));
+          else selectHome(lngLat, t('myLocation'), false);
         },
         () => ui!.note(t('noLocation')),
         { timeout: 10000 },
@@ -421,7 +444,7 @@ async function main() {
     const hit = pickTerrain(ndc, camera, hm, frame);
     if (!hit) return;
     const lngLat = frame.worldToLngLat(hit);
-    selectHome(lngLat, nearestTownName(lngLat));
+    selectHome(lngLat, nearestTownName(lngLat), false);
   });
 
   ui.showLanding();
@@ -562,6 +585,32 @@ async function main() {
     else centres.push(place);
     control.evac(evacCentre);
   });
+  // ---- Closing the loop: an alert a person approved reaches the resident's card ----------------
+  const approved = new Map<string, Alert>();
+  const kmBetween = (a: LngLat, b: LngLat) => frame.lngLatToWorld(a).distanceTo(frame.lngLatToWorld(b));
+  const refreshOfficial = () => {
+    if (!homeLngLat) return ui!.setOfficial(null);
+    // An alert covers this home if it was drafted for this place, or its village (the route's start) is close.
+    const match = [...approved.values()]
+      .filter((a) => a.villageId === homePlace || (a.route.coordinates.length > 0 && kmBetween(a.route.coordinates[0], homeLngLat!) < 3))
+      .sort((a, b) => (b.approvedAt ?? '').localeCompare(a.approvedAt ?? ''))[0];
+    if (!match) return ui!.setOfficial(null);
+    const end = match.route.coordinates[match.route.coordinates.length - 1];
+    const centre = end && centres.length ? centres.reduce((best, c) => (kmBetween(c.lngLat, end) < kmBetween(best.lngLat, end) ? c : best), centres[0]) : null;
+    const message = match.messages.find((m) => m.lang.startsWith('en')) ?? match.messages[0];
+    ui!.setOfficial({
+      approvedAt: match.approvedAt ?? null,
+      approvedBy: match.approvedBy ?? null,
+      centre: centre && end && kmBetween(centre.lngLat, end) < 1 ? centre.name : match.evacCentreId,
+      people: match.people,
+      message: message?.text ?? '',
+    });
+  };
+  const noteApproved = (alert: Alert) => {
+    if (alert.status === 'approved' || alert.status === 'sent') approved.set(alert._id, alert);
+    else approved.delete(alert._id);
+    refreshOfficial();
+  };
   const showAlertRoute = (alert: Alert) => {
     if (document.body.dataset.mode !== 'control') return;
     const pts = alert.route.coordinates.map((ll) => frame.lngLatToWorld(ll, sampleElev(ll)).add(new THREE.Vector3(0, 0.05, 0)));
@@ -575,6 +624,7 @@ async function main() {
   };
   hub.on('alert.updated', ({ alert }) => {
     if (alert.regionId !== KELANTAN.id) return;
+    noteApproved(alert);
     control.alert(alert);
     if (control.currentAlert?._id === alert._id) showAlertRoute(alert);
   });
@@ -655,7 +705,7 @@ async function main() {
     if (hub.mode === 'mock') { mockAgent.decide(d, 'Duty officer'); return; }
     if (hub.mode !== 'live') return control.note('API disconnected — no decision was sent.');
     control.setDeciding(true);
-    try { control.alert(await decideAlert(id, d, 'Duty officer')); }
+    try { const updated = await decideAlert(id, d, 'Duty officer'); noteApproved(updated); control.alert(updated); }
     catch (err) { control.note(`API: ${err instanceof Error ? err.message : String(err)}`); }
     finally { control.setDeciding(false); }
   };
@@ -677,6 +727,7 @@ async function main() {
       if (hub.mode === 'live' && replayTs) applyReplay(replay);
       if (control.currentAlert) showAlertRoute(control.currentAlert);
       else director.flyTo(overview, 2200);
+      syncUrl(null);
     } else {
       mockAgent.stop();
       if (hub.mode === 'mock') { runBusy = false; control.setRunBusy(false); }
@@ -705,6 +756,21 @@ async function main() {
   controls.target.copy(ovTarget);
   camera.position.copy(ovTarget).add(new THREE.Vector3(0, 330, 40));
   director.flyTo(overview, 3600);
+
+  // Opened from a link (e.g. the page behind an alert): ?place=Kuala%20Krai[&view=street], ?at=lon,lat, #control.
+  {
+    const linked = params.get('place');
+    const at = params.get('at')?.split(',').map(Number);
+    const openStreet = () => params.get('view') === 'street' && window.setTimeout(() => void enterStreet(), 2800);
+    if (location.hash === '#control') setMode('control');
+    else if (linked) {
+      const p = allPlaces.find((x) => x.name.toLowerCase() === linked.toLowerCase()) ?? matchPlaces(linked, allPlaces)[0];
+      if (p) (selectHome(p.lngLat, p.name), openStreet());
+    } else if (at && at.length === 2 && at.every(Number.isFinite)) {
+      const lngLat: LngLat = [at[0], at[1]];
+      (selectHome(lngLat, nearestTownName(lngLat), false), openStreet());
+    }
+  }
 
   // ---- Frame loop --------------------------------------------------------
   stage.renderer.setAnimationLoop((now) => {
@@ -755,26 +821,25 @@ async function main() {
       }
       if (street.slideFailedNow()) shakeUntil = time + 1.6;
       // Follow the landslide while it plays: cracks at the head, then the moving front.
-      if (whatIf && followSlide && !director.busy && street.slideHead && street.slideToe && street.slideFocus(followTarget, followDir)) {
-        // A fixed vantage with a clear line of sight to the scar (found once per street), looking at the
-        // crown and drifting towards the moving front — chasing the front on steep terrain ends up in a hill.
-        if (!slideShot) slideShot = findSlideShot(street);
-        if (slideShot) {
-          followTarget.lerp(slideShot.target, street.slideSurging ? 0.45 : 0.75);
-          followPos.copy(slideShot.position);
-        } else {
-          followPos.copy(followTarget).add(new THREE.Vector3(0, 250, 0));
-        }
-        const k = Math.min(1, dt * 1.4);
-        controls.target.lerp(followTarget, k);
-        camera.position.lerp(followPos, k);
+      // While the future plays, hold the wide landslide shot (unless the user has taken the camera).
+      // Wide while the slope cracks and fails; once the debris has settled, ease in on the homes it reached.
+      const slideState = street.slideState;
+      if (slideState !== 'settled') settledAt = -1;
+      else if (settledAt < 0) settledAt = time;
+      if (whatIf && followSlide && !director.busy && slideShots && slideState !== 'quiet') {
+        const shot = slideState === 'settled' && time - settledAt > 1.5 ? slideShots.close : slideShots.wide;
+        const k = Math.min(1, dt * (shot === slideShots.close ? 0.5 : 1.2));
+        controls.target.lerp(shot.target, k);
+        camera.position.lerp(shot.position, k);
       }
       if (time < shakeUntil) {
         const k = (shakeUntil - time) / 1.6;
-        shakeOff.set(Math.sin(time * 61) * 0.9 * k, Math.sin(time * 47) * 0.6 * k, Math.cos(time * 53) * 0.9 * k);
+        // Scaled to the viewing distance so the jolt reads from a wide shot too.
+        const amp = k * Math.max(1, camera.position.distanceTo(controls.target) / 160);
+        shakeOff.set(Math.sin(time * 61) * 0.9 * amp, Math.sin(time * 47) * 0.6 * amp, Math.cos(time * 53) * 0.9 * amp);
       } else shakeOff.set(0, 0, 0);
       // Keep the camera in the neighbourhood and out of hillsides.
-      if (!director.busy && streetShot && camera.position.distanceTo(street.homeFocus) > 1800) {
+      if (!director.busy && streetShot && camera.position.distanceTo(street.homeFocus) > 2400) {
         camera.position.copy(streetShot.position);
         controls.target.copy(streetShot.target);
       }

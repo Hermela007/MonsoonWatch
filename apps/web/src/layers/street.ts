@@ -18,7 +18,7 @@ import { THEME } from '../theme';
 
 const GROUND_M = 2200;
 const SLIDE_MAX_M = 1000; // show a landslide in the street if its path passes this close to home
-const SLIDE_CLIP_M = 1000; // ...drawing the part of it within this distance
+const SLIDE_CLIP_M = 700; // ...drawing the part of it within this distance (the card's 'hillside N m away')
 
 // Roof tint = water at the house (m).
 export const DEPTH_BANDS = [
@@ -265,7 +265,10 @@ export function createStreet(opts: {
   const postMat = addUnderwater(new THREE.MeshStandardMaterial({ color: 0x1d1d1b, roughness: 0.7 }));
   const boardGeo = new THREE.BoxGeometry(0.3, 5, 0.03).translate(0, 2.5, 0);
   const postGeo = new THREE.BoxGeometry(0.1, 5.6, 0.1).translate(0, 2.5, -0.06);
-  disposables.push(gaugeTex, boardMat, postMat, boardGeo, postGeo);
+  // Adult figure, 1.7 m: torso and legs as one capsule (0–1.44 m), head above.
+  const personBodyGeo = new THREE.CapsuleGeometry(0.2, 1.04, 4, 10).translate(0, 0.72, 0);
+  const personHeadGeo = new THREE.SphereGeometry(0.12, 12, 8).translate(0, 1.58, 0);
+  disposables.push(gaugeTex, boardMat, postMat, boardGeo, postGeo, personBodyGeo, personHeadGeo);
   const near = houses.map((h, i) => ({ h, i, d: Math.hypot(h.x, h.z) })).sort((a, b) => a.d - b.d);
   // One depth gauge (a measuring aid, not a real object) at the home.
   for (const { h } of [near[0]].filter(Boolean).filter(() => homeIdx >= 0).map(() => ({ h: homeHouse }))) {
@@ -275,6 +278,13 @@ export function createStreet(opts: {
     g.add(new THREE.Mesh(boardGeo, boardMat), new THREE.Mesh(postGeo, postMat));
     g.position.set(fx, groundY(fx, fz), fz);
     g.rotation.y = h.angle;
+    // A 1.7 m adult beside the gauge: depth in human terms (knee, waist, over the head).
+    const person = new THREE.Group();
+    const body = new THREE.Mesh(personBodyGeo, postMat);
+    const head = new THREE.Mesh(personHeadGeo, postMat);
+    person.add(body, head);
+    person.position.set(1.1, 0, 0.25);
+    g.add(person);
     g.traverse((o) => (o.castShadow = true));
     scene.add(g);
   }
@@ -298,7 +308,9 @@ export function createStreet(opts: {
     if (d < SLIDE_MAX_M && near.length >= 6 && (!best || d < best.d)) best = { s, d, pts: near };
   }
   if (best && best.pts.length >= 3) {
-    slide = createStreetSlide({ path: best.pts, groundY, triggerMm: triggerRainMm(best.s.slopeDeg), sky, risk: THEME.slide, labels: opts.slideLabels, groundUniforms: slideU });
+    // A landslide street is framed wide (crown to toe, ~1 km), so the haze starts further out.
+    if (scene.fog instanceof THREE.Fog) [scene.fog.near, scene.fog.far] = [1300, 3400];
+    slide = createStreetSlide({ path: best.pts, groundY, triggerMm: triggerRainMm(best.s.slopeDeg), sky, risk: THEME.slide, labels: opts.slideLabels, groundUniforms: slideU, fogRange: [1300, 3400] });
     scene.add(slide.group);
     disposables.push(slide);
   }
@@ -354,6 +366,9 @@ export function createStreet(opts: {
     slideMid: slide?.mid ?? null,
     slideHead: slide?.head ?? null,
     slideToe: slide?.toe ?? null,
+    get slideState() {
+      return slide?.state ?? 'quiet';
+    },
     /** A point on the landslide centreline (u = 0 crown … 1 toe), or null without a slide. */
     slideAt(u: number, out: THREE.Vector3) {
       return slide ? slide.at(u, out) : null;

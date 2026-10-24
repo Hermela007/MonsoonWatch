@@ -234,3 +234,30 @@ body:not([data-mode='control']) #legend .live { display: none; }
 #saint-box textarea { resize: vertical; }
 #saint-submit { margin-top: 8px; }
 #saint-result, #saint-capacity { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Landing: what this is, and that it isn't live. */
+.status-line { display: flex; align-items: center; gap: 8px; margin: -2px 0 14px; font-size: 12px; color: var(--muted); }
+.status-line i { width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--faint); flex: none; }
+.cascade { list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin: -6px 0 14px; padding: 0; font-size: 12px; color: var(--muted); }
+.cascade li { display: flex; align-items: center; gap: 6px; }
+.cascade li + li::before { order: -2; content: '→'; margin: 0 2px 0 8px; color: var(--faint); }
+.cascade li::after { order: -1; content: ''; width: 8px; height: 8px; border-radius: 2px; background: var(--rule-strong); }
+.cascade .c-slide::after { background: var(--slide); }
+.cascade .c-flood::after { background: var(--flood); }
+
+/* Result: a deadline, honesty about the estimate, and the official alert when one is approved. */
+.risk-when { font-size: 15px; font-weight: 600; margin: 0 0 6px; padding-left: 14px; font-variant-numeric: tabular-nums; }
+body[data-risk='high'] .risk-when { color: var(--slide); }
+.risk-when + .risk-action { font-weight: 500; }
+.trust { font-size: 12px; line-height: 1.5; color: var(--faint); margin: -8px 0 18px; padding-left: 14px; }
+.official { margin: 0 0 18px; padding: 14px 16px; background: var(--ink); color: var(--card); border-radius: 3px; }
+.official-kicker { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #bdb8b0; margin-bottom: 6px; }
+.official-go { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.official-msg { font-size: 13px; line-height: 1.5; margin: 8px 0 0; color: #e8e5df; }
+.official-people { font-size: 12px; margin: 6px 0 0; color: #bdb8b0; }
+.official-people:empty { display: none; }
+/* Phones: the status line says what the fact and footer say; keep the map visible above the card. */
+@media (max-width: 767px) {
+  #landing .fact, #landing .footer { display: none; }
+  .cascade { margin-bottom: 10px; }
+}
