@@ -1,14 +1,16 @@
 // AgentStep logging — every sponsor-feature call becomes one line in the Tech HUD.
 //
 // One push path (IMPLEMENTATION §1.4): in real mode the sink writes AgentSteps to MongoDB
-// and C's change stream relays them over SSE as `agent.step`. In mock mode (or before the DB
-// is wired) they are kept in memory so the hello-world call can still be inspected.
+// (`agent_steps`) and C's change stream relays them over SSE as `agent.step`. Every step is
+// also kept in memory so scripts like hello-argon can print them.
 //
 // The sink must UPSERT by `_id`: a step is written once as "running" and again when it
 // finishes ("ok" / "fail") so the HUD can show it live.
 
 import { randomUUID } from "node:crypto";
-import type { AgentStep } from "@monsoonwatch/shared";
+import { COLLECTIONS, type AgentStep } from "@monsoonwatch/shared";
+import { getDb } from "../db/client";
+import { env } from "../env";
 
 export type StepSink = (step: AgentStep) => Promise<void> | void;
 
@@ -18,18 +20,35 @@ const memorySink: StepSink = (step) => {
   memorySteps.set(step._id, step);
 };
 
-let sink: StepSink = memorySink;
+let warnedDbFailure = false;
 
-/** Called once at API start-up with a MongoDB-backed sink (see TODO below). */
+/**
+ * Real mode: upsert into `agent_steps`. C's change stream (events/change-streams.ts) watches
+ * insert/update/replace there and relays each as SSE `agent.step` → Tech HUD.
+ * A DB failure never breaks an agent run: it is logged once and the in-memory copy is kept.
+ */
+export const mongoStepSink: StepSink = async (step) => {
+  memorySink(step);
+  try {
+    const db = await getDb();
+    await db.collection<AgentStep>(COLLECTIONS.agentSteps).replaceOne({ _id: step._id }, step, { upsert: true });
+  } catch (err) {
+    if (!warnedDbFailure) {
+      warnedDbFailure = true;
+      console.warn(`[agent] could not save AgentStep to MongoDB (kept in memory): ${(err as Error).message}`);
+    }
+  }
+};
+
+/** MongoDB when MOCK !== "1" and MONGODB_URI is set; otherwise in memory only. */
+let sink: StepSink = !env.mock && env.mongodbUri ? mongoStepSink : memorySink;
+
+/** Override the sink (tests, or a mock-mode relay). */
 export function setStepSink(next: StepSink): void {
   sink = next;
 }
 
-// TODO(B, after C's db client merges): add `mongoStepSink` that does
-// `db.collection(COLLECTIONS.agentSteps).replaceOne({ _id: step._id }, step, { upsert: true })`
-// and register it in the API bootstrap when MOCK !== "1".
-
-/** Steps recorded by the in-memory sink, oldest first. Useful in mock mode and scripts. */
+/** Steps recorded in memory this process, oldest first. Useful in mock mode and scripts. */
 export function getMemorySteps(runId?: string): AgentStep[] {
   const all = [...memorySteps.values()];
   return runId ? all.filter((s) => s.runId === runId) : all;
