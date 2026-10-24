@@ -3,7 +3,8 @@
 import { before, test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentAI } from "./gemini-planners";
-import { runAgent } from "./orchestrator";
+import { runAgent, stopAgentRun } from "./orchestrator";
+import { shortlistForArgon } from "./shortlist";
 import { makeSampleSituation } from "./sample/kelantan-test";
 import type { VillagePlan } from "./schemas";
 import { getMemorySteps, memoryStepSink, setStepSink } from "./steps";
@@ -141,7 +142,7 @@ test("if the draft call itself fails, Flash plans from scratch", async () => {
   assert.ok(getMemorySteps("t-run-4").some((st) => st.actor === "Gemini 3.5 Flash-Lite" && st.status === "fail"));
 });
 
-test("at most MAX_VILLAGES_PER_RUN villages are planned, most urgent first", async () => {
+function manyVillages() {
   const base = makeSampleSituation();
   const extra = Array.from({ length: 8 }, (_, i) => ({ ...base.villages[2]!, _id: `test-extra-${i}`, name: `Extra ${i}` }));
   const situation = { ...base, villages: [...base.villages, ...extra] };
@@ -154,8 +155,42 @@ test("at most MAX_VILLAGES_PER_RUN villages are planned, most urgent first", asy
     ],
   });
   ai.draftVillage = async (task) => (task.village._id === "test-kg-manik-urai" ? fixed : tualang);
-  const { outcomes } = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-cap" });
-  assert.equal(outcomes.length, 6);
+  return { situation, ai };
+}
+
+test("Argon's villages are planned in batches of MAX_VILLAGES_PER_RUN, most urgent first, until all are done", async () => {
+  const { situation, ai } = manyVillages();
+  const { outcomes, coverage } = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-cap" });
+  assert.deepEqual(coverage.batches.map((b) => b.length), [6, 3]);
+  assert.equal(outcomes.length, 9); // batch 2 (queued) ran too
   assert.equal(outcomes[0]!.villageId, "test-kg-manik-urai"); // danger first
-  assert.ok(getMemorySteps("t-run-cap").some((st) => /flagged 9 villages; planning the 6 most urgent/.test(st.summary)));
+  const steps = getMemorySteps("t-run-cap");
+  assert.ok(steps.some((st) => /6 planned now, 3 queued in 1 later batch/.test(st.summary)));
+  assert.ok(steps.some((st) => /Batch 2\/2: planning 3 queued village/.test(st.summary)));
+});
+
+test("stopping a run before its next batch moves the queued villages out of planning", async () => {
+  const { situation, ai } = manyVillages();
+  const draft = ai.draftVillage;
+  ai.draftVillage = async (task) => {
+    stopAgentRun("t-run-stop"); // operator presses stop while batch 1 is being planned
+    return draft(task);
+  };
+  const { outcomes, coverage } = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-stop" });
+  assert.equal(outcomes.length, 6);
+  assert.equal(coverage.batches.length, 1);
+  assert.ok(getMemorySteps("t-run-stop").some((st) => /Stopped before batch 2: 3 queued village\(s\) moved to area-wide warnings/.test(st.summary)));
+});
+
+test("end to end: every at-risk village from the screen is planned or in an area-wide warning", async () => {
+  const situation = makeSampleSituation();
+  const atRisk = shortlistForArgon(situation).screen.atRisk.map((r) => r.village._id);
+  assert.ok(atRisk.length > 0, "sample scenario should have at-risk villages");
+  const ai = scriptedAI();
+  ai.planSituation = async () => ({ summary: "none confirmed", villages: [] }); // worst case: Argon names nobody
+  const { outcomes, areaWarnings } = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-cover" });
+  const covered = new Set([...outcomes.map((o) => o.villageId), ...areaWarnings.flatMap((w) => w.villageIds)]);
+  for (const id of atRisk) assert.ok(covered.has(id), `${id} left without plan or area-wide warning`);
+  assert.ok(areaWarnings.every((w) => w.status === "needs_approval"));
+  assert.ok(getMemorySteps("t-run-cover").some((st) => /Coverage of \d+ at-risk villages: 0 planned now/.test(st.summary)));
 });

@@ -23,6 +23,11 @@ Rules:
 - In the 2014 replay, river levels marked "reconstructed from GloFAS, approximate" are estimates
   from modelled discharge — cite them, but say they are approximate in your reasoning.
 - Prefer villages downstream of or near the stations that crossed thresholds.
+- The villages list is a deterministic shortlist: each village has a screenLevel and riskSignals
+  (flooded road near it, landslide runout, or no flood-model data near a warning gauge). Use them
+  as evidence, but cite the station reading for the level. Only name villages from this list.
+  notSentByDistrict summarises the rest; code covers those with area-wide warnings — mention a
+  district in your summary if it looks worse than the shortlist suggests.
 - If the data is marked testData, still plan normally — the UI labels it.
 - You do not choose centres, routes or alert wording: per-village subagents do that next,
   and every claim is checked by code before a human sees it.

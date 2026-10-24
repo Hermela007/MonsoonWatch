@@ -1,4 +1,5 @@
 // B: POST /agent/run → { runId } (work continues in the background)
+//    POST /agent/runs/:id/stop → { runId } (202; stops before the next batch)
 //    GET  /agent/runs/:id → AgentRunDetail { run, steps (oldest first), alerts }
 // Data source: the labelled TEST scenario when MOCK=1 or body.source = "sample"; otherwise MongoDB
 // (body.mode "live" | "replay", body.at = replay clock ISO time). Runs also start automatically
@@ -8,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import type { AgentRunDetail, AgentRunStarted } from "@monsoonwatch/shared";
 import { startAutoTrigger } from "../agent/auto-trigger";
 import { registerLandslideProvider } from "../agent/landslide-provider";
-import { startAgentRun } from "../agent/orchestrator";
+import { startAgentRun, stopAgentRun } from "../agent/orchestrator";
 import { makeSampleSituation } from "../agent/sample/kelantan-test";
 import { loadSituationFromDb } from "../agent/situation-db";
 import { defaultStore } from "../agent/store";
@@ -39,6 +40,16 @@ export async function agentRoutes(app: FastifyInstance) {
     const runId = startAgentRun({ situation, trigger });
     reply.status(202);
     return { runId };
+  });
+
+  // Stop a running run before its next batch; its queued villages move to area-wide warnings.
+  app.post<{ Params: { id: string } }>("/agent/runs/:id/stop", async (req, reply): Promise<AgentRunStarted> => {
+    const run = await defaultStore().getRun(req.params.id);
+    if (!run) throw new HttpError(404, "not_found", `Agent run "${req.params.id}" not found`);
+    if (run.status !== "running") throw new HttpError(409, "conflict", `Agent run "${run._id}" is ${run.status}, not running`);
+    stopAgentRun(run._id);
+    reply.status(202);
+    return { runId: run._id };
   });
 
   app.get<{ Params: { id: string } }>("/agent/runs/:id", async (req): Promise<AgentRunDetail> => {

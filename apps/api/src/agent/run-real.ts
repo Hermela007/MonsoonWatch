@@ -2,15 +2,20 @@
 // MongoDB at a moment. Needs GEMINI_API_KEY (with credit) and MONGODB_URI. Steps + alerts are saved,
 // so they appear in the Tech HUD. Demo case from C: replay on 24 Dec 2014.
 //   pnpm --filter @monsoonwatch/api exec tsx src/agent/run-real.ts --mode=replay --at=2014-12-24T12:00:00+08:00
-//   … --dry-run   NO Gemini calls: estimate the tokens Argon would receive and stop.
+//   … --dry-run   NO Gemini calls: token estimate per section, risk-screen counts, coverage projection.
 
 import { closeDb } from "../db/client";
 import { env } from "../env";
 import { runAgent } from "./orchestrator";
 import { loadSituationFromDb } from "./situation-db";
 import { getMemorySteps } from "./steps";
-import { shortlistForArgon, shortlistSummary, situationForPrompt } from "./situation";
+import { situationForPrompt } from "./situation";
 import { MAX_VILLAGES_PER_RUN } from "./orchestrator";
+import { assignCoverage, buildAreaWarnings, coverageCounts, coverageSummary } from "./coverage";
+import { shortlistForArgon, shortlistSummary } from "./shortlist";
+
+/** Argon's prompt asks for at most this many villages (prompts/orchestrator.md). */
+const ARGON_MAX_VILLAGES = 10;
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const mode = (arg("mode") ?? "live") as "live" | "replay";
@@ -34,13 +39,33 @@ try {
     console.log(`DRY RUN (no Gemini calls) · ${mode} @ ${at.toISOString()}`);
     console.log("Argon input by section (≈ tokens, 4 chars/token) — all data vs. what the shortlist sends:");
     console.table(rows);
+    console.log(`Argon input ≈ ${tokens(sent).toLocaleString()} tokens (was ≈ ${tokens(full).toLocaleString()} without the shortlist)\n`);
+
+    const { screen } = shortlist;
+    console.log(`Risk screen: ${screen.atRisk.length} at risk · ${screen.watch.length} watch (gauge only) · ${screen.noSignal.length} no signal (of ${situation.villages.length})`);
+    const kinds = (k: string) => screen.atRisk.filter((r) => r.signals.some((x) => x.kind === k)).length;
+    const levels = (l: string) => screen.atRisk.filter((r) => r.level === l).length;
+    console.log(`  at-risk evidence: flooded road ${kinds("flooded_road")} · landslide runout ${kinds("landslide_runout")} · flood-model gap ${kinds("flood_model_gap")}`);
+    console.log(`  at-risk levels:   danger ${levels("danger")} · warning ${levels("warning")} · alert ${levels("alert")}`);
     console.log(shortlistSummary(shortlist));
-    console.log(`Argon input ≈ ${tokens(sent).toLocaleString()} tokens (was ≈ ${tokens(full).toLocaleString()} without the shortlist)`);
-    console.log(`Then up to ${MAX_VILLAGES_PER_RUN} villages × (1 Flash-Lite draft + ~3–6 Flash turns of ~1–2k tokens each).`);
+    console.log("\nNot sent to Argon, per district (in its prompt as notSentByDistrict):");
+    console.table(shortlist.notSent);
+
+    // Projection: Argon's real choice is unknown without calling it; assume it confirms the top of the shortlist.
+    const assumed = shortlist.villages.slice(0, ARGON_MAX_VILLAGES).map((r) => r.village._id);
+    const coverage = assignCoverage(screen.atRisk, assumed, MAX_VILLAGES_PER_RUN);
+    const n = coverageCounts(coverage);
+    console.log(`\nCoverage PROJECTION (assumes Argon confirms the top ${assumed.length} shortlisted villages):`);
+    console.log(`  ${coverageSummary(coverage, screen.atRisk.length)}`);
+    console.log(`  Gemini: 1 Argon call + ${n.planned + n.queued} villages × (1 Flash-Lite draft + up to 3 Flash refinements); area-wide warnings use none.`);
+    const warnings = buildAreaWarnings(coverage.areaWide, { regionId: situation.region._id, runId: "dry-run", languages: situation.region.languages });
+    console.table(warnings.map((w) => ({ district: w.district, hazard: w.hazard, level: w.level, villages: w.villageIds.length, people: w.people, vulnerable: w.vulnerable })));
+    if (warnings[0]) console.log(`Example template text:\n  ${warnings[0].messages.map((m) => `[${m.lang}] ${m.text}`).join("\n  ")}`);
     process.exit(0);
   }
   console.log(`Running the agent on REAL ${mode} data @ ${at.toISOString()} (run ${runId})…\n`);
-  const { run, outcomes } = await runAgent({ situation, trigger: { type: "manual" }, runId });
+  // Ctrl+C stops the script (remaining queued batches are not planned).
+  const { run, outcomes, coverage, areaWarnings } = await runAgent({ situation, trigger: { type: "manual" }, runId });
   console.table(getMemorySteps(runId).map(({ actor, kind, status, summary }) => ({ actor, kind, status, summary: summary.slice(0, 110) })));
   console.log(`\nRun ${run.status}${run.error ? `: ${run.error}` : ""}.`);
   for (const o of outcomes) {
@@ -50,6 +75,8 @@ try {
       for (const v of a.verification.filter((r) => !r.passed)) console.log(`    ✗ ${v.check}: ${v.detail}`);
     }
   }
+  console.log(`\n${coverageSummary(coverage, coverage.batches.flat().length + coverage.areaWide.length)}`);
+  for (const w of areaWarnings) console.log(`  area-wide ${w.level.toUpperCase()} ${w.hazard} · ${w.district}: ${w.villageIds.length} villages (draft, needs approval, not saved)`);
 } finally {
   await closeDb();
 }
