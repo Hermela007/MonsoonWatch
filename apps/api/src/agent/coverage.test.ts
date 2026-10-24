@@ -93,3 +93,13 @@ test("accountability: every village is at risk, advised or has an assessed road 
   assert.equal(accountabilitySummary(screen, adv, 4), "Every village accounted for: 1 at risk (alert or evacuate warning) + 2 advised (1 river at alert+ nearby, 1 flood model can't judge) in 2 advisories + 1 no risk signal (nearest road assessed, no message)");
   assert.match(accountabilitySummary(screen, adv, 5), /1 UNACCOUNTED/);
 });
+
+test("district warnings have exactly the shape of the shared fixtures (A builds against them)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const fx = JSON.parse(readFileSync(new URL("../../../../packages/shared/fixtures/area-warning.evacuate.json", import.meta.url), "utf8"));
+  const v = { _id: "v1", regionId: "kelantan", name: "Kampung Satu", altNames: [], location: { type: "Point" as const, coordinates: [102.2, 5.9] as [number, number] }, population: 100, district: "Jeli" };
+  const [w] = buildAreaWarnings([{ village: v, hazard: "flood", level: "warning", signals: [{ text: "flooded road" }] } as never], { regionId: "kelantan", runId: "r", languages: ["ms", "en"] });
+  assert.deepEqual(Object.keys(w!).sort(), Object.keys(fx).sort());
+  assert.match(w!._id, /^area:r:/);
+  assert.equal(w!.status, "needs_approval");
+});
