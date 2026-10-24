@@ -21,12 +21,13 @@ import { randomUUID } from "node:crypto";
 import type { AgentRun, Alert, Village } from "@monsoonwatch/shared";
 import { buildAndVerifyVillage, replanFeedback } from "./build-alerts";
 import { GEMINI_DEFAULTS, accountabilitySummary, buildAdvisories, buildAreaWarnings, countBy, coverageSummary, rulesSummary, selectForGemini, type AreaWarning, type PlannedBy } from "./coverage";
+import { applyEscalations, checkEscalation, escalateScreen, unsupportedNumbers, type EscalationVerdict } from "./escalation";
 import { geminiAI, type AgentAI, type RefineFeedback } from "./gemini-planners";
 import { planAllByRules, type GeminiReason } from "./rules-planner";
 import type { AtRiskVillage, VillagePlan } from "./schemas";
 import { buildRoadGraph, type RoadGraph } from "./route";
 import { shortlistForArgon, shortlistSummary, type VillageRisk } from "./shortlist";
-import type { Situation } from "./situation";
+import { situationForPrompt, type Situation } from "./situation";
 import { emitStep } from "./steps";
 import { defaultStore, type AgentStore } from "./store";
 import { logVerification } from "./verify-log";
@@ -77,6 +78,10 @@ export interface RunResult {
   /** District drafts needing approval — kind "evacuate" (fallback) and "advisory"; saved to `area_warnings`. */
   areaWarnings: AreaWarning[];
   atRisk: number;
+  /** Argon's escalations of advisory villages, each accepted or rejected by code (escalation.ts). */
+  escalations: EscalationVerdict[];
+  /** Argon's situation report for officials ("" if none). */
+  sitrep: string;
 }
 
 /** Starts a run and returns its id immediately; the work continues in the background. */
@@ -104,7 +109,6 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   try {
     // 1. Deterministic risk screen → lead orchestrator on the shortlist
     const shortlist = shortlistForArgon(s);
-    const atRisk = shortlist.screen.atRisk;
     await emitStep({ runId, actor: "Agent", kind: "info", status: "ok", summary: `${shortlistSummary(shortlist)}${test}`.slice(0, 300) });
     const plan = await ai.planSituation(runId, s, shortlist);
     const known = new Map(s.villages.map((v) => [v._id, v]));
@@ -119,6 +123,30 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       runId, actor: "Agent", kind: "info", status: "ok",
       summary: `Argon's assessment: ${plan.summary} → ${claims.size} village(s) prioritised: ${[...claims.keys()].map((id) => known.get(id)!.name).join(", ") || "none"}${test}`,
     });
+    // Argon's judgement, checked by code: it may raise the alarm for advisory villages, never lower it.
+    const verdicts = (plan.escalations ?? []).map((e) => checkEscalation(e, s, shortlist.screen));
+    const { risks: escalated, claims: escalatedClaims } = applyEscalations(verdicts);
+    for (const v of verdicts) {
+      await emitStep({
+        runId, actor: "Verification", kind: "verify", status: v.accepted ? "ok" : "fail",
+        summary: `Argon escalation ${v.accepted ? "accepted" : "rejected"}: ${v.detail}${v.accepted ? " → own evacuation alert" : ""}`.slice(0, 300),
+      });
+    }
+    for (const c of escalatedClaims) if (!claims.has(c.villageId)) claims.set(c.villageId, c);
+    const screen = escalateScreen(shortlist.screen, escalated);
+    const atRisk = screen.atRisk;
+    if (verdicts.length) {
+      await emitStep({ runId, actor: "Gemini 4 Argon", kind: "plan", status: "ok", summary: `Argon raised the alarm for ${escalated.length} advisory village(s) after checks (${verdicts.length - escalated.length} rejected)${test}` });
+    }
+    // Situation report for officials: numbers not found in Argon's input are flagged, never trusted silently.
+    const sitrep = plan.sitrep?.trim() ?? "";
+    if (sitrep) {
+      const odd = unsupportedNumbers(sitrep, JSON.stringify(situationForPrompt(s, { shortlist })));
+      await emitStep({
+        runId, actor: "Gemini 4 Argon", kind: "plan", status: odd.length ? "fail" : "ok",
+        summary: `Situation report${odd.length ? ` (numbers not in the data: ${odd.join(", ")} — check before use)` : " (every number found in the data)"}: ${sitrep}`.slice(0, 600),
+      });
+    }
     const screened = new Set(atRisk.map((r) => r.village._id));
     const outside = [...claims.keys()].filter((id) => !screened.has(id));
     if (outside.length) {
@@ -219,14 +247,14 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     await emitStep({ runId, actor: "Agent", kind: "info", status: plannedBy.size === atRisk.length ? "ok" : "fail", summary: `${coverageSummary(plannedBy, atRisk.length)}${test}` });
 
     // 5. Advisories: villages near a river at alert+ ("watch") or where the model can't judge ("unknown")
-    const advisories = buildAdvisories(shortlist.screen, { regionId: s.region._id, runId, languages: s.region.languages });
+    const advisories = buildAdvisories(screen, { regionId: s.region._id, runId, languages: s.region.languages });
     for (const w of advisories) {
       await emitStep({
         runId, actor: "Agent", kind: "info", status: "ok",
         summary: `Advisory (${w.level.toUpperCase()}) drafted for ${w.district}: ${w.villageIds.length} villages, ${w.people.toLocaleString()} people: ${w.basis} (template, no AI; needs approval)${test}`.slice(0, 300),
       });
     }
-    await emitStep({ runId, actor: "Agent", kind: "info", status: "ok", summary: `${accountabilitySummary(shortlist.screen, advisories, s.villages.length)}${test}`.slice(0, 300) });
+    await emitStep({ runId, actor: "Agent", kind: "info", status: "ok", summary: `${accountabilitySummary(screen, advisories, s.villages.length)}${test}`.slice(0, 300) });
     const areaWarnings = [...evacuate, ...advisories];
     for (const w of areaWarnings) await store.saveAreaWarning(w);
 
@@ -238,7 +266,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     run.status = "done";
     run.finishedAt = new Date().toISOString();
     await store.saveRun(run);
-    return { run, outcomes, rulesAlerts, plannedBy, areaWarnings, atRisk: atRisk.length };
+    return { run, outcomes, rulesAlerts, plannedBy, areaWarnings, atRisk: atRisk.length, escalations: verdicts, sitrep };
   } catch (err) {
     run.status = "failed";
     run.finishedAt = new Date().toISOString();

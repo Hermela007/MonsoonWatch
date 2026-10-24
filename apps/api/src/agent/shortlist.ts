@@ -26,7 +26,8 @@ export const SHORTLIST = {
   maxVillages: 40,
   maxCentres: 30,
   centreNearKm: 15,
-  maxKnowledge: 10,
+  /** All of them (≈12k tokens): Argon cites past flood reports when it escalates a village (escalation.ts). */
+  maxKnowledge: 40,
   coordDecimals: 4,
 } as const;
 export type ShortlistOptions = Partial<typeof SHORTLIST>;
@@ -37,7 +38,7 @@ const KNOWLEDGE_ORDER: Record<KnowledgeChunk["kind"], number> = { postmortem: 0,
 const VULNERABLE = ["bedridden", "disabled", "elderly", "noTransport"] as const;
 
 export interface RiskSignal {
-  kind: "gauge" | "river_event" | "flooded_road" | "landslide_runout" | "flood_model_gap";
+  kind: "gauge" | "river_event" | "flooded_road" | "landslide_runout" | "flood_model_gap" | "argon_escalation";
   level: AlertLevel | null;
   km: number;
   /** Station / risk event id behind a gauge or river_event signal (cited by the rules planner). */

@@ -331,3 +331,87 @@ body.route-2d[data-view='route'] #legend, body.route-2d[data-view='route'] #sour
 .m2d-dest-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--ink); border: 3px solid var(--card); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
 .maplibregl-ctrl-attrib { font-size: 10px; }
 .suggestion.address small { color: var(--muted); }
+
+/* Scenario inspection and official recordings. */
+#control details { margin: 10px 0; }
+#control summary { cursor: pointer; font-size: 12px; }
+#hazard-time { width: 100%; }
+#hazard-follow { width: auto; }
+#knowledge-search form { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-top: 8px; }
+#knowledge-search input { grid-column: 1 / -1; min-width: 0; }
+.knowledge-results { padding-left: 20px; font-size: 12px; max-height: 260px; overflow: auto; }
+.knowledge-results li { margin: 12px 0; }
+.knowledge-results p { white-space: pre-wrap; }
+.knowledge-results a, .knowledge-results button { margin: 0 8px; }
+.alert-audio audio { width: 100%; height: 34px; margin-top: 8px; }
+.alert-audio select { max-width: 160px; }
+body.recording #hud { font-size: 13px; }
+body.recording .note { font-size: 12px; }
+@media (max-width: 767px) { #control { max-height: 52dvh; overflow-y: auto; } #hud { max-height: 24dvh; } }
+#render-performance { display: none; margin: 4px 16px; }
+body.recording #render-performance { display: block; }
+
+#control .hazard-follow-row { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+
+/* Address first: preview the origin before any route request. */
+.origin-input-label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+.origin-help { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 10px 0; }
+#landing { max-height: calc(100dvh - 88px); overflow-y: auto; }
+#landing .cascade { display: none; }
+#landing .fact { font-size: 11px; }
+.suggestion.address { font-weight: 500; }
+.suggestion small { flex-shrink: 0; max-width: 42%; text-align: right; }
+#origin-map { position: fixed; inset: 0; z-index: 2; opacity: 0; pointer-events: none; }
+body.origin-map-ready #origin-map { opacity: 1; pointer-events: auto; }
+#origin-confirm { left: 24px; top: 64px; width: 400px; max-height: calc(100dvh - 88px); overflow-y: auto; }
+#origin-confirm h1 { font-size: 24px; }
+#origin-label { font-size: 15px; line-height: 1.5; font-weight: 500; }
+.origin-coordinates { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.origin-travel { display: flex; gap: 18px; padding: 12px 0; margin: 12px 0; border: 0; border-top: 1px solid var(--rule); }
+.origin-travel legend { font-size: 13px; font-weight: 600; }
+.origin-travel label { font-size: 14px; cursor: pointer; }
+body[data-view='confirm'] #landing, body[data-view='confirm'] #result, body[data-view='confirm'] #route-view { opacity: 0; pointer-events: none; }
+body[data-mode='control'] #origin-confirm { display: none; }
+@media (max-width: 767px) {
+  #landing { max-height: calc(100dvh - 140px); }
+  #landing .fact, #landing .footer { display: none; }
+  #origin-confirm { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 48dvh; padding: 18px; border-radius: 0; }
+}
+.origin-pin { width: 32px; height: 40px; cursor: grab; }
+.origin-pin::before { content: ''; position: absolute; left: 4px; bottom: 6px; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; background: var(--ink); border: 3px solid white; box-shadow: 0 2px 8px #0005; transform: rotate(-45deg); }
+
+body.confirming-origin #legend { opacity: 0; pointer-events: none; }
+#origin-map .maplibregl-ctrl-top-right { top: 64px; }
+
+/* Control room as four steps: the current one is highlighted, finished ones ticked, later ones dimmed. */
+#control .ctl-steps { list-style: none; margin: 4px 0 18px; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--rule); }
+#control .ctl-step { padding: 16px 0 16px 34px; border-bottom: 1px solid var(--rule); position: relative; transition: opacity 0.3s ease; }
+#control .ctl-head { display: flex; align-items: center; gap: 10px; margin: 0 0 6px -34px; font-size: 15px; }
+#control .ctl-n { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 600; border: 1.5px solid var(--rule-strong); color: var(--muted); background: var(--card); }
+#control .ctl-help { font-size: 13px; line-height: 1.5; color: var(--muted); margin: 0 0 12px; }
+#control .ctl-status:empty, #control .control-risk:empty { display: none; }
+#control .ctl-status { font-size: 13px; color: var(--ink); margin: 10px 0 0; }
+#control .control-risk { font-size: 13px; color: var(--slide); margin: 8px 0 0; }
+#control .ctl-shortcut { display: grid; gap: 6px; margin-top: 12px; }
+#control .ctl-shortcut small { font-size: 12px; color: var(--faint); }
+#control .alert-title { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 4px; }
+#control .ctl-more { margin: 4px 0 0; }
+#control .ctl-more summary { font-size: 13px; color: var(--muted); cursor: pointer; padding: 6px 0; }
+#control .ctl-more .note { color: var(--muted); }
+/* Current step: dark number. Finished: tick. Later: dimmed. */
+#control[data-stage='1'] .ctl-step[data-n='1'] .ctl-n,
+#control[data-stage='2'] .ctl-step[data-n='2'] .ctl-n,
+#control[data-stage='3'] .ctl-step[data-n='3'] .ctl-n,
+#control[data-stage='4'] .ctl-step[data-n='4'] .ctl-n { background: var(--ink); border-color: var(--ink); color: var(--card); }
+#control[data-stage='2'] .ctl-step[data-n='1'] .ctl-n,
+#control[data-stage='3'] .ctl-step:is([data-n='1'], [data-n='2']) .ctl-n,
+#control[data-stage='4'] .ctl-step:is([data-n='1'], [data-n='2'], [data-n='3']) .ctl-n { font-size: 0; border-color: var(--ink); }
+#control[data-stage='2'] .ctl-step[data-n='1'] .ctl-n::after,
+#control[data-stage='3'] .ctl-step:is([data-n='1'], [data-n='2']) .ctl-n::after,
+#control[data-stage='4'] .ctl-step:is([data-n='1'], [data-n='2'], [data-n='3']) .ctl-n::after { content: '✓'; font-size: 12px; color: var(--ink); }
+#control[data-stage='1'] .ctl-step:is([data-n='2'], [data-n='3'], [data-n='4']),
+#control[data-stage='2'] .ctl-step:is([data-n='3'], [data-n='4']),
+#control[data-stage='3'] .ctl-step[data-n='4'] { opacity: 0.55; }
+#control .alert-title { line-height: 1.3; margin: 0 0 6px; }
+#control .alert-meta { margin: 0 0 12px; }
+#control:focus { outline: none; }

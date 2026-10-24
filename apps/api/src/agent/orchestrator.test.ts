@@ -76,6 +76,10 @@ function scriptedAI(): AgentAI & { calls: string[] } {
           { villageId: "test-kg-tualang", hazard: "flood", level: "warning", etaHours: 3, stationId: "test-lebir-tualang", riskEventIds: ["test-re-lebir"], reasoning: "At the Lebir station." },
           { villageId: "made-up-village", hazard: "flood", level: "alert", etaHours: null, stationId: null, riskEventIds: [], reasoning: "hallucinated" },
         ],
+        escalations: [
+          { villageId: "test-kg-bukit-raja", hazard: "flood", level: "warning", etaHours: null, stationId: "test-lebir-tualang", sourceTitle: null, quote: null, reasoning: "Far downstream." },
+        ],
+        sitrep: "Sg. Galas at 44.3 m (DANGER) and Sg. Lebir at 34.6 m (WARNING); about 9999 people affected.",
       };
     },
     async draftVillage(task) {
@@ -177,6 +181,13 @@ test("rules plan both sample villages with no Gemini: Tualang by dry road, Manik
   assert.ok(res.rulesAlerts.every((a) => a.plannedBy === "rules"));
   assert.ok(getMemorySteps("t-rules-1").some((s) => s.actor === "Rules planner" && /2\/2 at-risk villages planned \+ verified; 0 need Gemini/.test(s.summary)));
   assertEveryVillageHasAlert(res, situation);
+  // Argon's escalation is checked by code (Bukit Raja is ~70 km from the cited gauge → rejected), and
+  // its situation report is logged with unsupported numbers flagged.
+  assert.equal(res.escalations.length, 1);
+  assert.equal(res.escalations[0]!.accepted, false);
+  const steps = getMemorySteps("t-rules-1");
+  assert.ok(steps.some((x) => /^Argon escalation rejected: .*Bukit Raja/.test(x.summary)));
+  assert.ok(steps.some((x) => x.actor === "Gemini 4 Argon" && x.status === "fail" && /numbers not in the data: 9999/.test(x.summary)));
 });
 
 test("tailored villages keep their rules alerts when Gemini's plans fail", async () => {
@@ -251,7 +262,7 @@ test("every at-risk village ends with an alert even if Gemini is down", async ()
   const { situation, ai } = conflictingVillages();
   ai.draftVillage = async () => { throw new Error("Gemini unavailable"); };
   ai.planVillage = async () => { throw new Error("Gemini unavailable"); };
-  ai.planSituation = async () => ({ summary: "none", villages: [] });
+  ai.planSituation = async () => ({ summary: "none", villages: [], escalations: [], sitrep: "" });
   const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-6" });
   assertEveryVillageHasAlert(res, situation);
   assert.ok(getMemorySteps("t-rules-6").some((s) => /Coverage: 10 at-risk villages → 1 rules alerts, 0 Gemini alerts, 9 in area-wide/.test(s.summary)));

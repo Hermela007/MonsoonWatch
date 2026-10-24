@@ -1,50 +1,49 @@
-# Frontend/backend integration
+# Frontend integration — 24 October 2026
 
-The A branch includes origin/main at ce316b6 (checked 24 October 2026). The integration changes stay in apps/web; Shared contracts are unchanged. Deployment adds static frontend serving, Render port support, and a public-demo write guard in the API.
+Person A changes stay within apps/web. Shared contracts and backend routes are unchanged.
 
-## Run and check
+## Current behaviour
+
+- Resident entry starts with **Where are you leaving from?** and a labelled starting-address field. Address/street results appear ahead of broad village matches. Enter submits a search and asks the person to choose a result; it does not silently route from the first town match. Photon results distinguish building addresses, street locations and place centres.
+- Address, village, GPS and map selections open a starting-point confirmation screen. Drag the pin or tap the street map, choose driving/walking, and confirm before a new road-route request. Village centres are explicitly approximate. The street-map preview falls back to terrain picking when tiles are unavailable. Changing the address cancels pending selection work. No saved-home account or address persistence is required. Existing explicit shared links and recording presets retain their direct preview behaviour.
+
+- Terrain loads from the bundled `/terrain/kelantan-scene.{json,png}`. This is the frontend's full-state bbox, not C's smaller hazard-model bbox. The scene asset is 600 × 744, about 1 MB. `node apps/web/scripts/bake-scene-terrain.mjs` rebuilds it from public AWS z10 tiles, without a database write. Startup does not contact AWS. Fonts, 2D street tiles, addresses and detailed street assets can still need a network.
+- The live control room requests `/api/regions/kelantan/hazards?mode=live|replay&ts=…`, refreshes on the replay clock, reconnect and hazard SSE events, and clears unavailable results. Scenario requests abort superseded work and discard late responses. Five-second reconciliation deduplicates unchanged scenario queries; live refreshes once per minute.
+- **Inspect 24 Dec 2014** reads a historical snapshot without starting the database replay or triggering an agent run. The slider inspects ±36 hours around the selected anchor and debounces requests. Follow scenario clock resumes the operator clock. A manual agent run uses the selected historical timestamp when inspecting replay.
+- Flooded road lines, landslide cells and runouts come directly from the API. The shaded likely/worst water is a **frontend display approximation**, not an API flood polygon: sample gauge levels near the bundled mapped rivers, inside API coverage, within 20 km of the nearest gauge, only at alert or above. Stale/missing gauges do not create water. The river display subset and coarser frontend DEM can differ from C's road model. Road counts remain authoritative for the API scenario; unshaded areas never mean clear. Likely and faint worst-case water are separate meshes.
+- Resident/landing/street views retain the explicitly labelled reconstructed 2014 terrain model; they are not live hazard predictions. Resident routing uses B's real evacuation-route API and displays its uncertainty and unsupported modes.
+- Search in the control-room disclosure has Places and Knowledge modes. Knowledge shows hybrid/Voyage reranking only when `reranked` is true, before/after rank, passages and HTTP(S) source links. Place results can fly the camera. Errors remain visible; scripted mode makes no search calls.
+- Approved/sent alert cards and matched official resident alerts have Malay/English recording controls for B's `/alerts/:id/audio/:lang`. Recordings load only on demand. Not-ready/404 errors show a retry action. Scripted alerts do not request real recordings. The resident estimate's Listen button is still browser speech and is separate from an official recording.
+- Village-specific subagent/check/replan steps move the control-room camera. The current contract has no village ID on AgentStep, so movement uses only explicit known village name prefixes in B's summaries, with a three-second movement throttle. It does not guess a village for generic steps. Route selection still draws the real alert route.
+- Alerts support human approval/rejection and priority pickups. Saint supports handoff briefs, explicit acknowledgement and pasted reports; opening WhatsApp is not delivery confirmation. Public-demo write restrictions remain in place.
+- The street-map library loads only when opening a route. `?demo=1` enables recording fonts, keys 1–6 and an FPS/geometry counter. Keyboard shortcuts do not fire while editing inputs, textareas or selects.
+
+## Validation and rehearsal
+
+Run from the repository root with its pinned pnpm (or use the existing local binaries):
 
 ```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm dev
 corepack pnpm typecheck
-corepack pnpm --filter @monsoonwatch/api test
 corepack pnpm --filter @monsoonwatch/web test:integration
 corepack pnpm --filter @monsoonwatch/web build
 ```
 
-If your global pnpm tries to replace node_modules, use Corepack to select the pinned pnpm 10.34.8.
+Regression tests cover frontend HTTP/SSE contracts, route wording, Saint errors, explicit scripted mode, scenario selection/race cancellation, and stale/missing/out-of-coverage water exclusion. `/tests/frontend-preview.html` exercises search and recording states with a simulated search API; it is excluded from production output.
 
-Open http://localhost:5173. The control room should say Live after the health check and SSE connection. An unreachable API displays “API disconnected” and disables actions; it never silently runs a demo. `?mock=1` explicitly selects the scripted frontend demo. `pnpm dev:mock` also selects that script through the health endpoint's `mock` flag; the backend does not provide mock fixtures for all C routes.
+Verified in this checkout: all four workspace TypeScript projects, 20 frontend tests and the production build pass. Browser checks covered desktop and phone layouts, the scripted fail/replan/pass flow, historical snapshot/slider, deferred street-map loading, search text/URL handling, and recording error/retry states. The real hybrid endpoint returned three Voyage-reranked hits. The desktop recording view measured about 120 fps here; this is not a guarantee for another laptop. Initial JavaScript is about 251 KB gzip (down from 462 KB), with the street map loaded separately; Vite still reports large chunks. Real generated speech playback and a deployed rehearsal remain unverified.
 
-## Connected workflow
+Rehearse:
 
-- API villages, evacuation centres and live stations load when SSE connects, and reload after reconnect. Live river events update marker colours and gauge counts; replay readings do not overwrite live gauges.
-- Play the replay calls C's POST /api/replay/start from 18 December 2014 at 30 seconds/day. Stop calls /api/replay/stop. replay.tick and /api/replay/status drive the control-room clock. This uses the real database/stream-processing pipeline. Starting a replay resets prior replay risk events as implemented by C; coordinate with teammates sharing that database.
-- Run the agent now calls B's /api/agent/run. When a replay timestamp is present it supplies mode=replay and at=that timestamp; otherwise mode=live. B's backend automatically starts runs on risk events. No frontend stage threshold starts real runs.
-- agent.step populates the HUD; alert.updated adds/updates an alert without replacing the alert under review. The picker selects each village/centre allocation; its route updates the map. Both language messages, verification results and pickup order are visible.
-- Approve sends approvedBy; reject sends rejectedBy. Decisions disable during requests, and errors stay visible. Successful approval creates a queued Saint task through B's backend; queued does not mean delivered.
-- A started manual run is reconciled with GET /api/agent/runs/:id every five seconds, recovering missed steps/alerts and exposing asynchronous failures. SSE remains the only push transport. Full-page reload recovery of older alerts and auto-triggered runs needs a backend listing endpoint; the current backend only retrieves a known run ID.
-- Real Saint tasks display their backend status. Task approval buttons exist only in scripted mode until C supplies a decision endpoint.
+1. Open `/?demo=1#control`, inspect the 24 Dec snapshot and move the slider. Check the timestamp, flooded/unknown road counts and uncertainty labels. This only reads data.
+2. Open Places/Knowledge search. Try a town and a flood-history question. Confirm the rerank badge reflects the response. Use Source for citations.
+3. Open `/?mock=1&demo=1#control`. Run the scripted agent and show fail → replan → pass → approval → Saint. This spends no model credits and sends no real messages.
+4. Choose a home and open its route. Verify the 2D map loads on demand and the 3D fallback still works without map tiles.
+5. On the presentation laptop and a phone, check scrolling, frame rate, cold startup and route readability. Bundled terrain works without AWS; the whole app is not an offline cache.
 
-## Verified locally
+## Remaining backend/team work
 
-Workspace typecheck, production frontend build, backend unit tests, and frontend HTTP/stream regression tests. The HTTP tests call the real Fastify routes through injection with an in-memory agent store: approval identity, duplicate approval conflict, rejection, validation errors, run retrieval, and replay routing. No external messages are delivered by tests.
-
-The running real API returned health mock=false and 765 villages from MongoDB. The repository .env now has MONGODB_URI and GEMINI_API_KEY configured. STREAM_PROCESSING_URI is still missing. A fresh process ran B’s hello-argon.ts smoke test on 24 October 2026: Gemini returned HTTP 429, “Rate limit exceeded for model gemini-4-argon (limit: 0 requests per day on Free Tier).” After the key was replaced, a second fresh-process test returned HTTP 429: “Your billing account has exceeded its monthly spending cap.” The latest blocker is the Google billing account’s monthly cap; the real agent workflow remains unverified. The existing API process may need a restart after changing .env; its environment has not been reloaded by these checks.
-
-## Remaining release gates
-
-1. B: resolve the Google billing account’s monthly spending cap using the intended hackathon project/credits, restart the API with the updated configuration, and complete one real run. C: verify Atlas processors are running (the missing local STREAM_PROCESSING_URI is needed to manage them, not proof they are stopped). Then exercise replay → risk → agent → verify → real alert in the UI together.
-2. C/B: /regions/:id/hazards, /search, /voice/session, and Saint delivery/decision routes are not registered in the current server. The map retains the labelled local reconstructed 2014 model; it does not represent live API hazard predictions. Local place search still works; Atlas search is not implemented by this branch.
-3. Human duty officer: approve a verified test alert after confirming the intended delivery destination. Verify the resulting queued task and actual delivery separately. These integration checks have not sent a real alert.
-4. Hosting: serve apps/web/dist, proxy /api/* to the Fastify service, preserve SSE streaming (no proxy buffering; allow long-lived connections), and keep environment secrets on the server. Static hosting alone cannot run the API. PUBLIC_DEMO=1 now blocks all API writes and automatic agent runs for the public deployment. Authenticated operator access remains future work. Render has been selected for a single frontend/API web service; see DEPLOYMENT.md.
-5. Terrain still downloads AWS Terrarium tiles on a cold load. Cache/bake terrain for a reliable offline event demo. The web build reports a >500 kB JavaScript chunk; performance should be checked on the presentation laptop.
-
-## Saint C8 integration
-
-The A branch now includes origin/main through b92fc72 and C8 from origin/c/saint (21b48ca); C8 was not yet on the fetched main when integrated. The control room loads existing tasks and listens for saint.task and evac.updated. A queued send_alert task offers Send to Saint: fetch the handoff, open its WhatsApp link in a reserved tab, then acknowledge the handoff. The operator still sends the message in WhatsApp; opening it is not delivery confirmation. If no link is configured, a copyable brief and explicit manual-handoff confirmation are shown. Set SAINT_WHATSAPP on the operator server to enable the link.
-
-Paste Thea’s report (including MW CHECKIN lines), enter the duty officer, and Apply report to see applied/skipped/errors. Pasted text is retained on errors. Public-demo mode disables these mutations; no deployment restriction was relaxed. Supply orders are drafts awaiting approval, never placed.
-
-Regression checks: web test:integration includes Saint request/error cases. Visit /tests/saint-preview.html on the Vite dev server for isolated browser checks with simulated API and popup responses; no real messages are sent. This test page is not part of the production dist build.
+- B's two newer commits on origin/b/argon-shortlist were fetched but are not merged into this checkout. They include improved centre screening and district advisories. Merge/review through the team's normal process.
+- District evacuate warnings/advisories are B-internal objects, currently logged in HUD steps and returned internally; GET /agent/runs/:id only exposes shared alerts. They have no shared persisted shape or approval endpoint. A proper review card needs an agreed B/C shared contract, storage, SSE/retrieval and authenticated approval/rejection path. Suggested fields: id, runId, kind, basis, district, level, villageIds, messages, vulnerable counts, status and decision identity/time. Existing Alert requires a village, centre and route; do not invent those for district advisories. No unsupported approval UI has been added.
+- Full-page recovery of automatically triggered or old runs still needs a listing endpoint. Known manually started runs reconcile every five seconds.
+- Real paid agent/TTS runs, current Atlas processor health, actual delivery and deployed hosting are not established by local frontend tests. B/C and an operator must complete these checks with intended credentials/destinations. Old billing-cap notes are historical, not a current diagnosis.
+- Render deployment configuration remains documented in the root DEPLOYMENT.md. Review the build, SSE, public-demo restrictions and Atlas networking at the deployed URL. No deployment or real message delivery is performed by frontend verification.

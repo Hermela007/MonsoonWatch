@@ -12,6 +12,7 @@
   </head>
   <body data-view="landing">
     <div id="app"></div>
+    <div id="origin-map" aria-label="Confirm your starting point on the map"></div>
     <div id="route-map" aria-label="Route map"></div>
 
     <div id="loading">
@@ -29,51 +30,84 @@
       <div class="clock"><b id="clock-tag">Now</b><span id="clock-time"></span></div>
     </header>
 
-    <section id="control" class="card ui" aria-live="polite">
+    <section id="control" class="card ui" aria-live="polite" data-stage="1">
       <div class="place-row"><span class="place"><span data-copy="controlKicker"></span> · Kelantan</span></div>
+      <div class="risk-level">Flood response, step by step</div>
+      <p class="sub">A dry run on the real December 2014 flood. The system detects danger and drafts the warning; nothing is sent until a person approves it.</p>
       <p id="public-demo-note" class="note" hidden>Public demo · operator actions are restricted. <a href="?mock=1">Try the scripted walkthrough</a>.</p>
-      <p class="note">3D flood and landslide layers use reconstructed 2014 data and terrain screening, with an approximate discharge-to-rise mapping.</p>
-      <div class="actions">
-        <button id="btn-replay" class="btn btn-primary" type="button">Play the replay</button>
-        <button id="btn-run" class="btn" type="button">Run the agent now</button>
-      </div>
-      <p id="replay-status" class="note" role="status"></p>
-      <div id="control-idle">
-        <div class="risk-level">Dec 2014 replay</div>
-        <p class="sub">When a river crosses a warning level, the agent drafts an alert. It must pass every check, and a person must approve it, before anything is sent.</p>
 
-      </div>
-      <p id="control-risk" class="control-risk"></p>
-      <div id="alert-box" hidden>
-        <label id="alert-picker-row" hidden>Review alert <select id="alert-picker" aria-label="Alert to review"></select></label>
-        <div class="risk-level" id="alert-title"></div>
-        <div class="alert-meta" id="alert-meta"></div>
-        <blockquote id="alert-msg"></blockquote>
-        <div id="alert-pickups" class="note"></div>
-        <h3>Checks</h3>
-        <ul id="alert-checks" class="checks"></ul>
-        <p id="alert-status" class="alert-status"></p>
-        <div class="actions two" id="decide-row">
-          <button id="btn-approve" class="btn btn-primary" type="button" disabled>Approve and send</button>
-          <button id="btn-reject" class="btn" type="button" disabled>Reject</button>
-        </div>
-      </div>
-      <div id="saint-box" hidden>
-        <h3>After approval · Saint (Thea)</h3>
-        <p class="note">One leader via WhatsApp. Supply orders remain drafts awaiting approval.</p>
-        <ul id="saint-list" class="tasks"></ul>
-        <label for="saint-by">Duty officer</label>
-        <input id="saint-by" value="Duty officer" autocomplete="name" />
-        <label for="saint-report">Paste Saint’s report</label>
-        <textarea id="saint-report" rows="5" placeholder="Paste Thea’s WhatsApp report, including MW CHECKIN lines"></textarea>
-        <button id="saint-submit" class="btn" type="button" disabled>Apply report</button>
-        <div id="saint-result" class="note" role="status" aria-live="polite"></div>
-        <p id="saint-capacity" class="note" aria-live="polite"></p>
-      </div>
+      <ol class="ctl-steps">
+        <li class="ctl-step" data-n="1">
+          <div class="ctl-head"><span class="ctl-n">1</span><b>Replay the 2014 flood</b></div>
+          <p class="ctl-help">Feeds the real river and rain readings from December 2014 into the system, starting 18 Dec at about 30 seconds a day. When a river crosses its warning level, the system notices — and step 2 starts by itself.</p>
+          <div class="actions"><button id="btn-replay" class="btn btn-primary" type="button">Play the replay</button></div>
+          <p id="replay-status" class="ctl-status" role="status"></p>
+          <p id="control-risk" class="control-risk"></p>
+        </li>
+        <li class="ctl-step" data-n="2">
+          <div class="ctl-head"><span class="ctl-n">2</span><b>The agent drafts an alert</b></div>
+          <p class="ctl-help">Works out who is at risk, where they should go and how to get there, and writes the warning. Code checks every fact; each step shows in “Under the hood”.</p>
+          <p id="agent-focus" class="ctl-status" role="status"></p>
+          <div class="ctl-shortcut">
+            <button id="btn-run" class="btn" type="button">Run the agent now</button>
+            <small>Don’t wait for a river to cross: assess the situation at the current replay time.</small>
+          </div>
+        </li>
+        <li class="ctl-step" data-n="3">
+          <div class="ctl-head"><span class="ctl-n">3</span><b>Check and approve</b></div>
+          <div id="control-idle"><p class="ctl-help">No alert yet. The draft appears here with its checks; you approve or reject it.</p></div>
+          <div id="alert-box" hidden>
+            <label id="alert-picker-row" hidden>Review alert <select id="alert-picker" aria-label="Alert to review"></select></label>
+            <div class="alert-title" id="alert-title"></div>
+            <div class="alert-meta" id="alert-meta"></div>
+            <blockquote id="alert-msg"></blockquote>
+            <div id="alert-audio" class="alert-audio" hidden></div>
+            <div id="alert-pickups" class="note"></div>
+            <h3>Checks</h3>
+            <ul id="alert-checks" class="checks"></ul>
+            <p id="alert-status" class="alert-status"></p>
+            <div class="actions two" id="decide-row">
+              <button id="btn-approve" class="btn btn-primary" type="button" disabled>Approve and send</button>
+              <button id="btn-reject" class="btn" type="button" disabled>Reject</button>
+            </div>
+          </div>
+        </li>
+        <li class="ctl-step" data-n="4">
+          <div class="ctl-head"><span class="ctl-n">4</span><b>After approval</b></div>
+          <p class="ctl-help">Saint hands the approved alert to a community leader on WhatsApp and tracks check-ins at the centre. Supply orders stay drafts until approved.</p>
+          <div id="saint-box" hidden>
+            <ul id="saint-list" class="tasks"></ul>
+            <label for="saint-by">Duty officer</label>
+            <input id="saint-by" value="Duty officer" autocomplete="name" />
+            <label for="saint-report">Paste Saint’s report</label>
+            <textarea id="saint-report" rows="5" placeholder="Paste Thea’s WhatsApp report, including MW CHECKIN lines"></textarea>
+            <button id="saint-submit" class="btn" type="button" disabled>Apply report</button>
+            <div id="saint-result" class="note" role="status" aria-live="polite"></div>
+            <p id="saint-capacity" class="note" aria-live="polite"></p>
+          </div>
+        </li>
+      </ol>
+
+      <details class="ctl-more">
+        <summary>Map and data notes</summary>
+        <p class="note">Control-room water uses API gauge levels sampled near mapped rivers; the shaded extent is a display approximation. Red roads and landslide cells/runouts come from the hazard API. Resident views show the separate reconstructed 2014 model.</p>
+        <p id="hazard-status" class="note" role="status">Connecting to the hazard model…</p>
+        <button id="hazard-snapshot" class="link" type="button">Inspect 24 Dec 2014 · read only</button>
+        <label class="hazard-follow-row"><input id="hazard-follow" type="checkbox" checked /> Follow scenario clock</label>
+        <label for="hazard-time">Inspect 72 hours around the selected replay time</label>
+        <input id="hazard-time" type="range" min="-36" max="36" step="0.25" value="0" disabled />
+        <p id="hazard-time-label" class="note">Following scenario clock</p>
+        <p id="hazard-limitations" class="note">Coverage is unknown until the API responds. Unshaded areas are not confirmed clear.</p>
+      </details>
+      <details class="ctl-more">
+        <summary>Search places and response knowledge</summary>
+        <div id="knowledge-search"></div>
+      </details>
     </section>
 
     <aside id="hud" class="ui" aria-label="Under the hood">
       <div class="hud-head"><b>Under the hood</b><span id="hud-mode" class="hud-mode">Connecting…</span></div>
+      <p id="render-performance" class="note" aria-label="Render performance"></p>
       <p id="hud-empty" class="hud-empty">Every step the system takes appears here: MongoDB, Gemini, verification, Saint.</p>
       <ol id="hud-list"></ol>
     </aside>
@@ -98,14 +132,29 @@
         <li class="c-flood" data-copy="cascadeFlood"></li>
       </ol>
       <p class="sub" data-copy="askSub"></p>
+      <label for="place-input" class="origin-input-label">Starting address</label>
       <form id="place-form" autocomplete="off">
-        <input id="place-input" type="search" inputmode="search" enterkeyhint="go" aria-label="Your town or village" />
+        <input id="place-input" type="search" inputmode="search" enterkeyhint="go" aria-label="Starting address, building or village" aria-describedby="origin-search-help" />
       </form>
+      <p id="origin-search-help" class="origin-help">Choose an address result, then check its pin. A village result starts at the village centre.</p>
       <div id="suggestions" class="suggestions"></div>
       <button id="btn-locate" class="btn btn-ghost" type="button">📍 <span data-copy="useLocation"></span></button>
+      <button id="btn-pick-map" class="btn btn-ghost" type="button">Choose a starting point on the map</button>
       <p id="landing-note" class="note" role="status"></p>
       <p id="caption-fact" class="fact"></p>
       <p class="footer" data-copy="footer"></p>
+    </section>
+
+    <section id="origin-confirm" class="card ui" aria-labelledby="origin-confirm-title" hidden>
+      <div class="place-row"><span class="place">Starting point</span><button id="origin-cancel" class="link" type="button">Change address</button></div>
+      <h1 id="origin-confirm-title">Is the pin in the right place?</h1>
+      <p id="origin-label"></p>
+      <p id="origin-precision" class="origin-help"></p>
+      <p class="origin-help">Drag the pin or tap the map to adjust it. You can start from home, work or anywhere you need to leave.</p>
+      <p id="origin-coordinates" class="origin-coordinates"></p>
+      <fieldset class="origin-travel"><legend>How will you travel?</legend><label><input type="radio" name="origin-travel" value="car" checked /> Driving</label><label><input type="radio" name="origin-travel" value="walk" /> Walking</label></fieldset>
+      <p id="origin-confirm-status" class="note" role="status"></p>
+      <button id="origin-use" class="btn btn-primary" type="button">Confirm starting point</button>
     </section>
 
     <section id="route-view" class="card ui" aria-label="Evacuation route">
@@ -126,11 +175,13 @@
         <div id="official-go" class="official-go"></div>
         <p id="official-msg" class="official-msg"></p>
         <p id="official-people" class="official-people"></p>
+        <div id="official-audio" class="alert-audio" hidden></div>
       </div>
       <div id="risk-level" class="risk-level"></div>
       <div id="risk-lines" class="risk-lines"></div>
       <div id="risk-when" class="risk-when" hidden></div>
       <div id="risk-action" class="risk-action"></div>
+      <p id="journey-status" class="note" role="status"></p>
       <section id="journey" class="journey" aria-label="Your evacuation route" hidden></section>
       <p class="trust" data-copy="trust"></p>
       <div id="street-info" class="street-info">

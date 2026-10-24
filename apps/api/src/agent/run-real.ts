@@ -31,10 +31,11 @@ try {
     const full = situationForPrompt(situation, { full: true });
     const shortlist = shortlistForArgon(situation);
     const sent = situationForPrompt(situation, { shortlist });
-    const SECTIONS = ["villages", "evacCentres", "stations", "knowledge", "glofasCells", "riskEvents"] as const;
+    const SECTIONS = ["villages", "undecidedVillages", "evacCentres", "stations", "knowledge", "glofasCells", "riskEvents"] as const;
     const count = (v: unknown) => (Array.isArray(v) ? v.length : "");
     const rows: Record<string, { allItems: number | string; allTokens: number; sentItems: number | string; sentTokens: number }> = {};
-    for (const k of SECTIONS) rows[k] = { allItems: count(full[k]), allTokens: tokens(full[k]), sentItems: count(sent[k]), sentTokens: tokens(sent[k]) };
+    const pick = (o: Record<string, unknown>, k: string) => o[k];
+    for (const k of SECTIONS) rows[k] = { allItems: count(pick(full, k)), allTokens: tokens(pick(full, k)), sentItems: count(pick(sent, k)), sentTokens: tokens(pick(sent, k)) };
     const rest = (o: Record<string, unknown>) => tokens(Object.fromEntries(Object.entries(o).filter(([k]) => !(SECTIONS as readonly string[]).includes(k))));
     rows.other = { allItems: "", allTokens: rest(full), sentItems: "", sentTokens: rest(sent) };
     rows.TOTAL = { allItems: "", allTokens: tokens(full), sentItems: "", sentTokens: tokens(sent) };
@@ -98,9 +99,12 @@ try {
   }
   console.log(`Running the agent on REAL ${mode} data @ ${at.toISOString()} (run ${runId}, Gemini cap ${geminiCap})…\n`);
   // Ctrl+C stops the script (remaining Gemini batches are not planned).
-  const { run, outcomes, rulesAlerts, plannedBy, areaWarnings, atRisk } = await runAgent({ situation, trigger: { type: "manual" }, runId, geminiCap });
+  const { run, outcomes, rulesAlerts, plannedBy, areaWarnings, atRisk, escalations, sitrep } = await runAgent({ situation, trigger: { type: "manual" }, runId, geminiCap });
   console.table(getMemorySteps(runId).map(({ actor, kind, status, summary }) => ({ actor, kind, status, summary: summary.slice(0, 110) })));
   console.log(`\nRun ${run.status}${run.error ? `: ${run.error}` : ""}.`);
+  console.log(`\nArgon's situation report:\n  ${sitrep || "(none)"}`);
+  console.log(`Argon's escalations: ${escalations.filter((e) => e.accepted).length} accepted, ${escalations.filter((e) => !e.accepted).length} rejected`);
+  for (const e of escalations) console.log(`  ${e.accepted ? "✓" : "✗"} ${e.detail}`);
   console.log(`${rulesAlerts.length} rules alerts (verified). Gemini villages:`);
   for (const o of outcomes) {
     console.log(`\n${o.villageName}: ${o.passed ? "VERIFIED" : "NOT verified"} after ${o.attempts} attempt(s) → covered by ${plannedBy.get(o.villageId)}`);
