@@ -18,6 +18,15 @@ pnpm typecheck         # must pass before every commit
 
 Web: http://localhost:5173 · API: http://localhost:8787/api/health
 
+## Atlas Stream Processing
+
+Risk detection runs as two Atlas Stream Processing processors (`riskRiver`, `riskRain`) defined in
+[`apps/api/src/db/stream-processors/risk.js`](apps/api/src/db/stream-processors/risk.js).
+`pnpm db:stream` creates or updates and starts them; `pnpm db:stream --stop` stops them (billed per hour while running).
+Needs `STREAM_PROCESSING_URI` and a `MONGODB_URI` user with the `atlasAdmin` role. Details: IMPLEMENTATION §4 C4.
+
+Dec 2014 replay (reconstructed): `POST /api/replay/start {"regionId":"kelantan","from":"2014-12-18"}` (30 s per day), `POST /api/replay/stop`, `GET /api/replay/status`. Details: IMPLEMENTATION §4 C3.
+
 ## Layout
 
 | Path | What | Owner |

@@ -12,14 +12,14 @@ export const MODELS = {
   live: "gemini-3.8-live",
   /** Optional: spoken alerts. */
   tts: "gemini-3.8-flash-tts",
-  /** Optional: "Illustration, not a prediction". */
+  /** NOT USED — skipped (C's brief): an AI flood image is easy to mistake for a prediction. */
   nanoBanana: "gemini-nano-banana-2.1",
 } as const;
 
 export const AGENTS = {
   /** Landslide thresholds + flood history briefs, with citations. Requires background: true. */
   deepResearch: "deep-research-preview-04-2026",
-  /** Optional sandboxed verification scripts. */
+  /** NOT USED — skipped (C's brief): verify.ts already runs deterministically in our API. */
   antigravity: "antigravity-preview-09-2026",
 } as const;
 

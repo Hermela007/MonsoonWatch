@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { interact } from "./gemini";
 import { MODELS } from "./models";
 import { getMemorySteps } from "./steps";
+import { closeDb } from "../db/client";
 
 const runId = `hello-${randomUUID()}`;
 
@@ -23,3 +24,6 @@ console.log("\nAgentSteps recorded:");
 console.table(getMemorySteps(runId).map(({ actor, kind, status, summary, latencyMs, tokens }) => ({
   actor, kind, status, summary, latencyMs, tokens,
 })));
+
+// With MONGODB_URI set (and MOCK≠1) the step was also saved to agent_steps; close the connection so the script exits.
+await closeDb();

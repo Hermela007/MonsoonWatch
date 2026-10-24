@@ -38,7 +38,13 @@ export interface VerifyContext {
     latestReading?: Reading;
     riskEvents: RiskEvent[];
   };
-  hazards: Pick<Hazards, "blockedRoads" | "landslide">;
+  hazards: Pick<Hazards, "blockedRoads" | "landslide"> & Partial<Pick<Hazards, "blockedRoadIds">>;
+  /**
+   * How the route was planned (route.ts). When the road segment ids are known, the flood check
+   * uses them exactly (no false alarm where a dry route only touches a flooded road at a junction).
+   * A boat route may cross flooded roads; landslide runouts still fail it.
+   */
+  route?: { mode: "road" | "boat"; segmentIds?: string[] };
   options?: Partial<typeof DEFAULTS>;
 }
 
@@ -56,7 +62,16 @@ export function checkThreshold(alert: Alert, ctx: VerifyContext): VerificationRe
 
   if (alert.hazard === "flood") {
     if (!station?.thresholds || !latestReading) {
-      return fail("threshold", "No river station reading with JPS thresholds cited");
+      // No JPS station (e.g. the 2014 replay, which has GloFAS discharge cells): fall back to the
+      // river_threshold events Stream Processing computed. GloFAS thresholds are approximate.
+      const river = riskEvents.filter((e) => e.type === "river_threshold");
+      if (river.length === 0) return fail("threshold", "No river station reading with JPS thresholds, or river risk event, cited");
+      const best = river.reduce((x, y) => (LEVEL_RANK[y.level] > LEVEL_RANK[x.level] ? y : x));
+      const glofas = best.stationId?.startsWith("glofas-");
+      const unit = glofas ? " m³/s (GloFAS, approximate threshold)" : "";
+      const detail = `${best.stationId ?? "river"}: ${best.value}${unit} vs ${best.threshold} → ${best.level.toUpperCase()}; claimed ${alert.level.toUpperCase()}`;
+      if (LEVEL_RANK[best.level] < LEVEL_RANK.alert) return fail("threshold", `${detail} — no threshold crossed`);
+      return LEVEL_RANK[alert.level] > LEVEL_RANK[best.level] ? fail("threshold", `${detail} — overclaims`) : pass("threshold", detail);
     }
     const actual = levelFromThresholds(latestReading.value, station.thresholds);
     const t = station.thresholds;
@@ -91,9 +106,20 @@ export function checkRoute(alert: Alert, ctx: VerifyContext): VerificationResult
     return fail("route", `Route ends ${endKm.toFixed(1)} km from ${ctx.centre.name} (max ${opt.maxRouteEndKm} km)`);
   }
 
-  for (const blocked of ctx.hazards.blockedRoads.coordinates) {
-    const seg = firstIntersectingSegment(coords, blocked);
-    if (seg >= 0) return fail("route", `Route segment ${seg + 1} crosses a flooded road`);
+  const boat = ctx.route?.mode === "boat";
+  if (!boat) {
+    const ids = ctx.route?.segmentIds;
+    const blockedIds = ctx.hazards.blockedRoadIds;
+    if (ids && blockedIds) {
+      const blocked = new Set(blockedIds);
+      const hit = ids.find((id) => blocked.has(id));
+      if (hit) return fail("route", `Road route uses flooded road segment ${hit} — needs a boat or another centre`);
+    } else {
+      for (const blocked of ctx.hazards.blockedRoads.coordinates) {
+        const seg = firstIntersectingSegment(coords, blocked);
+        if (seg >= 0) return fail("route", `Route segment ${seg + 1} crosses a flooded road`);
+      }
+    }
   }
   for (const runout of ctx.hazards.landslide.runouts) {
     const seg = firstIntersectingSegment(coords, runout.coordinates);
@@ -101,7 +127,13 @@ export function checkRoute(alert: Alert, ctx: VerifyContext): VerificationResult
       return fail("route", `Route segment ${seg + 1} crosses a landslide runout path (risk ${runout.risk.toFixed(2)})`);
     }
   }
-  return pass("route", `Clear of ${ctx.hazards.blockedRoads.coordinates.length} flooded roads and ${ctx.hazards.landslide.runouts.length} runouts`);
+  const floods = ctx.hazards.blockedRoadIds?.length ?? ctx.hazards.blockedRoads.coordinates.length;
+  return pass(
+    "route",
+    boat
+      ? `Boat route; clear of ${ctx.hazards.landslide.runouts.length} landslide runouts`
+      : `Dry road route; clear of ${floods} flooded segments and ${ctx.hazards.landslide.runouts.length} runouts`,
+  );
 }
 
 // 3. Capacity: the centre must have room for the whole village.

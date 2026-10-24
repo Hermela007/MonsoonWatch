@@ -172,7 +172,7 @@ export interface Hazards {            // what the 3D scene draws for a given tim
 | `GET /search?q&type=place` | C | Atlas Search results |
 | `GET /search?q&type=hybrid` | C | Hybrid + reranked results |
 | ~~`GET /reports/:id/similar`~~ · ~~`POST /reports`~~ | — | Dropped with photo/video uploads (§1.7) |
-| `POST /replay/start` `{regionId, speed}` / `POST /replay/stop` | C | 202 |
+| `POST /replay/start` `{regionId, secondsPerDay?, from?}` / `POST /replay/stop` / `GET /replay/status` | C | 202 / 202 / `{ running, replayId?, ts?, secondsPerDay?, … }` |
 | `POST /agent/run` `{regionId, riskEventId?}` | B | `{runId}` (also auto-triggered by risk events) |
 | `GET /agent/runs/:id` | B | steps + alerts |
 | `POST /alerts/:id/approve` · `/reject` | B (A calls it) | `Alert` |
@@ -364,12 +364,27 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 - **Done when:** Compass shows live JPS readings arriving and the 2014 replay series loaded.
 
 ### C3. Replay engine (Sat AM)
-- `POST /replay/start {speed}`: walks replay readings in time order, re-emitting them as `reading.new` (and through the same stream processor) at e.g. 1 day = 30 s. Emits `replay.tick`.
+Built: `apps/api/src/replay/engine.ts` + `apps/api/src/routes/replay.ts`.
+- `POST /api/replay/start { regionId, secondsPerDay? (default 30, 1–600), from? (ISO, default Region.replay.start) }` → **202** `{ running, replayId, regionId, from, to, days, secondsPerDay }`. Already running → **409**; unknown region → **404**; bad body → 400. `POST /api/replay/stop` → 202 (halts before the next tick). `GET /api/replay/status` → `{ running, replayId?, regionId?, ts?, day?, days?, secondsPerDay?, from?, to? }`; after a run ends it still reports the last `replayId`/`ts` with `running: false`.
+- **Each tick = one 2014 day:** that day's replay readings in `raw_readings` (GloFAS discharge + rain, all kinds) are **copied** into `reading_events` with `meta.mode: "replay"` and their original 2014 `ts`. They then follow the live path: change stream → SSE `reading.new`, and Stream Processing → `risk_events` (`mode: "replay"`) → `risk.event` + HUD `agent.step`. `raw_readings` is never written.
+- **`replay.tick { ts }`** is published directly via `events/bus.ts`. It is the one allowed direct publish: it's a clock, not data.
+- **Fresh demo every time:** start deletes replay `risk_events` (`mode: "replay"`), their `sp-*` agent steps and replay docs in `reading_events`, so the processors fire again. Live data is never touched.
+- Ticks are scheduled against the start time (no drift); the API stops the replay on SIGINT/SIGTERM. Replay state is in-process: run one API instance when demoing.
+- Note: `reading_events` has a 7-day TTL on `ts`, so replay copies (2014 `ts`) are removed by MongoDB within about a minute. The change stream and processors have already seen the insert by then.
+- **Length:** the full replay (10 Dec 2014 – 10 Jan 2015) is 32 days → **16 min at 30 s/day**. For the demo, start from 18 Dec (`{ "regionId": "kelantan", "from": "2014-12-18" }`): 24 days = 12 min, first GloFAS alert after about 30 s, danger after 3.5 min.
+- Tested at 10 s/day from 18 Dec: GloFAS alert 19 Dec → warning 22 Dec → **danger 24 Dec (Kuala Krai cell 5,187 m³/s)** → back to alert by 27 Dec; rain alerts from 21 Dec (max 233 mm/3 days). 160 replay risk events over the run (52 GloFAS: 4 cells × 13 days; 108 rain: station × day), each with its HUD step.
 
-### C4. Stream Processing (Sat AM)
-- Processor definition **committed** at `apps/api/src/db/stream-processors/risk.js`: source = change stream on **`reading_events`** (a normal collection with the same docs as `raw_readings`, new readings only, 7-day TTL). Not `raw_readings`: time series collections can't be a Stream Processing source or be watched by change streams ([limitations](https://www.mongodb.com/docs/manual/core/timeseries/timeseries-limitations/)). Then: join station thresholds; window (e.g. tumbling 15 min for river level; hopping 24 h for rain accumulation); emit threshold crossings → `$merge` into `risk_events` with `source: "stream_processing"`.
-- Also write an `AgentStep` (actor "MongoDB Stream Processing") for the HUD.
-- Fallback if blocked on tier: same logic in a Node worker, but keep trying to ship the real processor — it's a named feature.
+### C4. Stream Processing (Sat AM) — **live**
+Two real Atlas Stream Processing processors, defined in **`apps/api/src/db/stream-processors/risk.js`** and applied by **`pnpm db:stream`** (`apps/api/src/db/stream.ts`: creates missing processors, leaves unchanged ones alone, drops and recreates changed ones, starts them, prints state + stats; `--stop` stops them, since each bills per hour while running). Atlas allows one window stage per pipeline, so river and rain are separate processors.
+- **Source:** change stream on **`reading_events`** (inserts), via the connection registry entry `monsoonwatch` → Cluster0. Not `raw_readings`: time series collections can't be a Stream Processing source or be watched by change streams ([limitations](https://www.mongodb.com/docs/manual/core/timeseries/timeseries-limitations/)).
+- **`riskRiver`:** `$tumblingWindow` of **10 s** (idle timeout 10 s), max value per station → `$lookup` station thresholds from `stations` → level = highest of alert/warning/danger crossed → `RiskEvent` `type: "river_threshold"`, message e.g. `ALERT crossing: Sg. Galas di Limau Kasturi (F1) (56.41 m ≥ 56 m)`.
+  - **GloFAS (replay only):** readings with `meta.kind: "glofas"` (daily discharge, `stationId` = `Region.glofasCells` id, label via `$lookup` into `regions`) use **APPROXIMATE discharge thresholds 1,500 / 3,000 / 4,500 m³/s** (alert / warning / danger) on the main channel. We chose these from the 2014 series (cells peak ~5,100 m³/s on 24 Dec); they are not official return-period thresholds. Message: `DANGER: GloFAS discharge (reconstructed) at Main channel near Kuala Krai — 5187 m³/s ≥ 4500 m³/s (approximate threshold)`.
+- **`riskRain`:** 3-day accumulation per reading = rain since local midnight (`value`) + the last two daily totals in `rain6d` (yesterday, day before). `$hoppingWindow` of **20 s, hop 5 s**, highest 3-day total per station → `type: "rain_accumulation"` at **150 / 250 / 350 mm** (alert / warning / danger). These are **placeholders** until B's Deep Research thresholds land in `Region.landslide.rainThresholdsMm`.
+- **Timing:** windows run on the change event's time (≈ when the reading was inserted), not the reading's own `ts`. Otherwise stale JPS stations and the 2014 replay would count as late data and be dropped. Window sizes are processing time, so they must be shorter than one replay day (≥ 10 s/day). Otherwise several 2014 days merge and the alert → warning → danger build-up is lost. Live JPS bursts still land in one window.
+- **Sink / dedup:** `$merge` into `risk_events` on `_id` with `whenMatched: "keepExisting"`. `_id` = `<stationId>:river_threshold:<level>:<15-min reading slot>` or `<stationId>:rain_accumulation:<level>:<local day>`, so restarts, re-inserted readings and replays never duplicate. Extra fields: `mode` (live/replay), `windowStart`, `windowEnd`. Failed documents go to `sp_dlq`.
+- **Tech HUD:** the API's `risk_events` change stream also writes an `AgentStep` (actor "MongoDB Stream Processing", kind "db", `_id`/`runId` = `sp-<riskEventId>`, latency = window close → event written), so SSE carries `risk.event` + `agent.step`.
+- **Needs:** the DB user from `MONGODB_URI` with the `atlasAdmin` role; `STREAM_PROCESSING_URI` (no credentials; the script reuses `MONGODB_URI`'s user). Tier SP2 per processor.
+- Node fallback: not built. The real processors run.
 
 ### C5. Live events (Sat AM)
 - `GET /api/stream`: one SSE endpoint fed by **change streams** (`apps/api/src/events/change-streams.ts`, started only when `MOCK` ≠ 1):

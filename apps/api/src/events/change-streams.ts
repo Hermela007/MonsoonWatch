@@ -9,7 +9,7 @@
 import type { ChangeStream, ChangeStreamDocument, Document, ResumeToken } from "mongodb";
 import { ObjectId } from "mongodb";
 import type { FastifyBaseLogger } from "fastify";
-import { COLLECTIONS, type StreamEventName, type StreamEvents } from "@monsoonwatch/shared";
+import { COLLECTIONS, type AgentStep, type StreamEventName, type StreamEvents } from "@monsoonwatch/shared";
 import { getDb } from "../db/client";
 import { toReading, type ReadingDoc } from "../db/readings";
 import { publish } from "./bus";
@@ -21,6 +21,8 @@ interface StreamSpec<K extends StreamEventName = StreamEventName> {
   ops: Op[];
   event: K;
   payload: (doc: Document) => StreamEvents[K];
+  /** Optional side effect after relaying (errors are logged, never thrown). */
+  after?: (doc: Document, change: ChangeStreamDocument) => Promise<void>;
 }
 
 /** BSON → JSON-contract values: Date → ISO string, ObjectId → hex string, recursively. */
@@ -34,11 +36,39 @@ export function serialize<T>(value: unknown): T {
   return value as T;
 }
 
+/**
+ * Tech HUD line for a risk event written by Atlas Stream Processing (C4). The processor itself can only
+ * $merge into one collection, so the API adds the AgentStep here. Fixed _id → if two API instances run,
+ * the second insert is a duplicate-key no-op and the HUD still gets exactly one line.
+ */
+async function stepForStreamProcessing(riskEvent: Document, change: ChangeStreamDocument): Promise<void> {
+  if (riskEvent.source !== "stream_processing") return;
+  // wallTime = when the processor's $merge wrote the event; windowEnd = when its window closed.
+  const writtenAt = "wallTime" in change && change.wallTime instanceof Date ? change.wallTime : new Date();
+  const windowEnd = riskEvent.windowEnd instanceof Date ? riskEvent.windowEnd : null;
+  const step: AgentStep = {
+    _id: `sp-${riskEvent._id}`,
+    runId: `sp-${riskEvent._id}`,
+    ts: writtenAt.toISOString(),
+    actor: "MongoDB Stream Processing",
+    kind: "db",
+    summary: String(riskEvent.message ?? `${riskEvent.type} ${riskEvent.level}`),
+    status: "ok",
+    // Window close → risk event written: the processor's own latency.
+    ...(windowEnd ? { latencyMs: Math.max(0, writtenAt.getTime() - windowEnd.getTime()) } : {}),
+  };
+  try {
+    await (await getDb()).collection<AgentStep>(COLLECTIONS.agentSteps).insertOne(step);
+  } catch (err) {
+    if ((err as { code?: number }).code !== 11000) throw err;
+  }
+}
+
 const spec = <K extends StreamEventName>(s: StreamSpec<K>): StreamSpec => s as unknown as StreamSpec;
 
 const SPECS: StreamSpec[] = [
   spec({ collection: COLLECTIONS.readingEvents, ops: ["insert"], event: "reading.new", payload: (d) => ({ reading: toReading(d as ReadingDoc) }) }),
-  spec({ collection: COLLECTIONS.riskEvents, ops: ["insert"], event: "risk.event", payload: (d) => ({ riskEvent: serialize(d) }) }),
+  spec({ collection: COLLECTIONS.riskEvents, ops: ["insert"], event: "risk.event", payload: (d) => ({ riskEvent: serialize(d) }), after: stepForStreamProcessing }),
   // Steps are upserted running → ok/fail, so updates and replaces matter too.
   spec({ collection: COLLECTIONS.agentSteps, ops: ["insert", "update", "replace"], event: "agent.step", payload: (d) => ({ step: serialize(d) }) }),
   spec({ collection: COLLECTIONS.alerts, ops: ["insert", "update", "replace"], event: "alert.updated", payload: (d) => ({ alert: serialize(d) }) }),
@@ -85,11 +115,13 @@ class Watcher {
   private onChange(change: ChangeStreamDocument) {
     this.token = change._id;
     if (!("fullDocument" in change) || !change.fullDocument) return; // e.g. updated then deleted before lookup
+    const doc = change.fullDocument;
     try {
-      publish(this.spec.event, this.spec.payload(change.fullDocument));
+      publish(this.spec.event, this.spec.payload(doc));
     } catch (err) {
       this.log.warn({ err }, `change stream: could not relay ${this.spec.collection} change`);
     }
+    this.spec.after?.(doc, change).catch((err) => this.log.warn({ err }, `change stream: ${this.spec.collection} follow-up failed`));
   }
 
   /** Called on error or close; reopens once per failed stream instance, with backoff. */
