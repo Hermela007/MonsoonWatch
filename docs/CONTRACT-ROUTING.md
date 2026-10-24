@@ -1,6 +1,6 @@
 # Routing data contract — C's side (hazards, road status, centres, provenance)
 
-**Status: PROPOSED** — the C-side details below need A and B to agree. The contract itself is already agreed:
+**Status: AGREED** by A, B and C (Sat 24 Oct 2026). The contract itself is
 **IMPLEMENTATION §1.7 decision 7** and [`packages/shared/src/routing.ts`](../packages/shared/src/routing.ts)
 (`EvacuationRoute`, `RoadHazardStatus`, `CentreStatus`). This file does not restate those decisions; it says how C's
 data fills them, and lists what is new or differs.
@@ -73,13 +73,13 @@ Governed by **§1.7 decision 8** (`PUBLIC_DEMO=1`, A). Not changed here.
 | Voyage rerank (`$rerank`) | within free tokens |
 | JPS ingest | every 15 min from Heru's laptop (stops when the laptop does: live data then turns stale → `unknown`) |
 
-## 9. Differences from the spec, and proposed routing.ts changes (for A + B to agree)
+## 9. Differences from the spec, and routing.ts changes not made
 Kept to routing.ts where C's spec differed:
 - `confirmedClosures` has no `note` field (routing.ts is `{ available, source }`); the sentence is in `limitations`.
 - `sources` are strings, not `{ name, url, retrievedAt }` objects.
 - Count keys are camelCase `outsideFloodplain` (routing.ts `hazards.segments`), while the status value is `outside_floodplain`.
 
-Proposed (not made):
+Possible later changes (not made; routing.ts stays as it is for the hackathon):
 1. `EvacuationRoute.centre` and `alternatives[]`: add `statusReason` (why at_risk/unknown) and `statusBasis`.
 2. `EvacuationRoute.hazards.confirmedClosures`: add `note` (the "absence ≠ open" sentence), if A wants it on the card.
 3. Structured `sources: { name, url, retrievedAt }[]` instead of strings.
