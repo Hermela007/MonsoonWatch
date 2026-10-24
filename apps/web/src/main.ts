@@ -27,7 +27,14 @@ import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
 import { fetchEvacCentres, fetchVillages } from './api/client';
 import type { Alert, EvacCentre } from '@monsoonwatch/shared';
-import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, REPLAY_START_MS, peakHour, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
+import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, REPLAY_START_MS, peakHour, rainAccumulated, rainIntensity, replayDate, setRealSeries, stageM } from './data/replay2014';
+import { fetchEvacuationRoute, parseEvacuationRoute, type RouteResult } from './api/evacuationRoute';
+import { journeyView, type JourneyView } from './ui/journey';
+import { relocateRoute } from './ui/relocateRoute';
+import { createRouteMarkers } from './layers/routeMarkers';
+import { searchAddresses } from './maps/addressSearch';
+import { createRouteMap2d, type Padding, type RouteMap2d } from './maps/routeMap2d';
+import type { EvacuationRoute, TravelMode } from '@monsoonwatch/shared';
 import { loadMalaysia, loadRealData } from './data/realData';
 import { createGeoContext } from './layers/geoContext';
 import { createStations } from './layers/stations';
@@ -41,6 +48,8 @@ const COLS = Number(params.get('res')) || 600;
 const FOCUS_KM = 6;
 // Closer than this the 150 m terrain looks blocky; the street view covers close-ups.
 const VALLEY_MIN_KM = 7;
+// The route screen may come closer: from overhead the terrain stays smooth, and the roads carry the view.
+const ROUTE_MIN_KM = 1.2;
 // Illustrative trigger (rise above normal, m) until C's Stream Processing emits real risk events.
 const AGENT_TRIGGER_STAGE_M = PEAK_STAGE_M * 0.45;
 
@@ -111,7 +120,8 @@ async function main() {
   const rain = createRain();
   const home = createHomeLayer();
   home.setLabels(t('yourHome'), t('higherGround'));
-  scene.add(valley.mesh, flood.mesh, rain.object, home.group);
+  const routeMarkers = createRouteMarkers();
+  scene.add(valley.mesh, flood.mesh, rain.object, home.group, routeMarkers.group);
   let slides: ReturnType<typeof createLandslides> | null = null;
 
   const timer = new THREE.Timer();
@@ -176,7 +186,7 @@ async function main() {
 
   const layoutShift = () => {
     const view = document.body.dataset.view;
-    if (isPhone) stage.setShift(0, view === 'result' ? window.innerHeight * 0.22 : window.innerHeight * 0.12);
+    if (isPhone) stage.setShift(0, view === 'result' || view === 'route' ? window.innerHeight * 0.22 : window.innerHeight * 0.12);
     else stage.setShift(view === 'control' ? -40 : 210, 0);
   };
   window.addEventListener('resize', layoutShift);
@@ -203,6 +213,161 @@ async function main() {
   };
 
   // ---- Choosing a home ---------------------------------------------------
+  // ---- Evacuation journey (GET /regions/:id/evacuation-route; B's routing on C's road + hazard data) ----
+  // The card shows a one-line summary; "Show me the way" opens the route screen (map fitted to the
+  // journey, bold road route, numbered turns). Until the endpoint is live the card keeps the terrain
+  // estimate. ?routeFixture=ok|all-routes-flooded|boat-unsupported shows the shared sample responses,
+  // moved so they start at the chosen home (they are TEST DATA).
+  let journeyTravel: TravelMode = 'car';
+  let journeySeq = 0;
+  let journey: { route: EvacuationRoute; view: JourneyView; pts: THREE.Vector3[]; turnPts: THREE.Vector3[] } | null = null;
+  let routeOpen = false;
+  const routeFixture = params.get('routeFixture');
+  const fixtureRoutes = import.meta.glob('../../../packages/shared/fixtures/evacuation-route.*.json', { eager: true, import: 'default' });
+  const routeHandlers = {
+    onTravel: (travel: TravelMode) => {
+      journeyTravel = travel;
+      void requestJourney();
+    },
+    onCentre: (id: string) => void requestJourney(id),
+    onStep: (i: number) => selectTurn(i),
+  };
+  const requestJourney = async (centreId: string | null = null): Promise<void> => {
+    if (!homeLngLat || !homePos) return;
+    const seq = ++journeySeq;
+    const from = homeLngLat;
+    let res: RouteResult;
+    if (routeFixture) {
+      const key = Object.keys(fixtureRoutes).find((k) => k.endsWith(`evacuation-route.${routeFixture}.json`));
+      res = key ? parseEvacuationRoute(fixtureRoutes[key]) : { kind: 'unavailable' };
+      if (res.kind === 'route') res = { kind: 'route', route: relocateRoute(res.route, from) };
+    } else {
+      res = await fetchEvacuationRoute(KELANTAN.id, { lngLat: from, travel: journeyTravel, mode: 'replay', ts: replayDate(NOW_HOUR).toISOString(), centreId });
+    }
+    if (seq !== journeySeq || homeLngLat !== from || !homePos) return; // the resident moved on
+    if (res.kind === 'invalid') console.warn('evacuation-route: response does not match the shared contract —', res.error);
+    if (res.kind !== 'route') {
+      journey = null;
+      return ui!.setJourney(null);
+    }
+    const route = res.route;
+    const view = journeyView(route);
+    const lift = (ll: LngLat) => frame.lngLatToWorld(ll, elevAt(ll)).add(new THREE.Vector3(0, 0.03, 0));
+    const pts = route.status === 'ok' && route.geometry ? drape(route.geometry.coordinates) : [];
+    const turnPts = route.status === 'ok' && route.geometry ? route.steps.map((st) => lift(route.geometry!.coordinates[Math.min(st.startIndex, route.geometry!.coordinates.length - 1)])) : [];
+    journey = { route, view, pts, turnPts };
+    ui!.setJourney(view);
+    // The road route replaces the terrain estimate on the map; with no route, no line is drawn.
+    if (pts.length > 1 && route.centre) {
+      home.setLabels(t('yourHome'), route.centre.name);
+      home.set(homePos, pts, (route.distanceM ?? 0) / 1000, timer.getElapsed());
+    } else {
+      home.setLabels(t('yourHome'), t('higherGround'));
+      home.set(homePos, null, 0, timer.getElapsed());
+    }
+    if (routeOpen) openRoute();
+  };
+
+  /** Smooth (bilinear) ground height, so a draped line doesn't step between terrain cells. */
+  const elevAt = (ll: LngLat) => {
+    const { gx, gy } = gridCoords(hm, ll);
+    const e = sampleField(hm, hm.elevM, gx, gy);
+    return Number.isFinite(e) ? Math.max(e, 0) : 0;
+  };
+  /** A route polyline sampled every ~40 m along the terrain, so the line follows the ground. */
+  const drape = (coords: LngLat[]) => {
+    const out: THREE.Vector3[] = [];
+    for (let i = 0; i < coords.length - 1; i++) {
+      const [a, b] = [coords[i], coords[i + 1]];
+      const km = frame.lngLatToWorld(a).distanceTo(frame.lngLatToWorld(b));
+      const n = Math.max(1, Math.ceil(km / 0.04));
+      for (let k = 0; k < n; k++) {
+        const ll: LngLat = [a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n];
+        out.push(frame.lngLatToWorld(ll, elevAt(ll)).add(new THREE.Vector3(0, 0.03, 0)));
+      }
+    }
+    const last = coords[coords.length - 1];
+    if (last) out.push(frame.lngLatToWorld(last, elevAt(last)).add(new THREE.Vector3(0, 0.03, 0)));
+    return out;
+  };
+  const syncLineResolution = () => home.setResolution(stage.renderer.domElement.clientWidth, stage.renderer.domElement.clientHeight);
+  window.addEventListener('resize', syncLineResolution);
+
+  /** Route screen: the panel, a bold route with numbered turns, the camera fitted to the whole journey. */
+  // The route screen is a flat 2D street map (OpenStreetMap, Citymapper-style). If the tiles can't load
+  // (offline) it falls back to the 3D route view. ?map=3d forces the 3D view.
+  const map2dEnabled = () => params.get('map') !== '3d';
+  let map2d: Promise<RouteMap2d | null> | null = null;
+  let using2d = false;
+  const routePadding = (): Padding => {
+    const card = document.getElementById('route-view')!.getBoundingClientRect();
+    return isPhone || card.right > window.innerWidth * 0.6
+      ? { top: 80, left: 32, right: 32, bottom: Math.round(window.innerHeight - card.top + 24) }
+      : { top: 90, left: Math.round(card.right + 48), right: 64, bottom: 64 };
+  };
+  const openRoute2d = async (): Promise<boolean> => {
+    if (!map2dEnabled() || !journey || !homeLngLat) return false;
+    map2d ??= createRouteMap2d(document.getElementById('route-map')!);
+    const m = await map2d;
+    if (!m || !journey || !homeLngLat || !routeOpen) return !!m;
+    using2d = true;
+    document.body.classList.add('route-2d');
+    m.show(journey.route, homeLngLat, routePadding(), selectTurn);
+    return true;
+  };
+
+  const openRoute = () => {
+    if (!journey || !homePos) return;
+    routeOpen = true;
+    ui!.showRoute(journey.view, routeHandlers);
+    if (map2dEnabled()) {
+      // Try the 2D map; if it can't load (offline), fall back to the 3D route view.
+      void openRoute2d().then((ok) => !ok && routeOpen && openRoute3d());
+      return;
+    }
+    openRoute3d();
+  };
+  const openRoute3d = () => {
+    if (!journey || !homePos) return;
+    syncLineResolution();
+    home.setBold(true, timer.getElapsed());
+    routeMarkers.set(journey.turnPts, selectTurn);
+    layoutShift();
+    const all = [homePos, ...journey.pts];
+    const box = new THREE.Box3().setFromPoints(all);
+    const target = box.getCenter(new THREE.Vector3());
+    // Zoom to the journey itself: a 500 m route in town needs a close view, not the valley's 7 km.
+    controls.minDistance = ROUTE_MIN_KM;
+    const span = Math.max(ROUTE_MIN_KM + 0.3, box.getSize(new THREE.Vector3()).length() * 2.4);
+    // Near-overhead, north-up: reads like a navigation map.
+    director.flyTo({ target, position: target.clone().add(new THREE.Vector3(0.02, 0.96, 0.28).normalize().multiplyScalar(span)) }, 1800);
+  };
+  const closeRoute = (fly = true) => {
+    if (!routeOpen) return;
+    routeOpen = false;
+    ui!.hideRoute();
+    if (using2d) {
+      using2d = false;
+      document.body.classList.remove('route-2d');
+      void map2d?.then((m) => m?.clear());
+      return;
+    }
+    home.setBold(false, timer.getElapsed());
+    routeMarkers.clear();
+    controls.minDistance = VALLEY_MIN_KM;
+    layoutShift();
+    if (fly && viewShot) director.flyTo(viewShot, 1600);
+  };
+  const selectTurn = (i: number) => {
+    if (!journey) return;
+    ui!.selectStep(i);
+    if (using2d) return void map2d?.then((m) => m?.selectTurn(i));
+    const p = journey.turnPts[i];
+    if (!p) return;
+    routeMarkers.select(i);
+    director.flyTo({ target: p.clone(), position: p.clone().add(new THREE.Vector3(0.02, 0.96, 0.28).normalize().multiplyScalar(ROUTE_MIN_KM + 0.4)) }, 1200);
+  };
+
   const selectHome = (lngLat: LngLat, place: string, namedPlace = true) => {
     const cell = nearestCell(hm, lngLat);
     if (cell === null || hy.seaMask[cell]) {
@@ -257,10 +422,13 @@ async function main() {
     ui!.setWhatIf(false);
     // Valley-wide flagged slopes within 30 km and higher than the home: debris can reach its river.
     const upstreamSlopes = hotspotSources.filter((h) => hm.elevM[h.cell] > hm.elevM[cell] + 50 && cellWorld(h.cell).distanceTo(cellWorld(cell)) < 30).length;
+    closeRoute(false);
+    journey = null;
     ui!.showResult({ place, risk, nowHour: NOW_HOUR, route, upstreamSlopes });
     homePlace = place;
     refreshOfficial();
     syncUrl({ place, lngLat, named: namedPlace });
+    void requestJourney();
     layoutShift();
 
     // Frame the home and its safe ground together.
@@ -368,6 +536,10 @@ async function main() {
     disposeStreet();
     homeLngLat = null;
     homePlace = '';
+    journeySeq++;
+    closeRoute(false);
+    journey = null;
+    ui!.setJourney(null);
     ui!.setOfficial(null);
     homeCell = -1;
     housesFor = null;
@@ -389,6 +561,8 @@ async function main() {
 
   ui = createResidentUi(realTowns.slice(0, 20), {
     onPick: (town) => selectHome(town.lngLat, town.name),
+    onAddress: ({ lngLat, label }) => (boundary.inside(lngLat) ? selectHome(lngLat, label, false) : ui!.note(t('outside'))),
+    searchAddresses: (q) => searchAddresses(q, KELANTAN.bbox),
     onLocate: () => {
       if (!navigator.geolocation) return ui!.note(t('noLocation'));
       ui!.note(t('locating'));
@@ -405,6 +579,9 @@ async function main() {
     },
     onShowWay: () => {
       leaveStreet();
+      // A road route from the routing API: open the route screen.
+      if (journey) return openRoute();
+      // Otherwise (endpoint not live): fly along the terrain estimate.
       const curve = home.curve;
       if (!curve) return;
       const shots: Shot[] = [0.15, 0.5, 0.85, 1].map((u) => {
@@ -424,6 +601,7 @@ async function main() {
     },
     onChange: backToLanding,
     onStreet: () => (inStreet ? leaveStreet() : void enterStreet()),
+    onRouteBack: () => closeRoute(),
   });
 
   // Tap the map to choose a home.
@@ -562,6 +740,8 @@ async function main() {
       setApiLive(m === 'live');
       if (m === 'live') {
         loadApiData();
+        // A home chosen before the API connected (e.g. opened from a link) gets its route now.
+        if (homeLngLat && !journey && !routeFixture) void requestJourney();
         void fetchSaintTasks().then((tasks) => tasks?.forEach((task) => control.task(task)));
         void fetchReplayStatus().then((status) => status && applyReplay(status));
       }
@@ -719,6 +899,7 @@ async function main() {
     document.getElementById('mode-resident')!.classList.toggle('on', m === 'resident');
     document.getElementById('mode-control')!.classList.toggle('on', m === 'control');
     if (m === 'control') {
+      closeRoute(false);
       leaveStreet();
       ui!.showLanding();
       document.body.dataset.view = 'control';

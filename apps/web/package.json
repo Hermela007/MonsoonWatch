@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@monsoonwatch/shared": "workspace:*",
+    "maplibre-gl": "^4.7.1",
     "three": "^0.186.1"
   },
   "devDependencies": {

@@ -5,6 +5,10 @@ import type { SafeRoute } from '../terrain/route';
 import { peakHour, replayDate } from '../data/replay2014';
 import { matchPlaces } from './places';
 import { t } from './copy';
+import { renderJourney, renderJourneySummary, type JourneyView } from './journey';
+import type { AddressSuggestion } from '../maps/addressSearch';
+import type { LngLat } from '../geo/region';
+import type { TravelMode } from '@monsoonwatch/shared';
 
 export interface ResultView {
   place: string;
@@ -108,11 +112,16 @@ export function createResidentUi(
   initialPlaces: Town[],
   h: {
     onPick: (town: Town) => void;
+    /** A street address (OpenStreetMap via Photon), resolved to its exact location. */
+    onAddress: (a: { lngLat: LngLat; label: string }) => void;
+    /** Address search (OpenStreetMap via Photon, limited to Kelantan). */
+    searchAddresses?: (q: string) => Promise<AddressSuggestion[]>;
     onLocate: () => void;
     onShowWay: () => void;
     onWhatIf: () => void;
     onChange: () => void;
     onStreet: () => void;
+    onRouteBack: () => void;
   },
 ) {
   const input = $<HTMLInputElement>('place-input');
@@ -123,13 +132,14 @@ export function createResidentUi(
   let speaking = false;
   let places = initialPlaces;
   let remote: Town[] = [];
+  let addresses: AddressSuggestion[] = [];
   let searchTimer = 0;
 
   const renderSuggestions = () => {
     const q = input.value.trim();
     const local = q ? matchPlaces(q, places) : places.slice(0, 5);
     const seen = new Set(local.map((p) => p.name.toLowerCase()));
-    const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, 10);
+    const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, addresses.length ? 4 : 10);
     suggestions.innerHTML = '';
     for (const town of matches) {
       const b = document.createElement('button');
@@ -144,22 +154,40 @@ export function createResidentUi(
       b.addEventListener('click', () => h.onPick(town));
       suggestions.appendChild(b);
     }
-    note.textContent = q && !matches.length ? t('noMatch') : '';
+    // Street addresses: the exact location, so directions start at the door.
+    for (const a of addresses.slice(0, 5)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'suggestion address';
+      b.textContent = a.text;
+      const n = document.createElement('small');
+      n.textContent = t('addressNote');
+      b.appendChild(n);
+      b.addEventListener('click', async () => {
+        note.textContent = t('findingAddress');
+        const r = await a.resolve();
+        if (r) h.onAddress(r);
+        else note.textContent = t('addressFailed');
+      });
+      suggestions.appendChild(b);
+    }
+    note.textContent = q && !matches.length && !addresses.length ? t('noMatch') : '';
   };
   input.addEventListener('input', () => {
     remote = [];
+    addresses = [];
     renderSuggestions();
     // Atlas Search (via the API) adds villages we don't have locally; silently skipped if the API is down.
     clearTimeout(searchTimer);
     const q = input.value.trim();
     if (q.length < 2) return;
     searchTimer = window.setTimeout(async () => {
-      const hits = await searchPlaces(q);
-      if (input.value.trim() === q && hits.length) {
-        remote = hits;
-        renderSuggestions();
-      }
-    }, 200);
+      const [hits, found] = await Promise.all([searchPlaces(q), h.searchAddresses ? h.searchAddresses(q) : Promise.resolve([])]);
+      if (input.value.trim() !== q) return;
+      remote = hits;
+      addresses = found;
+      if (hits.length || found.length) renderSuggestions();
+    }, 250);
   });
   $('place-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -172,6 +200,7 @@ export function createResidentUi(
   $('btn-whatif').addEventListener('click', h.onWhatIf);
   $('btn-change').addEventListener('click', h.onChange);
   $('btn-street').addEventListener('click', h.onStreet);
+  $('btn-route-back').addEventListener('click', h.onRouteBack);
 
   const stopSpeaking = () => {
     window.speechSynthesis?.cancel();
@@ -212,6 +241,11 @@ export function createResidentUi(
     showResult(v: ResultView) {
       stopSpeaking();
       current = describe(v);
+      // A new place: the previous place's journey no longer applies (the new one arrives separately).
+      $('journey').hidden = true;
+      $('journey').replaceChildren();
+      $('risk-action').hidden = false;
+      $('btn-way').textContent = t('showWay');
       document.body.dataset.view = 'result';
       document.body.dataset.risk = v.risk.level;
       $('place-name').textContent = v.place;
@@ -238,6 +272,32 @@ export function createResidentUi(
       $('clock-tag').textContent = ahead > 48 ? t('laterDays', { d: Math.round(ahead / 24) }) : ahead > 0 ? t('later', { h: ahead }) : t('now');
       $('clock-time').textContent = fmtTime(hour);
       document.body.classList.toggle('future', ahead > 0);
+    },
+    /**
+     * The road journey from the evacuation-route API, or null to fall back to the terrain estimate
+     * (the "Go to higher ground" line) while the endpoint is unavailable.
+     */
+    setJourney(v: JourneyView | null) {
+      const el = $('journey');
+      el.hidden = !v;
+      $('risk-action').hidden = !!v;
+      if (!v) return el.replaceChildren();
+      renderJourneySummary(el, v);
+      // "Show me the way" opens the route screen: the route, or the alternatives when there is none.
+      $<HTMLButtonElement>('btn-way').disabled = false;
+      $('btn-way').textContent = v.ok ? t('showWay') : t('routeOptions');
+    },
+    /** The route screen: map focused on the journey, this panel in place of the result card. */
+    showRoute(v: JourneyView, h: { onTravel: (t: TravelMode) => void; onCentre: (centreId: string) => void; onStep: (i: number) => void }) {
+      stopSpeaking();
+      renderJourney($('route-body'), v, h);
+      document.body.dataset.view = 'route';
+    },
+    selectStep(i: number | null) {
+      for (const b of document.querySelectorAll<HTMLElement>('#route-body .j-turn')) b.classList.toggle('on', Number(b.dataset.step) === i);
+    },
+    hideRoute() {
+      if (document.body.dataset.view === 'route') document.body.dataset.view = 'result';
     },
     /** The loop closed: an alert a duty officer approved for this place, shown above the model estimate. */
     setOfficial(a: OfficialAlertView | null) {

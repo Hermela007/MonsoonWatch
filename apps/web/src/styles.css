@@ -47,6 +47,10 @@ body.future .clock b { color: var(--flood); }
 #result { left: 24px; top: 64px; width: 384px; max-height: calc(100vh - 88px); overflow: auto; }
 body[data-view='landing'] #result, body[data-view='result'] #landing { opacity: 0; pointer-events: none; }
 body[data-view='landing'] #result { transform: translateX(-12px); }
+/* Route screen: replaces the result card while open. */
+#route-view { left: 24px; top: 64px; width: 384px; max-height: calc(100vh - 88px); overflow: auto; }
+body:not([data-view='route']) #route-view { opacity: 0; pointer-events: none; transform: translateX(-12px); }
+body[data-view='route'] #result, body[data-view='route'] #landing { opacity: 0; pointer-events: none; }
 
 h1 { font-size: 28px; line-height: 1.15; margin: 0 0 8px; font-weight: 600; letter-spacing: -0.02em; }
 .sub { color: var(--muted); margin: 0 0 20px; font-size: 15px; line-height: 1.5; }
@@ -112,7 +116,9 @@ body.street .street-info { display: block; }
 @media (max-width: 767px) {
   .topbar { padding-left: 16px; padding-right: 16px; }
   .clock span { display: none; }
-  #landing, #result { left: 0; right: 0; top: auto; bottom: 0; width: auto; transform: none; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; padding: 20px 18px max(18px, env(safe-area-inset-bottom)); }
+  #landing, #result, #route-view { left: 0; right: 0; top: auto; bottom: 0; width: auto; transform: none; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; padding: 20px 18px max(18px, env(safe-area-inset-bottom)); }
+  #route-view { max-height: 48vh; }
+  body:not([data-view='route']) #route-view { transform: translateY(24px); }
   #result { max-height: 56vh; }
   body[data-view='landing'] #result { transform: translateY(24px); }
   h1 { font-size: 24px; }
@@ -124,7 +130,7 @@ body.street .street-info { display: block; }
 .modes { display: flex; gap: 0; border: 1px solid var(--rule-strong); border-radius: 2px; pointer-events: auto; background: var(--card); }
 .modes button { background: none; border: 0; padding: 6px 12px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .modes button.on { background: var(--ink); color: #fff; }
-body[data-mode='control'] #landing, body[data-mode='control'] #result { opacity: 0; pointer-events: none; }
+body[data-mode='control'] #landing, body[data-mode='control'] #result, body[data-mode='control'] #route-view { opacity: 0; pointer-events: none; }
 body:not([data-mode='control']) #control, body:not([data-mode='control']) #hud { opacity: 0; pointer-events: none; }
 
 /* Control card */
@@ -261,3 +267,67 @@ body[data-risk='high'] .risk-when { color: var(--slide); }
   #landing .fact, #landing .footer { display: none; }
   .cascade { margin-bottom: 10px; }
 }
+
+/* Evacuation journey (GET /evacuation-route): Citymapper-style, minimal. */
+.journey { margin: 0 0 16px; padding-left: 14px; display: grid; gap: 8px; }
+.travel-modes { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 3px; overflow: hidden; justify-self: start; }
+.travel-modes button { border: 0; background: transparent; padding: 5px 12px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.travel-modes button + button { border-left: 1px solid var(--rule-strong); }
+.travel-modes button.on { background: var(--ink); color: var(--card); }
+.j-headline { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.journey.none .j-headline { font-weight: 500; font-size: 14px; line-height: 1.45; }
+.j-meta { font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; margin-top: -4px; }
+.j-places { font-size: 12px; color: var(--muted); }
+.j-warn { font-size: 12px; color: var(--slide); }
+.j-hazard { font-size: 12px; line-height: 1.5; color: var(--muted); border-left: 2px solid var(--rule-strong); padding: 2px 0 2px 10px; }
+.j-hazard.partial, .j-hazard.unknown { border-left-color: #d9a441; }
+.j-hazard.warning { border-left-color: var(--slide); color: var(--slide); }
+.j-hazard-head { color: var(--ink); font-weight: 500; }
+.j-steps summary, .j-about summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.j-steps ol { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; }
+.j-steps li small { display: block; color: var(--faint); font-variant-numeric: tabular-nums; }
+.j-alt-head { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
+.j-alts { list-style: none; margin: -2px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.j-alts li { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.j-alts small { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.j-alts small.muted, .j-alt-name { color: var(--faint); }
+.j-about p { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 6px 0 0; }
+.j-about .j-sources { color: var(--faint); }
+
+/* Route summary on the resident card. */
+.journey-summary { margin: 0 0 14px; padding-left: 14px; }
+.js-kicker { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
+.js-head { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.journey-summary.none .js-head { font-weight: 500; font-size: 13px; line-height: 1.45; }
+.js-meta { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
+#route-view .place-row { align-items: baseline; }
+#route-view .journey { padding-left: 0; }
+#route-view .j-headline { font-size: 20px; }
+#route-view .j-meta { font-size: 14px; }
+/* Numbered turns: the same numbers as the markers on the map. */
+.j-turns { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; border-top: 1px solid var(--rule); }
+.j-turn { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--rule); padding: 10px 0; cursor: pointer; font-size: 13px; line-height: 1.4; }
+.j-turn:hover .j-turn-text, .j-turn.on .j-turn-text { color: var(--ink); }
+.j-turn-text { color: #3b3a37; }
+.j-turn-text small { display: block; color: var(--faint); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.j-turn-n, .turn-marker { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--card); color: var(--ink); border: 1.5px solid var(--ink); font-variant-numeric: tabular-nums; }
+.j-turn.on .j-turn-n, .turn-marker.on { background: var(--ink); color: var(--card); }
+.turn-marker { cursor: pointer; padding: 0; pointer-events: auto; font-family: var(--sans); }
+body:not([data-view='route']) .turn-marker { display: none; }
+
+/* On the map, turns are small white dots on the line (numbers match the list). */
+.turn-marker { width: 16px; height: 16px; font-size: 9px; border-width: 1.5px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+
+/* 2D route map (OpenStreetMap via MapLibre): a flat street map over the 3D scene on the route screen. */
+#route-map { position: fixed; inset: 0; z-index: 4; opacity: 0; pointer-events: none; transition: opacity 0.4s ease; background: var(--paper); }
+body.route-2d[data-view='route'] #route-map { opacity: 1; pointer-events: auto; }
+body.route-2d[data-view='route'] #legend, body.route-2d[data-view='route'] #sources { display: none; }
+.m2d { font-family: var(--sans); }
+.m2d-home { width: 14px; height: 14px; border-radius: 50%; background: var(--card); border: 3px solid var(--ink); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2); }
+.m2d-turn { width: 20px; height: 20px; border-radius: 50%; background: var(--card); border: 1.5px solid var(--ink); color: var(--ink); display: grid; place-items: center; font-size: 10px; font-weight: 600; cursor: pointer; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18); }
+.m2d-turn.on { background: var(--ink); color: var(--card); }
+.m2d-dest { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.m2d-dest-name { order: -1; background: var(--ink); color: var(--card); font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 3px; white-space: nowrap; }
+.m2d-dest-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--ink); border: 3px solid var(--card); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
+.maplibregl-ctrl-attrib { font-size: 10px; }
+.suggestion.address small { color: var(--muted); }

@@ -12,6 +12,7 @@
   </head>
   <body data-view="landing">
     <div id="app"></div>
+    <div id="route-map" aria-label="Route map"></div>
 
     <div id="loading">
       <div class="brand">Monsoon<span>Watch</span></div>
@@ -107,6 +108,14 @@
       <p class="footer" data-copy="footer"></p>
     </section>
 
+    <section id="route-view" class="card ui" aria-label="Evacuation route">
+      <div class="place-row">
+        <button id="btn-route-back" class="link" type="button">← Back</button>
+        <span class="place">Evacuation route</span>
+      </div>
+      <div id="route-body" class="journey"></div>
+      <p class="trust" data-copy="trust"></p>
+    </section>
     <section id="result" class="card ui" aria-live="polite">
       <div class="place-row">
         <span id="place-name" class="place"></span>
@@ -122,6 +131,7 @@
       <div id="risk-lines" class="risk-lines"></div>
       <div id="risk-when" class="risk-when" hidden></div>
       <div id="risk-action" class="risk-action"></div>
+      <section id="journey" class="journey" aria-label="Your evacuation route" hidden></section>
       <p class="trust" data-copy="trust"></p>
       <div id="street-info" class="street-info">
         <div id="street-stats" class="street-stats"></div>
