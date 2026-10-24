@@ -74,7 +74,7 @@ export interface RunResult {
   rulesAlerts: Alert[];
   /** Who ended up covering each at-risk village. */
   plannedBy: Map<string, PlannedBy>;
-  /** District drafts needing approval — kind "evacuate" (fallback) and "advisory"; not saved yet (shared contract pending, see coverage.ts). */
+  /** District drafts needing approval — kind "evacuate" (fallback) and "advisory"; saved to `area_warnings`. */
   areaWarnings: AreaWarning[];
   atRisk: number;
 }
@@ -228,6 +228,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     }
     await emitStep({ runId, actor: "Agent", kind: "info", status: "ok", summary: `${accountabilitySummary(shortlist.screen, advisories, s.villages.length)}${test}`.slice(0, 300) });
     const areaWarnings = [...evacuate, ...advisories];
+    for (const w of areaWarnings) await store.saveAreaWarning(w);
 
     const geminiVerified = outcomes.filter((o) => o.passed).reduce((n, o) => n + o.alerts.length, 0);
     await emitStep({

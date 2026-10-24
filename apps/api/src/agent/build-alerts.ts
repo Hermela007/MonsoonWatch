@@ -63,6 +63,9 @@ export function buildAndVerifyVillage(args: {
       people: g.people,
       pickups: g.pickups,
       route: { type: "LineString", coordinates: route.coordinates },
+      // Boat: `route` follows roads as a stand-in, NOT a boat path — the UI draws no line (no navigable-water data).
+      routeMode: route.mode === "boat" ? "boat" : "road",
+      plannedBy: args.idTag === "rules" ? "rules" : "gemini",
       messages: g.messages,
       verification: [],
       status: "draft",

@@ -11,7 +11,7 @@
 // GET /api/alerts/:id/audio/:lang.
 
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import type { Alert } from "@monsoonwatch/shared";
+import type { Alert, AreaWarning } from "@monsoonwatch/shared";
 import { interact } from "./gemini";
 import { MODELS } from "./models";
 import { emitStep } from "./steps";
@@ -54,8 +54,11 @@ export async function speakText(runId: string, text: string, label: string): Pro
   return Buffer.from(res.audio.data, "base64");
 }
 
-/** Generate and save audio for every message of an approved alert. Never throws (logged to the HUD). */
-export async function generateSpokenAlert(alert: Alert, languages = ["ms", "en"]): Promise<{ lang: string; url: string; seconds: number }[]> {
+/** Who an alert or district warning is for, in HUD lines. */
+const whoFor = (a: Alert | AreaWarning) => ("villageId" in a ? a.villageId : `${a.district} district`);
+
+/** Generate and save audio for every message of an approved alert or district warning. Never throws (logged to the HUD). */
+export async function generateSpokenAlert(alert: Alert | AreaWarning, languages = ["ms", "en"]): Promise<{ lang: string; url: string; seconds: number }[]> {
   if (alert.status !== "approved" && alert.status !== "sent") {
     await emitStep({ runId: alert.runId, actor: "Gemini 3.8 Flash TTS", kind: "tool", status: "fail", summary: `Not speaking alert ${alert._id}: it is "${alert.status}", not approved` });
     return [];
@@ -64,7 +67,7 @@ export async function generateSpokenAlert(alert: Alert, languages = ["ms", "en"]
   await mkdir(AUDIO_DIR, { recursive: true });
   for (const m of orderMessages(alert, languages)) {
     try {
-      const wav = await speakText(alert.runId, m.text, `${alert.villageId} (${m.lang})`);
+      const wav = await speakText(alert.runId, m.text, `${whoFor(alert)} (${m.lang})`);
       await writeFile(audioFile(alert._id, m.lang), wav);
       done.push({ lang: m.lang, url: audioUrl(alert._id, m.lang), seconds: wavSeconds(wav.length) });
     } catch (err) {
@@ -74,7 +77,7 @@ export async function generateSpokenAlert(alert: Alert, languages = ["ms", "en"]
   if (done.length) {
     await emitStep({
       runId: alert.runId, actor: "Gemini 3.8 Flash TTS", kind: "info", status: "ok",
-      summary: `Spoken alert ready for ${alert.villageId}: ${done.map((d) => `${d.lang} ${d.seconds}s`).join(", ")} → for loudspeaker / radio / voice note`,
+      summary: `Spoken alert ready for ${whoFor(alert)}: ${done.map((d) => `${d.lang} ${d.seconds}s`).join(", ")} → for loudspeaker / radio / voice note`,
     });
   }
   return done;

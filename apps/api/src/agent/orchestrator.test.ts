@@ -173,6 +173,8 @@ test("rules plan both sample villages with no Gemini: Tualang by dry road, Manik
   assert.deepEqual(manik.map((a) => [a.evacCentreId, a.people]), [["test-sk-manik-urai", 50], ["test-smk-kuala-krai", 250]]);
   assert.ok(manik.flatMap((a) => a.pickups ?? []).every((p) => p.vehicle === "boat"));
   assert.match(manik[1]!.messages.find((m) => m.lang === "en")!.text, /250 residents: rescue boats will take you to SMK Kuala Krai \(test\)/);
+  assert.deepEqual(manik.map((a) => a.routeMode), ["road", "boat"]); // boat → UI draws no line
+  assert.ok(res.rulesAlerts.every((a) => a.plannedBy === "rules"));
   assert.ok(getMemorySteps("t-rules-1").some((s) => s.actor === "Rules planner" && /2\/2 at-risk villages planned \+ verified; 0 need Gemini/.test(s.summary)));
   assertEveryVillageHasAlert(res, situation);
 });
@@ -209,9 +211,14 @@ function conflictingVillages() {
 
 test("Gemini cap 0: nothing reaches Gemini, villages code can't plan get the area-wide fallback", async () => {
   const { situation, ai } = conflictingVillages();
-  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-3", geminiCap: 0 });
+  const store = memoryStore();
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store, runId: "t-rules-3", geminiCap: 0 });
   assert.deepEqual(ai.calls, []);
   assert.equal(res.plannedBy.get("test-kg-manik-urai"), "area-wide");
+  // District warnings are saved for approval, like alerts.
+  const saved = await store.areaWarningsForRun("t-rules-3");
+  assert.ok(saved.some((w) => w.kind === "evacuate" && w.villageIds.includes("test-kg-manik-urai") && w.status === "needs_approval"));
+  assert.equal(saved.length, res.areaWarnings.length);
   assert.ok(getMemorySteps("t-rules-3").some((s) => /9 need Gemini \(conflicting signals 9\)/.test(s.summary)));
   assertEveryVillageHasAlert(res, situation);
 });
