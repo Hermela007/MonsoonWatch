@@ -1,0 +1,30 @@
+{
+  "_comment": "Rates used to estimate vulnerable residents per village (counts only, never names). Each rate is applied to the village population, which is itself mostly an OSM-based estimate. See docs/VULNERABLE.md.",
+  "elderly": {
+    "rate": 0.102,
+    "official": true,
+    "scope": "Kelantan",
+    "label": "Aged 60+: 10.2% of Kelantan (DOSM, 2020e: 194.3k of 1,906.7k)",
+    "url": "https://v1.dosm.gov.my/v1/uploads/files/6_Newsletter/Newsletter%202020/DOSM_DOSM.KELANTAN_1.2020_Siri-80.pdf"
+  },
+  "disabled": {
+    "rate": 0.022,
+    "official": true,
+    "scope": "Malaysia (national; Kelantan figure not yet found)",
+    "label": "Registered OKU: ~2.2% (JKM, 756,681 registered in 2024, ÷ ~34M population)",
+    "url": "https://ova.galencentre.org/756681-persons-with-disabilities-oku-registered-with-jkm-as-of-january-31-2024/"
+  },
+  "noTransport": {
+    "rate": 0.077,
+    "official": true,
+    "scope": "Malaysia (national; proxy)",
+    "label": "No car in household: 7.7% (DOSM Household Income & Basic Amenities 2024: 92.3% own a car)",
+    "url": "https://www.dosm.gov.my/portal-main/release-content/basic-amenities-survey-report-malaysia-2024"
+  },
+  "bedridden": {
+    "rate": 0,
+    "official": false,
+    "scope": "none",
+    "label": "Bedridden: no official statistic found — 0 except labelled demo-scenario villages"
+  }
+}
