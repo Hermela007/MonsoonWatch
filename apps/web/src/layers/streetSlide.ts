@@ -46,13 +46,12 @@ void main() {
   vec4 w = modelMatrix * vec4(position, 1.0);
   float across = 1.0 - aAcross * aAcross;
   // Moving lobe at the front + deposit left behind it; nothing ahead of the front.
-  float behind = 1.0 - smoothstep(uFront - 0.015, uFront + 0.005, aAlong);
-  float lobe = exp(-pow((aAlong - uFront) / 0.07, 2.0));
-  float fan = smoothstep(0.55, 1.0, aAlong); // the toe spreads and piles up
+  // Only the moving front of earth: a low, lumpy band just behind the leading edge.
+  // (The concave scar and the deposit fan are carved into the ground itself — see slideGround.)
+  float lobe = exp(-pow((aAlong - uFront) / 0.06, 2.0)) * (1.0 - smoothstep(uFront, uFront + 0.01, aAlong));
   float lumps = fbm(w.xz * 0.12 + 3.1) * 0.9 + fbm(w.xz * 0.45) * 0.35;
-  float thick = uFail * (behind * (2.2 + 3.5 * fan) + lobe * 7.0 * step(uFront, 0.999)) * pow(across, 0.6) * (0.55 + lumps);
-  // The head scarp is where the hillside tore away: no deposit there.
-  thick *= smoothstep(0.04, 0.14, aAlong);
+  float moving = 1.0 - step(0.999, uFront);
+  float thick = uFail * moving * lobe * 2.6 * pow(across, 0.6) * (0.5 + lumps);
   vThick = thick;
   w.y += thick + 0.05;
   vWorld = w.xyz;
@@ -94,20 +93,15 @@ void main() {
     gl_FragColor = vec4(col, a);
     return;
   }
-  // After failure.
-  float scar = 1.0 - smoothstep(0.03, 0.15, vAlong);
-  if (vAlong > uFront + 0.01 && scar < 0.01) discard;
-  if (vThick < 0.02 && scar < 0.01) discard;
+  // After failure: only the moving earth front is drawn here.
+  if (vThick < 0.05) discard;
   // Faceted, earthy debris: flat normals from screen derivatives, lit by the sun.
   vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
   float diff = clamp(dot(n, uSunDir), 0.0, 1.0);
   float grain = fbm(vWorld.xz * 0.7);
-  col = mix(uDark, uRisk, 0.45 + 0.4 * grain) * (0.55 + 0.6 * diff);
-  // Wet churn right behind the moving front.
-  float churn = exp(-pow((vAlong - uFront) / 0.05, 2.0)) * step(uFront, 0.999);
-  col = mix(col, uDark * 0.8, churn * 0.4 * (0.5 + 0.5 * sin(uTime * 9.0 + vWorld.x)));
-  // Raw scar where the slope tore away.
-  col = mix(col, uDark * 0.75, scar);
+  vec3 earth = mix(vec3(0.36, 0.25, 0.17), vec3(0.55, 0.40, 0.28), grain);
+  col = earth * (0.5 + 0.65 * diff);
+  col = mix(col, uRisk * 0.7, 0.18); // a hint of the risk colour
   float fog = smoothstep(uFogNear, uFogFar, length(cameraPosition - vWorld));
   gl_FragColor = vec4(mix(col, uSky, fog), 1.0);
 }
@@ -126,6 +120,8 @@ export function createStreetSlide(opts: {
   sky: THREE.Color;
   risk: THREE.Color;
   labels: { watch: string; warn: string; active: string };
+  /** Uniforms of the ground material's slide patch (see slideGroundUniforms / addSlideGround). */
+  groundUniforms?: ReturnType<typeof slideGroundUniforms>;
 }) {
   const { groundY } = opts;
   const group = new THREE.Group();
@@ -227,6 +223,48 @@ export function createStreetSlide(opts: {
     return { sp, m, born: -1, u: 0, off: (rand() - 0.5) * 0.8, seed: i };
   });
 
+  // Field over the slide's footprint: r = position along the path (0 head → 1 toe), g = across (−1..1).
+  const margin = 60;
+  const samples = Array.from({ length: 300 }, (_, i) => {
+    const u = i / 299;
+    const c = curve.getPointAt(u, new THREE.Vector3());
+    const t = curve.getTangentAt(u, new THREE.Vector3()).setY(0).normalize();
+    return { u, x: c.x, z: c.z, nx: -t.z, nz: t.x, hw: widthAt(u) / 2 };
+  });
+  const minX = Math.min(...samples.map((q) => q.x)) - 60 - margin;
+  const maxX = Math.max(...samples.map((q) => q.x)) + 60 + margin;
+  const minZ = Math.min(...samples.map((q) => q.z)) - 60 - margin;
+  const maxZ = Math.max(...samples.map((q) => q.z)) + 60 + margin;
+  const FN = 192;
+  const fdata = new Uint16Array(FN * FN * 2);
+  const half = THREE.DataUtils.toHalfFloat;
+  for (let j = 0; j < FN; j++) {
+    const z = minZ + ((j + 0.5) / FN) * (maxZ - minZ);
+    for (let i = 0; i < FN; i++) {
+      const x = minX + ((i + 0.5) / FN) * (maxX - minX);
+      let best = Infinity;
+      let bu = 0;
+      let ba = 9;
+      for (const q of samples) {
+        const d2 = (q.x - x) ** 2 + (q.z - z) ** 2;
+        if (d2 < best) {
+          best = d2;
+          bu = q.u;
+          ba = ((x - q.x) * q.nx + (z - q.z) * q.nz) / q.hw;
+        }
+      }
+      fdata[(j * FN + i) * 2] = half(bu);
+      fdata[(j * FN + i) * 2 + 1] = half(Math.max(-9, Math.min(9, ba)));
+    }
+  }
+  const fieldTex = new THREE.DataTexture(fdata, FN, FN, THREE.RGFormat, THREE.HalfFloatType);
+  fieldTex.magFilter = fieldTex.minFilter = THREE.LinearFilter;
+  fieldTex.needsUpdate = true;
+  if (opts.groundUniforms) {
+    opts.groundUniforms.uSlideField.value = fieldTex;
+    opts.groundUniforms.uSlideBox.value.set(minX, minZ, maxX - minX, maxZ - minZ);
+  }
+
   const el = document.createElement('div');
   el.className = 'slide-label street';
   const label = new CSS2DObject(el);
@@ -263,12 +301,20 @@ export function createStreetSlide(opts: {
     get surging() {
       return failedAt >= 0 && front < 1;
     },
-    /** Where the action is: the cracking head before failure, the moving front during, the toe after. */
+    /** A point on the path centreline, u = 0 (crown) … 1 (toe). */
+    at(u: number, out: THREE.Vector3) {
+      return place(u, 0, out);
+    },
+    /** Where the action is: the cracking head before failure, the moving front during, the scar after (dir reversed). */
     focus(out: THREE.Vector3, dir: THREE.Vector3) {
-      const stage = mat.uniforms.uFail.value > 0.5 ? Math.min(1, front + 0.02) : 0.08;
+      const failed = mat.uniforms.uFail.value > 0.5;
+      const settled = failed && front >= 0.999;
+      // Once settled, look back up into the concave scar from below.
+      const stage = settled ? 0.12 : failed ? Math.min(1, front + 0.02) : 0.08;
       place(stage, 0, out);
       curve.getTangentAt(Math.min(0.999, Math.max(0.001, stage)), dir);
       dir.setY(0).normalize();
+      if (settled) dir.negate();
       return mat.uniforms.uWarn.value > 0 || mat.uniforms.uFail.value > 0.5;
     },
     /** True for one frame when the slope fails (for a camera shake). */
@@ -303,6 +349,10 @@ export function createStreetSlide(opts: {
       u.uFail.value = failed ? 1 : 0;
       u.uWarn.value = warn;
       u.uTime.value = timeS;
+      if (opts.groundUniforms) {
+        opts.groundUniforms.uSlideFront.value = front;
+        opts.groundUniforms.uSlideFail.value = failed ? 1 : 0;
+      }
       el.textContent = failed ? opts.labels.active : warn > 0 ? opts.labels.warn : opts.labels.watch;
       el.classList.toggle('active', failed);
       el.classList.toggle('warn', !failed && warn > 0);
@@ -357,6 +407,7 @@ export function createStreetSlide(opts: {
       rockGeo.dispose();
       rockMat.dispose();
       dustTex.dispose();
+      fieldTex.dispose();
       dust.forEach((d) => d.m.dispose());
       el.remove();
     },
@@ -366,4 +417,80 @@ export function createStreetSlide(opts: {
 function smoothstep01(x: number) {
   const t = Math.min(1, Math.max(0, x));
   return t * t * (3 - 2 * t);
+}
+
+/** Uniforms shared between the street ground material and the landslide. */
+export function slideGroundUniforms() {
+  return {
+    uSlideField: { value: null as THREE.Texture | null },
+    uSlideBox: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uSlideFront: { value: 0 },
+    uSlideFail: { value: 0 },
+    uScarDepth: { value: 26 },
+    uFanHeight: { value: 7 },
+  };
+}
+
+/**
+ * Patch the street ground so a failed slope is CARVED: a concave scar of exposed soil opens where the
+ * material has left (behind the moving front), and a low deposit fan builds at the toe.
+ * Chains after any existing onBeforeCompile (e.g. the underwater/grid patch).
+ */
+export function addSlideGround(mat: THREE.MeshStandardMaterial, u: ReturnType<typeof slideGroundUniforms>) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    prev?.call(mat, shader, renderer);
+    Object.assign(shader.uniforms, u);
+    const decl = 'uniform sampler2D uSlideField;\nuniform vec4 uSlideBox;\nuniform float uSlideFront;\nuniform float uSlideFail;\nuniform float uScarDepth;\nuniform float uFanHeight;\nvarying float vScar;\nvarying float vScarDeep;\nvarying float vScarRim;\n';
+    shader.vertexShader = decl + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      vScar = 0.0;
+      vScarDeep = 0.0;
+      vScarRim = 0.0;
+      if (uSlideFail > 0.5) {
+        vec2 suv = (position.xz - uSlideBox.xy) / uSlideBox.zw;
+        if (suv.x > 0.0 && suv.y > 0.0 && suv.x < 1.0 && suv.y < 1.0) {
+          vec2 sf = texture2D(uSlideField, suv).rg;
+          float su = sf.r;
+          // Source zone: a wide spoon-shaped hollow at the top (steep crown, bowl sides, shallowing downslope).
+          float spoonW = mix(4.2, 1.2, smoothstep(0.0, 0.26, su));
+          float across = clamp(1.0 - pow(sf.g / spoonW, 2.0), 0.0, 1.0);
+          float source = smoothstep(0.0, 0.025, su) * (1.0 - smoothstep(0.1, 0.28, su));
+          // Transport channel: a shallow scour along the debris lane down to the toe.
+          float laneA = clamp(1.0 - sf.g * sf.g, 0.0, 1.0);
+          float channel = smoothstep(0.12, 0.25, su) * (1.0 - smoothstep(0.7, 0.85, su)) * 0.22;
+          float passed = 1.0 - smoothstep(uSlideFront - 0.05, uSlideFront + 0.01, su);
+          float carveK = max(source * sqrt(across), channel * sqrt(laneA)) * passed;
+          float fanK = smoothstep(0.7, 1.0, su) * pow(laneA, 0.7) * smoothstep(0.6, 1.0, uSlideFront);
+          transformed.y += uFanHeight * fanK - uScarDepth * carveK;
+          vScar = clamp(max(step(0.001, carveK) * (0.55 + 0.45 * carveK), fanK * 0.8), 0.0, 1.0);
+          vScarDeep = smoothstep(0.0, 1.0, carveK);
+          vScarRim = source * passed * step(0.0001, across) * (1.0 - smoothstep(0.0, 0.22, across));
+        }
+      }`,
+    );
+    shader.fragmentShader =
+      'varying float vScar;\nvarying float vScarDeep;\nvarying float vScarRim;\n' +
+      shader.fragmentShader
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+          // Exposed soil (linear colours): darker deep in the hollow, a dark torn rim at the crown and flanks.
+          vec3 soil = mix(vec3(0.27, 0.18, 0.11), vec3(0.11, 0.07, 0.045), vScarDeep);
+          soil = mix(soil, vec3(0.06, 0.04, 0.03), vScarRim * 0.8);
+          diffuseColor.rgb = mix(diffuseColor.rgb, soil, vScar);`,
+        )
+        .replace(
+          '#include <normal_fragment_begin>',
+          `#include <normal_fragment_begin>
+          if (vScar > 0.01) {
+            vec3 fn = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+            normal = normalize(mix(normal, fn, clamp(vScar * 1.5, 0.0, 1.0)));
+          }`,
+        );
+  };
+  const prevKey = mat.customProgramCacheKey?.bind(mat);
+  mat.customProgramCacheKey = () => `${prevKey ? prevKey() : ''}-slide`;
+  return mat;
 }

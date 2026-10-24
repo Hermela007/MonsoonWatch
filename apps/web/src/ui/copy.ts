@@ -52,7 +52,7 @@ const COPY = {
   homesBuried: '{n} buildings in the landslide path',
   housesSource: '{osm} real building footprints (Overture Maps: OpenStreetMap, Microsoft, Google). Heights estimated at one storey where unknown. Roads: OpenStreetMap. Water level: terrain model on 2014 GloFAS river flow (approximate).',
   noBuildings: 'Real building footprints are not loaded for this area yet — showing ground, roads and water only.',
-  roofKey: 'Building colour = water at the building',
+  roofKey: 'Blue below the waterline = under water',
   slopeWatch: 'Slope may fail here',
   slopeWarn: 'Cracks appearing',
   slopeActive: 'Landslide',

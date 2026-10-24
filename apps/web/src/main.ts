@@ -1,5 +1,6 @@
 import './styles.css';
 import * as THREE from 'three';
+import { findSlideShot } from './scene/slideShot';
 import { GeoFrame, KELANTAN, type LngLat, type Town } from './geo/region';
 import { loadTerrariumGrid } from './terrain/terrarium';
 import { cellLngLat, nearestCell } from './terrain/heightmap';
@@ -145,6 +146,7 @@ async function main() {
   let followSlide = true;
   const followTarget = new THREE.Vector3();
   const followDir = new THREE.Vector3();
+  let slideShot: { position: THREE.Vector3; target: THREE.Vector3 } | null = null; // landslide vantage (per street)
   const followPos = new THREE.Vector3();
   const shakeOff = new THREE.Vector3();
   let wasLanding = true;
@@ -265,6 +267,7 @@ async function main() {
 
   const enterStreet = async () => {
     if (!homeLngLat || !housesFor || inStreet) return;
+    slideShot = null;
     ui!.setStreet('loading');
     const area = await housesFor;
     if (!homeLngLat) return;
@@ -390,7 +393,8 @@ async function main() {
       director.tour(shots, 7000, () => viewShot && director.flyTo(viewShot, 2000));
     },
     onWhatIf: () => {
-        whatIf = !whatIf;
+      whatIf = !whatIf;
+      followSlide = true;
       // Play the future from "now" to just after the real peak.
       targetHour = whatIf ? Math.min(REPLAY_HOURS, peakHour() + 12) : NOW_HOUR;
       ui!.setWhatIf(whatIf);
@@ -673,10 +677,16 @@ async function main() {
       }
       if (street.slideFailedNow()) shakeUntil = time + 1.6;
       // Follow the landslide while it plays: cracks at the head, then the moving front.
-      if (whatIf && followSlide && !director.busy && street.slideFocus(followTarget, followDir)) {
-        const side = new THREE.Vector3(-followDir.z, 0, followDir.x);
-        followPos.copy(followTarget).addScaledVector(side, 150).addScaledVector(followDir, -60);
-        followPos.y = followTarget.y + 110;
+      if (whatIf && followSlide && !director.busy && street.slideHead && street.slideToe && street.slideFocus(followTarget, followDir)) {
+        // A fixed vantage with a clear line of sight to the scar (found once per street), looking at the
+        // crown and drifting towards the moving front — chasing the front on steep terrain ends up in a hill.
+        if (!slideShot) slideShot = findSlideShot(street);
+        if (slideShot) {
+          followTarget.lerp(slideShot.target, street.slideSurging ? 0.45 : 0.75);
+          followPos.copy(slideShot.position);
+        } else {
+          followPos.copy(followTarget).add(new THREE.Vector3(0, 250, 0));
+        }
         const k = Math.min(1, dt * 1.4);
         controls.target.lerp(followTarget, k);
         camera.position.lerp(followPos, k);

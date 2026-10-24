@@ -12,7 +12,7 @@ import { staffGaugeTexture } from '../data/textures';
 import { REPLAY_HOURS, rainAccumulated, stageM } from '../data/replay2014';
 import { createStreetWater } from './streetWater';
 import { createRealBuildings, type Footprint } from './realBuildings';
-import { createStreetSlide } from './streetSlide';
+import { addSlideGround, createStreetSlide, slideGroundUniforms } from './streetSlide';
 import { addUnderwater, waterUniforms } from './underwater';
 import { THEME } from '../theme';
 
@@ -226,12 +226,13 @@ export function createStreet(opts: {
   void ref;
 
   // Ground.
-  const groundGeo = new THREE.PlaneGeometry(GROUND_M, GROUND_M, 180, 180).rotateX(-Math.PI / 2);
+  const groundGeo = new THREE.PlaneGeometry(GROUND_M, GROUND_M, 320, 320).rotateX(-Math.PI / 2);
   const gp = groundGeo.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < gp.count; i++) gp.setY(i, groundY(gp.getX(i), gp.getZ(i)));
   groundGeo.computeVertexNormals();
   const groundTex = groundTexture(roads, prints.map((p) => p.ring));
-  const groundMat = addUnderwater(new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 }), true);
+  const slideU = slideGroundUniforms();
+  const groundMat = addSlideGround(addUnderwater(new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 }), true), slideU);
   const groundMesh = new THREE.Mesh(groundGeo, groundMat);
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
@@ -297,7 +298,7 @@ export function createStreet(opts: {
     if (d < SLIDE_MAX_M && near.length >= 6 && (!best || d < best.d)) best = { s, d, pts: near };
   }
   if (best && best.pts.length >= 3) {
-    slide = createStreetSlide({ path: best.pts, groundY, triggerMm: triggerRainMm(best.s.slopeDeg), sky, risk: THEME.slide, labels: opts.slideLabels });
+    slide = createStreetSlide({ path: best.pts, groundY, triggerMm: triggerRainMm(best.s.slopeDeg), sky, risk: THEME.slide, labels: opts.slideLabels, groundUniforms: slideU });
     scene.add(slide.group);
     disposables.push(slide);
   }
@@ -341,9 +342,6 @@ export function createStreet(opts: {
     get buried() {
       return buriedCount;
     },
-    get slideSurging() {
-      return slide?.surging ?? false;
-    },
     /** Landslide focus for the follow camera; false when nothing is happening yet. */
     slideFocus(out: THREE.Vector3, dir: THREE.Vector3) {
       return slide ? slide.focus(out, dir) : false;
@@ -356,6 +354,13 @@ export function createStreet(opts: {
     slideMid: slide?.mid ?? null,
     slideHead: slide?.head ?? null,
     slideToe: slide?.toe ?? null,
+    /** A point on the landslide centreline (u = 0 crown … 1 toe), or null without a slide. */
+    slideAt(u: number, out: THREE.Vector3) {
+      return slide ? slide.at(u, out) : null;
+    },
+    get slideSurging() {
+      return slide?.surging ?? false;
+    },
     homeFocus: new THREE.Vector3(homeHouse.x, groundY(homeHouse.x, homeHouse.z) + 3, homeHouse.z),
     /** Unit vector from the home towards its street frontage. */
     homeFront: new THREE.Vector3(Math.sin(homeHouse.angle), 0, Math.cos(homeHouse.angle)),
@@ -390,11 +395,9 @@ export function createStreet(opts: {
       let wet = 0;
       houses.forEach((h, i) => {
         const depth = stageNow * bHS[i][1] - bHS[i][0];
-        const band = DEPTH_BANDS.findIndex((b) => depth <= b.max);
-        if (band !== bands[i] && !buried[i]) {
-          bands[i] = band;
-          built.setTint(i, DEPTH_BANDS[band].color);
-        }
+        // No whole-building tint: buildings turn blue only below the real waterline (underwater
+        // shader), so the water is seen climbing the walls — smooth, and physically right.
+        void bands;
         if (depth > 0.05) wet++;
         if (i === homeIdx) homeDepthNow = depth;
       });
