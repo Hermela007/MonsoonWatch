@@ -1,6 +1,6 @@
 // Live events sent on GET /api/stream (Server-Sent Events) — docs/IMPLEMENTATION.md §1.4.
 // One push path: everything is written to MongoDB and relayed from change streams.
-import type { AgentStep, Alert, EvacCentre, Hazards, Reading, Report, RiskEvent, SaintTask } from "./types";
+import type { AgentStep, Alert, AreaWarning, EvacCentre, Hazards, Reading, Report, RiskEvent, SaintTask } from "./types";
 
 export interface StreamEvents {
   "reading.new": { reading: Reading };
@@ -8,6 +8,7 @@ export interface StreamEvents {
   "hazards.update": { hazards: Hazards };
   "agent.step": { step: AgentStep };
   "alert.updated": { alert: Alert };
+  "area_warning.updated": { areaWarning: AreaWarning };
   "report.new": { report: Report };
   "evac.updated": { evacCentre: EvacCentre };
   "saint.task": { task: SaintTask };
@@ -22,6 +23,7 @@ export const STREAM_EVENT_NAMES = [
   "hazards.update",
   "agent.step",
   "alert.updated",
+  "area_warning.updated",
   "report.new",
   "evac.updated",
   "saint.task",

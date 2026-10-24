@@ -1,0 +1,37 @@
+{
+  "_id": "area:run-sample-2014-12-24:at_risk:Kuala Krai:flood",
+  "regionId": "kelantan",
+  "runId": "run-sample-2014-12-24",
+  "kind": "evacuate",
+  "basis": "At risk (flooding or landslide runout at the village) but no individual evacuation plan: transport and pickups must be arranged by officials",
+  "district": "Kuala Krai",
+  "hazard": "flood",
+  "level": "danger",
+  "villageIds": [
+    "v-kg-sample-a",
+    "v-kg-sample-b"
+  ],
+  "people": 2000,
+  "vulnerable": 250,
+  "vulnerableByCategory": {
+    "bedridden": 5,
+    "disabled": 20,
+    "elderly": 160,
+    "noTransport": 65
+  },
+  "evidence": [
+    "flooded road segment 0.1 km from the village (flood model, approximate; gauge Sungai Galas di Dabong)"
+  ],
+  "messages": [
+    {
+      "lang": "ms",
+      "text": "BAHAYA banjir untuk daerah Kuala Krai: Kampung Sample A, Kampung Sample B. Pindah sekarang ke kawasan tinggi atau pusat pemindahan terdekat. Jangan meredah air banjir. Beritahu ketua kampung tentang penduduk terlantar, OKU dan warga emas yang perlu dijemput. Ikut arahan pihak berkuasa."
+    },
+    {
+      "lang": "en",
+      "text": "DANGER: flood risk in Kuala Krai district for Kampung Sample A, Kampung Sample B. Move now to higher ground or the nearest evacuation centre. Do not walk or drive through floodwater. Tell your village head about bedridden, disabled and elderly people who need to be collected. Follow official instructions."
+    }
+  ],
+  "status": "needs_approval",
+  "label": "Area-wide warning (deterministic template, no AI)"
+}
