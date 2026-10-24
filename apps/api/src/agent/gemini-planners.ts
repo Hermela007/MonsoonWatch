@@ -1,7 +1,11 @@
 // The Gemini planners behind the orchestrator, behind a small interface (AgentAI) so the
 // draft → verify → refine loop can be tested without network calls (orchestrator.test.ts).
 //
-//   planSituation: Gemini 4 Argon, thinking "high" — whole region in one context.
+//   planSituation: Gemini 4 Argon, thinking "high" — the judgement code can't make: ranks the
+//                  deterministic at-risk shortlist (urgency, ETAs), reads every advisory village and
+//                  all past flood reports to ESCALATE villages the rules under-rate (checked by
+//                  escalation.ts: it can raise the alarm, never lower it), and writes the situation
+//                  report for officials. Code still plans and verifies every alert.
 //   draftVillage:  Gemini 3.5 Flash-Lite, no tools — a fast first plan per village. It has no
 //                  road/flood information, so the checks genuinely catch its mistakes.
 //   planVillage:   Gemini 3.8 Flash, thinking "low", tools list_evac_centres, plan_route,
@@ -165,7 +169,7 @@ export const geminiAI: AgentAI = {
       model: MODELS.argon,
       thinkingLevel: "high",
       kind: "plan",
-      summary: `Orchestrating ${shortlist.villages.length} shortlisted villages (of ${situation.villages.length}), ${situation.riskEvents.length} risk events${tag(situation)}`,
+      summary: `Assessing ${shortlist.villages.length} at-risk + ${shortlist.screen.watch.length + shortlist.screen.unknown.length} advisory villages (of ${situation.villages.length}), ${shortlist.knowledge.length} documents, ${situation.riskEvents.length} risk events${tag(situation)}`,
       systemInstruction: prompt("orchestrator"),
       input: JSON.stringify(situationForPrompt(situation, { shortlist })),
       schema: OrchestratorPlanSchema,

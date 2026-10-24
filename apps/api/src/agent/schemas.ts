@@ -15,9 +15,25 @@ export const AtRiskVillageSchema = z.object({
 });
 export type AtRiskVillage = z.infer<typeof AtRiskVillageSchema>;
 
+// Argon may RAISE the alarm for a village the deterministic screen left on an advisory ("watch" /
+// "unknown"), never lower it. Code checks every escalation (escalation.ts) before acting on it.
+export const EscalationSchema = z.object({
+  villageId: z.string().describe("Exact id from undecidedVillages"),
+  hazard: z.enum(["flood", "landslide"]),
+  level: z.enum(["alert", "warning", "danger"]).describe("Never above what the cited station reading supports"),
+  etaHours: z.number().nullable().describe("Hours until the water reaches the village; null if unknown"),
+  stationId: z.string().nullable().describe("River station whose reading supports the level (required for flood), e.g. an upstream gauge"),
+  sourceTitle: z.string().nullable().describe("Title of a knowledge document you rely on, copied exactly; null if none"),
+  quote: z.string().nullable().describe("A short EXACT quote (copied character for character) from that document; null if none. Invented quotes are rejected."),
+  reasoning: z.string().describe("One or two sentences for the official: why this village needs to move now although the screen only advised"),
+});
+export type Escalation = z.infer<typeof EscalationSchema>;
+
 export const OrchestratorPlanSchema = z.object({
   summary: z.string().describe("One-line situation summary for the Tech HUD"),
   villages: z.array(AtRiskVillageSchema),
+  escalations: z.array(EscalationSchema).describe("Advisory villages that should get their own evacuation alert now (at most 15); [] if none"),
+  sitrep: z.string().describe("Situation report for the district disaster committee, at most 150 words. Use only numbers that appear in the input."),
 });
 export type OrchestratorPlan = z.infer<typeof OrchestratorPlanSchema>;
 

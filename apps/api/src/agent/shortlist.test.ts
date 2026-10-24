@@ -108,7 +108,7 @@ test("caps villages at the most at-risk; over-cap ones are summarised per distri
     villages,
     centres: [centre("c-near", [102.05, 5.05]), centre("c-far", [103.0, 6.0])],
     hazards: { blockedRoadIds: ["r"], blockedRoads: { type: "MultiLineString", coordinates: [[[101.99, 5.0], [102.06, 5.0]]] }, landslide: { cells: [], runouts: [] } },
-    knowledge: Array.from({ length: 15 }, (_, i) => ({ _id: `k${i}`, regionId: "t", kind: i === 14 ? "postmortem" : "other", title: `k${i}`, chunk: "x" }) as KnowledgeChunk),
+    knowledge: Array.from({ length: 45 }, (_, i) => ({ _id: `k${i}`, regionId: "t", kind: i === 44 ? "postmortem" : "other", title: `k${i}`, chunk: "x" }) as KnowledgeChunk),
   });
   const sl = shortlistForArgon(s);
   assert.equal(sl.villages.length, 40);
@@ -117,8 +117,8 @@ test("caps villages at the most at-risk; over-cap ones are summarised per distri
   assert.deepEqual(sl.notSent.map((d) => [d.district, d.atRisk, d.highestLevel, d.floodedRoad]), [["Kuala Krai", 5, "danger", 5], ["Machang", 5, "danger", 5]]);
   assert.deepEqual(sl.centres.map((c) => c._id), ["c-near"]); // c-far is > 15 km away
   assert.deepEqual(sl.stations.map((st) => st._id), ["g"]);
-  assert.equal(sl.knowledge.length, 10);
-  assert.equal(sl.knowledge[0]!._id, "k14"); // post-mortems first
+  assert.equal(sl.knowledge.length, 40);
+  assert.equal(sl.knowledge[0]!._id, "k44"); // post-mortems first
   assert.match(shortlistSummary(sl), /not sent ≠ safe/);
 });
 
