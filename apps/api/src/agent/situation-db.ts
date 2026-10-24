@@ -90,6 +90,10 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
   // C's prep:hazards writes a `hazard` field on every road segment its flood model assessed; the
   // rest are UNKNOWN (not safe) for routing.
   const assessedRoadIds = new Set(roadDocs.filter((d) => d.hazard).map((d) => d._id));
+  const floodGaugeByRoadId = new Map(roadDocs.flatMap((d) => {
+    const gaugeId = (d.hazard as { gaugeId?: string | null } | undefined)?.gaugeId;
+    return gaugeId ? [[d._id, gaugeId] as [string, string]] : [];
+  }));
 
   const detail = await computeLandslideDetailed(regionId, at, mode).catch(() => null);
   const landslideEvents = detail ? landslideEventsForVillages(regionId, at.toISOString(), villages, detail.landslide, detail.sources) : [];
@@ -113,6 +117,7 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
       ...(detail ? [`Landslide SCREENING (not a site survey): thresholds from ${detail.configSource}; ${detail.landslide.runouts.length} runouts.`] : []),
     ],
     assessedRoadIds,
+    floodGaugeByRoadId,
     knowledge: knowledge.map((k) => serialize<KnowledgeChunk>(k)),
     glofas: cells.map((c) => ({ id: c.id, label: c.label, lngLat: c.lngLat, latest: byId.get(c.id) ?? null })),
     isTestData: false,

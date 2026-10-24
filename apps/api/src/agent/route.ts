@@ -217,3 +217,78 @@ export function planRoute(
   const r = toResult(from, to, path, mode, true, blocked, "Boat route");
   return done({ ...r, note: r.crossesFlood ? "Boat route across flooded road segments" : "Boat route (roads also dry)" });
 }
+
+export interface RouteTarget { id: string; lngLat: LngLat }
+/** Target (centre) snaps reused across calls on the same graph — the rules planner routes hundreds of villages to the same centres. */
+const targetSnaps = new WeakMap<RoadGraph, Map<string, { id: string; km: number } | null>>();
+export interface ReachedTarget { id: string; route: RouteResult }
+
+/**
+ * One Dijkstra from `from` to the nearest targets, in road-distance order (one search instead of
+ * one per target). Stops when `enough(reached)` says so or beyond `maxKm` of road. Targets further
+ * than `maxSnapKm` from the network are skipped. Routes follow roads only.
+ *   mode "road" (default): flooded segments are never used — dry routes only.
+ *   mode "boat": flooded segments may be used (roads as a stand-in for channels); `crossesFlood` says so.
+ */
+export function routesToNearestTargets(
+  graph: RoadGraph,
+  blockedRoadIds: ReadonlySet<string>,
+  from: LngLat,
+  targets: RouteTarget[],
+  opts: { maxKm: number; maxSnapKm: number; enough: (reached: ReachedTarget[]) => boolean; excludeHighways?: ReadonlySet<string>; mode?: RouteMode },
+): { startSnapKm: number | null; reached: ReachedTarget[] } {
+  const a = nearestNode(graph, from);
+  if (!a) return { startSnapKm: null, reached: [] };
+  const startSnapKm = Math.round(a.km * 100) / 100;
+  const atNode = new Map<string, { t: RouteTarget; snapKm: number }[]>();
+  let snaps = targetSnaps.get(graph);
+  if (!snaps) targetSnaps.set(graph, (snaps = new Map()));
+  for (const t of targets) {
+    const key = `${t.lngLat[0]},${t.lngLat[1]}`;
+    let n = snaps.get(key);
+    if (n === undefined) snaps.set(key, (n = nearestNode(graph, t.lngLat)));
+    if (!n || n.km > opts.maxSnapKm) continue;
+    const list = atNode.get(n.id);
+    const entry = { t, snapKm: Math.round(n.km * 100) / 100 };
+    if (list) list.push(entry);
+    else atNode.set(n.id, [entry]);
+  }
+  const blocked = blockedRoadIds as Set<string>;
+  const mode = opts.mode ?? "road";
+  const dist = new Map<string, number>([[a.id, 0]]);
+  const prev = new Map<string, { node: string; edge: Edge }>();
+  const heap = new MinHeap();
+  const reached: ReachedTarget[] = [];
+  heap.push(0, a.id);
+  while (heap.size) {
+    const { k, id } = heap.pop();
+    if (k > (dist.get(id) ?? Infinity)) continue;
+    if (k > opts.maxKm * 1000) break;
+    const here = atNode.get(id);
+    if (here) {
+      const path: Edge[] = [];
+      for (let n = id; n !== a.id; ) {
+        const p = prev.get(n)!;
+        path.unshift(p.edge);
+        n = p.node;
+      }
+      for (const { t, snapKm } of here) {
+        const r = toResult(from, t.lngLat, path, mode, true, blocked, mode === "road" ? "Dry road route" : "Boat route");
+        const note = mode === "road" ? r.note : r.crossesFlood ? "Boat route across flooded road segments" : "Boat route (roads also dry)";
+        reached.push({ id: t.id, route: { ...r, note, startSnapKm, endSnapKm: snapKm } });
+      }
+      if (opts.enough(reached)) break;
+    }
+    for (const e of graph.adj.get(id) ?? []) {
+      if (mode === "road" && blocked.has(e.seg.properties.id)) continue;
+      if (opts.excludeHighways?.has(e.seg.properties.highway)) continue;
+      const nd = k + e.seg.properties.lengthM;
+      if (nd < (dist.get(e.to) ?? Infinity)) {
+        dist.set(e.to, nd);
+        prev.set(e.to, { node: id, edge: e });
+        heap.push(nd, e.to);
+      }
+    }
+  }
+  return { startSnapKm, reached };
+}

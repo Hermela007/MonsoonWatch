@@ -3,8 +3,10 @@
 import { before, test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentAI } from "./gemini-planners";
-import { runAgent } from "./orchestrator";
+import { runAgent, stopAgentRun, type RunResult } from "./orchestrator";
+import { shortlistForArgon } from "./shortlist";
 import { makeSampleSituation } from "./sample/kelantan-test";
+import type { Situation } from "./situation";
 import type { VillagePlan } from "./schemas";
 import { getMemorySteps, memoryStepSink, setStepSink } from "./steps";
 import { memoryStore } from "./store";
@@ -141,21 +143,110 @@ test("if the draft call itself fails, Flash plans from scratch", async () => {
   assert.ok(getMemorySteps("t-run-4").some((st) => st.actor === "Gemini 3.5 Flash-Lite" && st.status === "fail"));
 });
 
-test("at most MAX_VILLAGES_PER_RUN villages are planned, most urgent first", async () => {
-  const base = makeSampleSituation();
-  const extra = Array.from({ length: 8 }, (_, i) => ({ ...base.villages[2]!, _id: `test-extra-${i}`, name: `Extra ${i}` }));
-  const situation = { ...base, villages: [...base.villages, ...extra] };
+/** Every at-risk village has a verified alert (rules or Gemini) or is in an area-wide fallback warning. */
+function assertEveryVillageHasAlert(res: RunResult, situation: Situation) {
+  const atRisk = shortlistForArgon(situation).screen.atRisk.map((r) => r.village._id);
+  assert.ok(atRisk.length > 0);
+  assert.equal(res.atRisk, atRisk.length);
+  const verified = new Set([...res.rulesAlerts, ...res.outcomes.filter((o) => o.passed).flatMap((o) => o.alerts)].filter((a) => a.status === "verified").map((a) => a.villageId));
+  const areaWide = new Set(res.areaWarnings.flatMap((w) => w.villageIds));
+  for (const id of atRisk) {
+    const by = res.plannedBy.get(id);
+    assert.ok(by, `${id} has no alert`);
+    if (by === "area-wide") assert.ok(areaWide.has(id), `${id} marked area-wide but in no warning`);
+    else assert.ok(verified.has(id), `${id} marked ${by} but has no verified alert`);
+  }
+}
+
+test("rules plan both sample villages with no Gemini: Tualang by dry road, Manik Urai 50 by road + 250 by boat", async () => {
+  const situation = makeSampleSituation();
   const ai = scriptedAI();
-  ai.planSituation = async () => ({
-    summary: "many",
-    villages: [
-      ...extra.map((v) => ({ villageId: v._id, hazard: "flood" as const, level: "alert" as const, etaHours: 10, stationId: "test-lebir-tualang", riskEventIds: [], reasoning: "x" })),
-      { villageId: "test-kg-manik-urai", hazard: "flood" as const, level: "danger" as const, etaHours: 6, stationId: "test-galas-dabong", riskEventIds: ["test-re-galas"], reasoning: "x" },
-    ],
-  });
-  ai.draftVillage = async (task) => (task.village._id === "test-kg-manik-urai" ? fixed : tualang);
-  const { outcomes } = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-cap" });
-  assert.equal(outcomes.length, 6);
-  assert.equal(outcomes[0]!.villageId, "test-kg-manik-urai"); // danger first
-  assert.ok(getMemorySteps("t-run-cap").some((st) => /flagged 9 villages; planning the 6 most urgent/.test(st.summary)));
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-1", tailorTop: 0 });
+  assert.deepEqual(ai.calls, []); // only Argon was asked
+  assert.equal(res.plannedBy.get("test-kg-tualang"), "rules");
+  assert.equal(res.plannedBy.get("test-kg-manik-urai"), "rules");
+  const tualang = res.rulesAlerts.find((a) => a.villageId === "test-kg-tualang")!;
+  assert.match(tualang._id, /:rules:1$/);
+  assert.equal(tualang.status, "verified");
+  assert.match(tualang.messages.find((m) => m.lang === "en")!.text, /Dewan Orang Ramai Tualang \(test\) \(\d+\.\d km via Jalan Tualang, Jalan Dewan\)/);
+  const manik = res.rulesAlerts.filter((a) => a.villageId === "test-kg-manik-urai");
+  assert.deepEqual(manik.map((a) => [a.evacCentreId, a.people]), [["test-sk-manik-urai", 50], ["test-smk-kuala-krai", 250]]);
+  assert.ok(manik.flatMap((a) => a.pickups ?? []).every((p) => p.vehicle === "boat"));
+  assert.match(manik[1]!.messages.find((m) => m.lang === "en")!.text, /250 residents: boats will take you to SMK Kuala Krai \(test\)/);
+  assert.ok(getMemorySteps("t-rules-1").some((s) => s.actor === "Rules planner" && /2\/2 at-risk villages planned \+ verified; 0 need Gemini/.test(s.summary)));
+  assertEveryVillageHasAlert(res, situation);
 });
+
+test("tailored villages keep their rules alerts when Gemini's plans fail", async () => {
+  const situation = makeSampleSituation();
+  const ai = scriptedAI();
+  ai.draftVillage = async () => naive;
+  ai.planVillage = async () => ({ plan: naive });
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-2" });
+  assert.equal(res.outcomes.length, 2); // both tailored by Gemini…
+  assert.ok(res.outcomes.every((o) => !o.passed)); // …both failed
+  assert.equal(res.plannedBy.get("test-kg-tualang"), "rules");
+  assert.equal(res.plannedBy.get("test-kg-manik-urai"), "rules");
+  assert.deepEqual(res.areaWarnings, []);
+  assertEveryVillageHasAlert(res, situation);
+});
+
+/**
+ * Manik Urai + 8 copies whose river evidence conflicts (gauge DANGER vs its own event WARNING):
+ * the rules send them all to Gemini, and they compete for the same two centres.
+ */
+function conflictingVillages() {
+  const base = makeSampleSituation();
+  const manik = base.villages.find((v) => v._id === "test-kg-manik-urai")!;
+  const copies = Array.from({ length: 8 }, (_, i) => ({ ...manik, _id: `test-copy-${i}`, name: `Copy ${i}` }));
+  const riskEvents = base.riskEvents.map((e) => (e._id === "test-re-galas" ? { ...e, level: "warning" as const } : e));
+  const situation = { ...base, villages: [...base.villages, ...copies], riskEvents };
+  const ai = scriptedAI();
+  ai.draftVillage = async (task) => (task.village._id === "test-kg-tualang" ? tualang : fixed);
+  ai.planVillage = async (task) => ({ plan: task.village._id === "test-kg-tualang" ? tualang : fixed });
+  return { situation, ai };
+}
+
+test("Gemini cap 0: nothing reaches Gemini, villages code can't plan get the area-wide fallback", async () => {
+  const { situation, ai } = conflictingVillages();
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-3", geminiCap: 0 });
+  assert.deepEqual(ai.calls, []);
+  assert.equal(res.plannedBy.get("test-kg-manik-urai"), "area-wide");
+  assert.ok(getMemorySteps("t-rules-3").some((s) => /9 need Gemini \(conflicting signals 9\)/.test(s.summary)));
+  assertEveryVillageHasAlert(res, situation);
+});
+
+test("Gemini batches of MAX_VILLAGES_PER_RUN; parallel plans that double-book a centre are rejected", async () => {
+  const { situation, ai } = conflictingVillages();
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-4", geminiCap: 20, tailorTop: 0 });
+  assert.equal(res.outcomes.length, 9); // 2 batches: 6 + 3
+  assert.equal([...res.plannedBy.values()].filter((b) => b === "gemini").length, 1); // only the first fits the 50-place school
+  const steps = getMemorySteps("t-rules-4");
+  assert.ok(steps.some((s) => /Gemini batch 2\/2: 3 village/.test(s.summary)));
+  assert.ok(steps.some((s) => /double-books a centre already allocated this run — rejected/.test(s.summary)));
+  assertEveryVillageHasAlert(res, situation);
+});
+
+test("stop before the next Gemini batch: the rest falls back to area-wide warnings", async () => {
+  const { situation, ai } = conflictingVillages();
+  const draft = ai.draftVillage;
+  ai.draftVillage = async (task) => {
+    stopAgentRun("t-rules-5"); // operator presses stop while batch 1 runs
+    return draft(task);
+  };
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-5", geminiCap: 20, tailorTop: 0 });
+  assert.equal(res.outcomes.length, 6);
+  assert.ok(getMemorySteps("t-rules-5").some((s) => /Stopped before Gemini batch 2: 3 village/.test(s.summary)));
+  assertEveryVillageHasAlert(res, situation);
+});
+
+test("every at-risk village ends with an alert even if Gemini is down", async () => {
+  const { situation, ai } = conflictingVillages();
+  ai.draftVillage = async () => { throw new Error("Gemini unavailable"); };
+  ai.planVillage = async () => { throw new Error("Gemini unavailable"); };
+  ai.planSituation = async () => ({ summary: "none", villages: [] });
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-6" });
+  assertEveryVillageHasAlert(res, situation);
+  assert.ok(getMemorySteps("t-rules-6").some((s) => /Coverage: 10 at-risk villages → 1 rules alerts, 0 Gemini alerts, 9 in area-wide/.test(s.summary)));
+});
+

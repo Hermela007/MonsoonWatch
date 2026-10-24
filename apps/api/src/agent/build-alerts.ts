@@ -25,6 +25,10 @@ export function buildAndVerifyVillage(args: {
   village: Village;
   atRisk: AtRiskVillage;
   plan: VillagePlan;
+  /** Rules planner: routes it already found (same planner, same graph) — reused, not re-planned. */
+  routes?: (RouteResult | undefined)[];
+  /** Alert id tag, e.g. "rules" → `${runId}:${villageId}:rules:1` (planned by code, not Gemini). */
+  idTag?: string;
 }): BuiltVillage {
   const { runId, situation: s, graph, village, atRisk, plan } = args;
   const planErrors: string[] = [];
@@ -44,11 +48,11 @@ export function buildAndVerifyVillage(args: {
       return;
     }
     centresUsed.push(centre);
-    const route = planRoute(graph, s.hazards.blockedRoadIds, village.location.coordinates, centre.location.coordinates, g.routeMode);
+    const route = args.routes?.[i] ?? planRoute(graph, s.hazards.blockedRoadIds, village.location.coordinates, centre.location.coordinates, g.routeMode);
     routes.push(route);
 
     const alert: Alert = {
-      _id: `${runId}:${village._id}:${i + 1}`,
+      _id: `${runId}:${village._id}:${args.idTag ? `${args.idTag}:` : ""}${i + 1}`,
       regionId: s.region._id,
       runId,
       villageId: village._id,
