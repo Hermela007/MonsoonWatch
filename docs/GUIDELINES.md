@@ -142,12 +142,12 @@ The MongoDB brief: *"The more of them you use, the more points you get."* We use
 
 | # | Feature | Our use | On-screen moment |
 |---|---|---|---|
-| 1 | **Atlas Search (text)** | Fuzzy + autocomplete place search over villages/stations: "K. Krai", "Kuala Krai", typos, Malay spellings. | Search bar: type "kuala kri" → correct village; camera flies there. |
-| 2 | **Atlas Vector Search** | *Proposed (C to confirm):* semantic search over `knowledge` (2014 post-mortems, district plans, Deep Research briefs) — e.g. the agent asks "what went wrong at Kuala Krai in 2014?". | Agent step / district panel shows the matching passages with similarity scores. |
-| 3 | **Hybrid Search** (`$rankFusion` of `$search` + `$vectorSearch`) | Query `knowledge` with mixed keyword/meaning: "jalan ditutup Pasir Mas" (road closed). | Query box shows both result lists fused, with a "hybrid" badge. |
-| 4 | **Automated Embedding** | New `knowledge` docs are embedded automatically on insert (no manual embedding code path). | Insert a Deep Research brief live → it appears in vector results seconds later. Mention in voice-over. |
-| 5 | **Atlas Stream Processing** | Two processors in `apps/api/src/db/stream-processors/risk.js` (`pnpm db:stream`), source = change stream on `reading_events` (not `raw_readings`: time series collections can't be a Stream Processing source). `riskRiver`: 10-s tumbling window, max level per station, `$lookup` thresholds from `stations` → alert/warning/danger; in the 2014 replay also GloFAS discharge vs APPROXIMATE 1,500/3,000/4,500 m³/s. `riskRain`: 20-s hopping window (5 s hop) over 3-day rain (since midnight + last 2 daily totals) vs placeholder 150/250/350 mm. Both `$merge` into `risk_events` with deterministic `_id`s (no duplicates on restart/replay); the API adds the HUD `AgentStep`. | Tech HUD: "Stream processor fired: Sg. Galas @ Kg. Lembaga crossed ALERT" → agent starts. |
-| 6 | **Voyage AI** | Multilingual text embeddings (Malay + English), **reranker** on hybrid/vector results before they go to Gemini. | Results panel shows "reranked by Voyage" with before/after order. |
+| 1 | **Atlas Search (text)** | `GET /api/search?type=place` ([`search/places.ts`](../apps/api/src/search/places.ts), indexes [`places.villages.json`](../apps/api/src/db/indexes/places.villages.json), [`places.stations.json`](../apps/api/src/db/indexes/places.stations.json)): autocomplete + fuzzy on village/station `name` (+ village `altNames`), regionId filter, both collections merged by score. "kuala kri" → Kuala Krai; "manik urai" / "manek urai" → Manek Urai. | Search bar: type "kuala kri" → correct village; camera flies there. |
+| 2 | **Atlas Vector Search** | autoEmbed `$vectorSearch` over `knowledge` ([`knowledge_vec.json`](../apps/api/src/db/indexes/knowledge_vec.json)) (2014 news reports, plans, Deep Research briefs): the vector half of hybrid search and, alone, `GET /api/knowledge/:id/similar` ("similar passages") ([`search/knowledge.ts`](../apps/api/src/search/knowledge.ts)). | Agent step / district panel shows the matching passages with similarity scores. |
+| 3 | **Hybrid Search** (`$rankFusion` of `$search` + `$vectorSearch`) | `GET /api/search?type=hybrid` / `searchKnowledge()` ([`search/knowledge.ts`](../apps/api/src/search/knowledge.ts)): `$rankFusion` (vector 0.6 / text 0.4) of autoEmbed `$vectorSearch` + `$search` ([`knowledge_text.json`](../apps/api/src/db/indexes/knowledge_text.json)), top 20, e.g. "jalan ditutup Kuala Krai" (road closed). HUD: "Fused N vector + text results". | Query box shows both result lists fused, with a "hybrid" badge. |
+| 4 | **Automated Embedding** | `knowledge_vec` is an `autoEmbed` index (`voyage-4`) on `knowledge.chunk`: Atlas embeds documents on insert (`pnpm load:knowledge`) and the query text at search time — no embedding code path in the repo. | Insert a Deep Research brief live → it appears in vector results seconds later. Mention in voice-over. |
+| 5 | **Atlas Stream Processing** | Two processors in `apps/api/src/db/stream-processors/risk.js` (`pnpm db:stream`), source = change stream on `reading_events` (not `raw_readings`: time series collections can't be a Stream Processing source). `riskRiver`: 10-s tumbling window, max level per station, `$lookup` thresholds from `stations` → alert/warning/danger; in the 2014 replay also GloFAS discharge vs APPROXIMATE 1,500/3,000/4,500 m³/s. `riskRain`: 20-s hopping window (5 s hop), landslide rain thresholds generated from B's Deep Research output at deploy time (option A: danger 240 mm / 1 day, warning 100 mm / 1 day, alert 47.66 mm / 3 days). Both `$merge` into `risk_events` with deterministic `_id`s (no duplicates on restart/replay); the API adds the HUD `AgentStep` (rain only at warning/danger). | Tech HUD: "Stream processor fired: Sg. Galas @ Kg. Lembaga crossed ALERT" → agent starts. |
+| 6 | **Voyage AI** | Embeddings: `voyage-4` via automated embedding. **Rerank:** MongoDB native `$rerank` (`rerank-2.5`, multilingual) on the 20 hybrid results → top 5, each with `rankBeforeRerank` ([`search/knowledge.ts`](../apps/api/src/search/knowledge.ts)); falls back to the fused order (`reranked: false`) if rerank fails. HUD: "Reranked 20 → 5". Needs the Native Reranking project setting (enabled on the project). | Results panel shows "reranked by Voyage" with before/after order. |
 | + | **Time series** | `raw_readings`. | Station chart (last 6 days). |
 | + | **Geospatial** (`2dsphere`, `$geoNear`, `$geoWithin`) | Nearest evac centre; villages inside landslide runout polygons / flood extent. | Route + nearest centre highlighted. |
 | + | **Change streams** | Push DB changes to the web app (SSE) → 3D updates live. | Water rises / pins pulse without page refresh. |
@@ -183,32 +183,41 @@ db.knowledge.aggregate([
 
 | Model / agent | Job in MonsoonWatch | On-screen moment |
 |---|---|---|
-| `gemini-4-argon` (`thinking_level: "high"`) | **Lead orchestrator.** Loads the whole situation in one context: live readings, risk events, region config, villages, evac centres, long documents (2014 post-mortems, district plans). Decides which villages are at risk, delegates, reviews subagent output, writes final plan. | Agent panel streams reasoning steps; HUD badge "Argon · 1M context · N tokens loaded". |
-| `gemini-3.8-flash` subagents (parallel) | One per affected village: compute risk window, nearest evac centre, route avoiding blocked roads, draft alert in local language + English. | Several village cards fill in simultaneously. |
-| `gemini-3.5-flash-lite` | Cheap routing/classification (e.g. does this risk event need a full agent run?). | HUD shows routing step. |
+| `gemini-4-argon` (`thinking_level: "high"`) | **Lead orchestrator** (`agent/orchestrator.ts`, `agent/gemini-planners.ts`). Loads the whole situation in one context: readings + thresholds (in replay: levels reconstructed from GloFAS, labelled approximate), risk events, all 765 villages, 334 centres, hazard notes, 2014 knowledge (≈140k tokens on real data). Returns at-risk villages (hazard, level, ETA, cited evidence). **At most 6 villages are planned per run**, danger first. | HUD: "Orchestrating 765 villages … · 140k tokens", then "Argon's assessment: …". |
+| `gemini-3.5-flash-lite` | **Quick draft** per village with NO tools and no flood information, so the checks catch its real mistakes (full centre, road through floodwater). Also the slot for optional risk-event triage. | Red ticks on the draft → replan. |
+| `gemini-3.8-flash` subagents (parallel, `thinking_level: "low"`) | **Refine** each village plan with tools `list_evac_centres` (12 nearest), `plan_route`, `suggest_pickups`, and `submit_plan` (the plan arrives as a validated tool call; the checks' verdict is returned as that call's result, same interaction). | Several village cards fill in simultaneously; red → green. |
 | **Vulnerable-people priority** (Argon plans, Flash subagents per village) | Orders pickups for bedridden → disabled → elderly → no-transport people using per-village counts (`Village.vulnerable`), picks a suitable vehicle (boat / 4x4 / ambulance / bus), and writes them into `Alert.pickups`. Checked by the `vulnerable` verification check. Gemini only **plans**; carrying it out after approval is Saint's job. | Village card shows "12 bedridden → boat pickup first"; vulnerable check turns red → replan → green. |
-| `deep-research-preview-04-2026` | (a) Find published rainfall-landslide thresholds for the region, with citations. (b) Flood history brief per district. Stored in `knowledge`. | Brief with citations opens from a district. |
-| `gemini-3.8-live` | Voice Q&A in the local language: "Rumah saya selamat tak?" → answer grounded in current risk for that location. | Live voice clip in the video. |
-| `gemini-3.5-live-translate-preview` / `gemini-3.8-flash-tts` (optional) | Spoken alert in local language for low-literacy residents. | Play alert audio. |
-| `antigravity-preview-09-2026` (optional) | Run the verification scripts (route/geometry checks) in a sandbox. Only if time allows. | — |
-| `gemini-nano-banana-2.1` (optional) | Illustrate a resident's street at forecast depth. **Must** be labelled "Illustration, not a prediction". | — |
+| `deep-research-preview-04-2026` | **Done, run once in advance** (`agent/research/`): published rainfall-landslide thresholds with 41 sources; Argon extracts them, code checks every value is cited, verbatim in the report and plausible. Team **option A**: alert 47.66 mm/3 d (national, may over-warn in Kelantan), warning 100 mm/1 d (JKR/JICA), danger 240 mm/1 d (MetMalaysia), slope ≥ 25° (KPKT/CIDB). Saved to `Region.landslide`, `knowledge` (kind `deep_research`) and `research/output/*.json/.md` (committed). | Thresholds + citations in the landslide panel / README. |
+| `gemini-3.8-flash-tts` | **Spoken alert after approval** (`agent/speech.ts`): reads the approved text verbatim, Malay then English, voice "Kore", brisk and clear; for mosque loudspeakers, radio and Saint's WhatsApp voice note. Never speaks an unapproved alert. `GET /api/alerts/:id/audio/:lang`. | Approve → play the Malay alert. |
+| ~~`gemini-3.8-live`~~ | **Dropped** (team, 24 Oct): no voice Q&A. | — |
+| ~~`antigravity-preview-09-2026`~~ · ~~`gemini-nano-banana-2.1`~~ | **Not used** (C's brief): checks already run deterministically; an AI flood image is easy to mistake for a prediction. | — |
 
 ### 6.3 The verification loop (50% of DeepMind score is the working demo with a real verification loop)
 The agent's plan is **checked by deterministic code** before any human sees it. Every check returns pass/fail, is logged to `agent_steps`, and is shown in the UI.
 
 1. **Threshold check:** each at-risk claim must match the latest stored reading vs the station's JPS thresholds (or the model's rain-accumulation threshold).
 2. **Route check:** every evacuation route is tested against current flooded-road segments and landslide runout polygons (`$geoIntersects`). Fail → agent re-plans.
-3. **Capacity check:** assigned evac centre capacity ≥ village population estimate; else split across centres.
+3. **Capacity check:** the centre's free places ≥ `Alert.people` for that group; a village's groups must add up to its population without over-filling any centre (split across centres).
 4. **Freshness check:** reject readings older than N minutes (stale JPS stations).
 5. **Language check:** alert exists in local language + English and fits SMS/WhatsApp length.
-6. **Vulnerable check** *(proposed, §1.7)*: every vulnerable person counted in `Village.vulnerable` is covered by a pickup in that village's alerts, bedridden/disabled are ordered first, and the vehicle suits the route (boat if it crosses flooded road).
+6. **Vulnerable check** (`agent/vulnerable.ts`): every vulnerable person counted in `Village.vulnerable` is covered by a pickup across that village's alerts, bedridden → disabled → elderly → no transport, and the vehicle suits each group's route (boats only if it crosses floodwater; ambulance for bedridden where roads are open).
 
-Loop: `plan → verify → (fail → replan with failure reasons, max 3 tries) → verified draft → human approval queue`.
+Loop (`agent/orchestrator.ts`): `Flash-Lite quick draft → verify → (fail → Flash refines with tools and the failure reasons, up to 3 tries) → "verified" → human approval queue`. A village still failing stays `draft` and cannot be approved. Routes always come from deterministic `planRoute`, never from the model. Tested end to end with a scripted planner (`orchestrator.test.ts`) and live on the test scenario: real fail → replan → pass in ~75 s.
 UI shows a checklist with green/red ticks per alert. **Film at least one fail → replan → pass.**
 
 ### 6.4 Landslide screening model (our own, transparent)
 `risk = f(slope from terrain, accumulated rain over N days from nearest rain stations, cited thresholds)`.
 For each high-risk cell, trace the **steepest-descent runout path** downhill; villages/roads intersecting it are at risk. UI label: *"Screening tool. Shows where to check first. Does not replace an on-site engineer."*
+
+Implemented in `agent/landslide.ts` (pure, tested) + `agent/landslide-provider.ts` (registered with C's `setLandslideProvider`, so `/hazards` returns it): slope ≥ 25° on C's 75 m DEM, rain over 1 or 3 days at the nearest rain station vs the option A thresholds, risk bands alert 0.2–0.4 / warning 0.5–0.7 / danger 0.8–1.0, up to 25 runouts. Villages within 1 km of a runout get a `landslide_screen` risk event (source `agent`) the agent can cite. ~10 ms for all of Kelantan.
+
+### 6.6 Evacuation routing — one routing logic for residents and the agent
+`GET /api/regions/:id/evacuation-route` (contract: `packages/shared/src/routing.ts`, agreed A + B + C, 24 Oct). Deterministic, **no Gemini**; the agent's `plan_route` tool and route check use the same code (`agent/evacuate.ts`, `agent/route.ts`).
+- Picks the nearest centre with room for `people`, the shortest usable route, and lists alternatives with reasons. A requested `centreId` that is unavailable returns alternatives, never a silent switch.
+- Never a straight line as success; off-road origins are reported (`off_network`), not silently connected.
+- Hazards: C's per-segment status (flooded / clear / outside_floodplain / unknown). **Missing data is "unknown", never "safe"**; `crossesFlood` is `false` only when every segment was assessed. No route earns a "safe" badge.
+- Car and walk first. **Boat returns `unsupported_mode`**: we have no navigable-water data, so flooded roads alone are never claimed as a boat route.
+- Read-only: allowed in the public demo. `PUBLIC_DEMO=1` (A) blocks API mutations and automatic agent runs; keep it.
 
 ---
 
@@ -256,7 +265,7 @@ This panel is our cheat code for the video: one glance proves feature usage. Kee
 - **Agent-driven camera:** when the agent runs, the camera flies to affected villages, routes draw on terrain, alert cards appear in-scene with **Approve** button.
 - Village markers show vulnerable-people counts and pickup order once the agent has planned.
 - Style: dark, minimal, water and risk as the only strong colours. Must run smoothly on a laptop.
-- Resident view (phone): no heavy 3D; their location, risk, time until arrival, route, voice button.
+- Resident view (phone): no heavy 3D; their location, risk, time until arrival, evacuation route (§6.6) with honest hazard status, play the approved spoken alert.
 - **Effort cap: ~1/3 of team time.**
 
 ---
@@ -270,10 +279,10 @@ Record clean screen captures of each beat once, then cut three videos. Use capti
 |---|---|
 | 0:00–0:20 | Teammate's story (Kelantan 2014). Name the user: district officials + community leaders. |
 | 0:20–0:50 | Fly into 3D valley. Replay Dec 2014: rain in hills → slopes turn red → river rises downstream. |
-| 0:50–1:40 | Live data. Stream Processing fires → Argon orchestrates → Flash subagents per village → **verification fails once, replans, passes** → alert cards. |
-| 1:40–2:10 | **Vulnerable-people priority:** first plan for Kg. Manik Urai misses 12 bedridden residents → `vulnerable` check FAILS → Argon replans with a boat pickup first → PASS. *(Proposed, §1.7.)* |
+| 0:50–1:40 | Replay 24 Dec 2014. Stream Processing fires → Argon reads the whole valley (≈140k tokens) → Flash-Lite drafts per village → **checks fail** (e.g. road route through floodwater) → Flash replans with tools → **pass** → alert cards. |
+| 1:40–2:10 | **Vulnerable-people priority:** Manek Urai is cut off on 24 Dec (no dry road; dry on 12 Dec) with 3 bedridden residents (demo-labelled) → bedridden collected first by boat; the `vulnerable` check turns green. |
 | 2:10–2:35 | Official clicks **Approve** → message lands on a real phone (Saint if available). |
-| 2:35–2:50 | Voice question in Malay via Gemini Live. |
+| 2:35–2:50 | **Spoken alert:** Gemini TTS reads the approved Malay alert, as for a mosque loudspeaker. A resident picks their home → evacuation route with honest hazard status. |
 | 2:50–3:00 | One-click region switch. "Built for every monsoon valley." |
 
 ### Video B — MongoDB (3:00)
@@ -306,7 +315,7 @@ Keep index definitions, stream processor definitions and prompts **in the repo a
 | Person | Owns |
 |---|---|
 | **A — 3D/frontend** | Terrain, water + landslide visuals, agent-driven camera, approval UI, Tech HUD, resident phone view. |
-| **B — Agent/Gemini** | Orchestrator, subagents, verification loop, vulnerable-people priority, Live voice, Deep Research, prompts. |
+| **B — Agent/Gemini** | Orchestrator, drafts + subagents, verification loop, vulnerable-people priority, landslide screening, Deep Research, spoken alert, evacuation routing, prompts. |
 | **C — Data/MongoDB/Saint/video** | Scrapers + replay loaders, all MongoDB features, region configs, Saint handoff, README, video recording/editing. |
 
 | When | Milestone |
@@ -314,7 +323,7 @@ Keep index definitions, stream processor definitions and prompts **in the repo a
 | Fri → 23:00 | Repo + `.env.example`; scrapers writing to `raw_readings`; 2014 data loaded; terrain heightmap baked; hello-world Argon call via Interactions API. |
 | Sat 09:00–13:00 | Saint setup (if allocated). Stream processor + `risk_events`. Agent plan → verify loop end-to-end (text only). 3D valley with water layer. |
 | Sat 13:00–19:00 | Search / Vector / Hybrid / auto-embed / Voyage rerank. Vulnerable-people priority + check. Approval flow. Camera follows agent. |
-| Sat 19:00–24:00 | Live voice, region switch, Tech HUD, Saint loop. **Feature freeze at midnight.** |
+| Sat 19:00–24:00 | Evacuation-route API + resident journeys, spoken alert in the UI, region switch, Tech HUD, Saint loop. **Feature freeze at midnight.** |
 | Sun 08:00–11:00 | Record beats, cut Videos A/B/C, README, submission text. |
 | Sun 11:00–12:00 | Buffer. **Submissions close 12:00.** |
 
@@ -323,7 +332,11 @@ Keep index definitions, stream processor definitions and prompts **in the repo a
 ## 12. Open decisions (do not assume — confirm with the team)
 - [ ] Saint allocated? (decides §6.5 and Video C)
 - [x] Resident photo/video uploads — **dropped** (not realistic in an emergency). See IMPLEMENTATION §1.7.
-- [ ] Vulnerable-people counts: estimated from census rates, or real figures for the demo villages?
+- [x] Vulnerable-people counts: **estimated** from official rates (C), counts only; bedridden 0 except demo-labelled villages (Manek Urai 3, Kuala Gris 2).
+- [x] Gemini Live voice Q&A: **dropped**; spoken alert (TTS) after approval instead.
+- [x] Landslide thresholds: **option A** (Deep Research, cited; see §6.2).
+- [ ] Boat in agent alerts: keep boats as the pickup vehicle but draw no "boat route" (needs a small `Alert` change, A + C to agree).
+- [ ] One-way / access restrictions: not in the road data yet (C could add to `RoadProps`); until then stated in route limitations.
 - [ ] Second region for the switch demo (and its data sources).
 - [ ] Which MongoDB features work on our tier; what "Agent Engine" / "AI Model APIs" in Atlas offer.
 - [ ] Final stack confirmation (TypeScript everywhere vs Python scrapers).

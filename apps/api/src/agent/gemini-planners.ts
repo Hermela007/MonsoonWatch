@@ -53,6 +53,9 @@ export interface AgentAI {
 
 const tag = (s: Situation) => (s.isTestData ? " [TEST DATA]" : "");
 
+/** Nearest centres only (the real region has hundreds): keeps prompts and tool output small. */
+export const MAX_CENTRES_SHOWN = 12;
+
 function centresFor(s: Situation, village: Village) {
   return s.centres
     .map((c) => ({
@@ -60,7 +63,8 @@ function centresFor(s: Situation, village: Village) {
       freePlaces: c.capacity - c.headcount, elevationM: c.elevationM,
       distanceKm: Math.round(haversineKm(village.location.coordinates, c.location.coordinates) * 10) / 10,
     }))
-    .sort((a, b) => a.distanceKm - b.distanceKm);
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, MAX_CENTRES_SHOWN);
 }
 
 function villageBrief(task: VillageTask) {
@@ -83,7 +87,7 @@ function villageTools(task: VillageTask): AgentTool[] {
       decl: {
         type: "function",
         name: "list_evac_centres",
-        description: "Evacuation centres with free places and straight-line distance from the village, nearest first.",
+        description: `The ${MAX_CENTRES_SHOWN} nearest evacuation centres with free places and straight-line distance from the village, nearest first.`,
         parameters: { type: "object", properties: {}, required: [] },
       },
       run: () => centresFor(s, village),

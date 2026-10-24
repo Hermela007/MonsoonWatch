@@ -1,0 +1,142 @@
+{
+  "status": "ok",
+  "reason": null,
+  "message": "[TEST DATA] SK Manik Urai (test): 2.4 km by car, about 5 min",
+  "query": {
+    "regionId": "kelantan",
+    "travel": "car",
+    "mode": "replay",
+    "ts": "2014-12-24T04:00:00.000Z",
+    "centreId": null,
+    "people": 4
+  },
+  "generatedAt": "2026-10-24T15:00:00.000Z",
+  "version": "kelantan:replay:2014-12-24T04:00:00.000Z:roads-84596",
+  "origin": {
+    "requested": [
+      102.2003,
+      5.3004
+    ],
+    "snapped": [
+      102.2,
+      5.3
+    ],
+    "snapDistanceM": 55
+  },
+  "centre": {
+    "id": "test-sk-manik-urai",
+    "name": "SK Manik Urai (test)",
+    "lngLat": [
+      102.215,
+      5.315
+    ],
+    "capacity": 250,
+    "headcount": 200,
+    "freePlaces": 50,
+    "status": "usable",
+    "source": "osm-candidate",
+    "capacityEstimated": true,
+    "headcountUpdatedAt": null
+  },
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [
+        102.2,
+        5.3
+      ],
+      [
+        102.205,
+        5.305
+      ],
+      [
+        102.21,
+        5.31
+      ],
+      [
+        102.215,
+        5.315
+      ]
+    ]
+  },
+  "distanceM": 2400,
+  "durationSeconds": 288,
+  "durationBasis": "assumed average 30 km/h by car",
+  "steps": [
+    {
+      "instruction": "Drive north-east on Jalan Manik Urai",
+      "roadName": "Jalan Manik Urai",
+      "distanceM": 1560,
+      "startIndex": 0,
+      "endIndex": 2
+    },
+    {
+      "instruction": "Continue onto the residential road",
+      "roadName": null,
+      "distanceM": 840,
+      "startIndex": 2,
+      "endIndex": 3
+    },
+    {
+      "instruction": "Arrive at SK Manik Urai (test)",
+      "roadName": null,
+      "distanceM": 0,
+      "startIndex": 3,
+      "endIndex": 3
+    }
+  ],
+  "hazards": {
+    "status": "partial",
+    "assessedAt": "2014-12-24T04:00:00.000Z",
+    "source": "MonsoonWatch flood model (JPS gauges + DEM, GloFAS-reconstructed in replay) — approximate",
+    "confirmedClosures": {
+      "available": false,
+      "source": null
+    },
+    "crossesFlood": null,
+    "segments": {
+      "flooded": 0,
+      "clear": 1,
+      "outsideFloodplain": 0,
+      "unknown": 1
+    },
+    "floodedSegmentsAvoided": 0,
+    "detourM": 0,
+    "landslideRunoutsCrossed": 0,
+    "notes": [
+      "1 road section has no usable gauge reading: flood status unknown."
+    ]
+  },
+  "alternatives": [
+    {
+      "centreId": "test-smk-kuala-krai",
+      "name": "SMK Kuala Krai (test)",
+      "status": "no_route",
+      "reason": "all_routes_flooded",
+      "distanceM": null,
+      "freePlaces": 550,
+      "centreStatus": "usable"
+    },
+    {
+      "centreId": "test-dewan-tualang",
+      "name": "Dewan Orang Ramai Tualang (test)",
+      "status": "no_route",
+      "reason": "disconnected",
+      "distanceM": null,
+      "freePlaces": 300,
+      "centreStatus": "unknown"
+    }
+  ],
+  "sources": [
+    "OpenStreetMap roads (ODbL)",
+    "JPS river gauges + thresholds",
+    "GloFAS discharge (reconstructed, replay only)",
+    "AWS Terrain Tiles DEM",
+    "MonsoonWatch landslide screening (not a site survey)"
+  ],
+  "limitations": [
+    "Travel time assumes an average 30 km/h by car; real conditions may be slower.",
+    "Road network from OpenStreetMap; one-way and access restrictions are not in the road data yet.",
+    "Flood model is approximate (DEM vertical error several metres); no official road-closure data."
+  ]
+}

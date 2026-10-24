@@ -41,8 +41,17 @@ export function serialize<T>(value: unknown): T {
  * $merge into one collection, so the API adds the AgentStep here. Fixed _id → if two API instances run,
  * the second insert is a duplicate-key no-op and the HUD still gets exactly one line.
  */
+/** Which Stream Processing risk events get a Tech HUD line. All river crossings do. Rain only at warning or
+ *  danger: the alert level (47.66 mm / 3 days, national threshold) is reached often in the monsoon (B's
+ *  research caveat), so alert-level rain events are stored and sent as `risk.event` but not shown in the HUD. */
+export function wantsHudStep(riskEvent: { source?: unknown; type?: unknown; level?: unknown }): boolean {
+  if (riskEvent.source !== "stream_processing") return false;
+  if (riskEvent.type === "rain_accumulation") return riskEvent.level === "warning" || riskEvent.level === "danger";
+  return true;
+}
+
 async function stepForStreamProcessing(riskEvent: Document, change: ChangeStreamDocument): Promise<void> {
-  if (riskEvent.source !== "stream_processing") return;
+  if (!wantsHudStep(riskEvent)) return;
   // wallTime = when the processor's $merge wrote the event; windowEnd = when its window closed.
   const writtenAt = "wallTime" in change && change.wallTime instanceof Date ? change.wallTime : new Date();
   const windowEnd = riskEvent.windowEnd instanceof Date ? riskEvent.windowEnd : null;

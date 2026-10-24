@@ -9,6 +9,7 @@ import { env } from "../env";
 import { haversineKm } from "./geo";
 import { buildRoadGraph, planRoute } from "./route";
 import { loadSituationFromDb } from "./situation-db";
+import { levelFromThresholds } from "./verify";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const mode = (arg("mode") ?? "live") as "live" | "replay";
@@ -24,6 +25,14 @@ try {
   console.log(`risk events ${s.riskEvents.length}: ${Object.entries(s.riskEvents.reduce<Record<string, number>>((m, e) => ((m[`${e.type}/${e.level}`] = (m[`${e.type}/${e.level}`] ?? 0) + 1), m), {})).map(([k, n]) => `${k}×${n}`).join(", ") || "none"}`);
   console.log(`flooded road segments ${s.hazards.blockedRoadIds.length} · landslide cells ${s.hazards.landslide.cells.length}, runouts ${s.hazards.landslide.runouts.length}`);
   for (const e of s.riskEvents.filter((x) => x.type === "landslide_screen").slice(0, 5)) console.log(`  ⛰ ${e.message}`);
+  const rivers = s.stations
+    .filter((st) => st.kind === "river" && st.thresholds && st.latest)
+    .map((st) => ({ st, level: levelFromThresholds(st.latest!.value, st.thresholds!) }))
+    .filter((r) => r.level !== "normal");
+  console.log(`river gauges at alert or above: ${rivers.length} (warning+ ${rivers.filter((r) => r.level !== "alert").length})`);
+  for (const r of rivers.sort((x, y) => y.st.latest!.value - y.st.thresholds!.danger - (x.st.latest!.value - x.st.thresholds!.danger)).slice(0, 5)) {
+    console.log(`  🌊 ${r.st.name}: ${r.st.latest!.value} m → ${r.level.toUpperCase()} (danger ${r.st.thresholds!.danger} m)`);
+  }
   const withVulnerable = s.villages.filter((v) => v.vulnerable).length;
   console.log(`villages with vulnerable counts: ${withVulnerable}/${s.villages.length}`);
 

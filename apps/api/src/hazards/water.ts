@@ -10,6 +10,13 @@ export interface Gauge {
   lngLat: [number, number];
   thresholds: Thresholds;
   cellId: string; // nearest GloFAS cell, used in replay
+  calibration?: PeakCalibration; // official Dec 2014 peak (replay curve top anchor), if known
+}
+
+/** Official 2014 peak level at a gauge, paired with its GloFAS cell's own Dec 2014 peak discharge. */
+export interface PeakCalibration {
+  peakM: number;
+  cellPeakM3s: number;
 }
 
 export interface GaugeLevel {
@@ -42,14 +49,33 @@ export const UNCERTAINTY_M = { live: 0.5, replay: 2.0 } as const;
  *  Same anchors as the riskRiver processor: 1,500 m³/s ↔ alert, 4,500 m³/s ↔ danger; 500 m³/s ↔ normal
  *  (typical dry-season flow in the 2014 series). Linear between anchors, clamped at normal below 500,
  *  extrapolated above 4,500 with the alert→danger slope. Applied to each gauge with its OWN thresholds
- *  and its nearest main-channel cell's discharge — a basin-wide severity index, not hydraulics. */
+ *  and its nearest main-channel cell's discharge — a basin-wide severity index, not hydraulics.
+ *  Gauges with an official 2014 peak get it as an extra top anchor (curveAnchors). */
 export const REPLAY_CURVE_M3S = { normal: 500, alert: 1500, danger: 4500 } as const;
 
-export function dischargeToLevel(q: number, t: Thresholds): number {
+/** Curve anchors [discharge m³/s, level m], ascending. Uncalibrated: normal/alert/danger. Calibrated
+ *  (calibration-2014.json): the official 2014 peak is added as the TOP anchor at the cell's own Dec 2014
+ *  peak discharge, and any anchor at or above it (in discharge or level) is dropped so the curve stays
+ *  increasing — e.g. Pasir Puteh peaked (2.67 m) below its current danger level (3.2 m). */
+export function curveAnchors(t: Thresholds, cal?: PeakCalibration): [number, number][] {
   const { normal: qn, alert: qa, danger: qd } = REPLAY_CURVE_M3S;
-  if (q <= qn) return t.normal;
-  if (q <= qa) return t.normal + ((q - qn) / (qa - qn)) * (t.alert - t.normal);
-  return t.alert + ((q - qa) / (qd - qa)) * (t.danger - t.alert); // also extrapolates above danger
+  const base: [number, number][] = [[qn, t.normal], [qa, t.alert], [qd, t.danger]];
+  if (!cal) return base;
+  const below = base.filter(([q, l]) => q < cal.cellPeakM3s && l < cal.peakM);
+  return below.length ? [...below, [cal.cellPeakM3s, cal.peakM]] : base; // degenerate calibration → ignore it
+}
+
+/** Piecewise linear through the anchors; clamped at the first anchor below, extrapolated with the last
+ *  segment's slope above the top anchor. */
+export function dischargeToLevel(q: number, t: Thresholds, cal?: PeakCalibration): number {
+  const a = curveAnchors(t, cal);
+  if (q <= a[0]![0]) return a[0]![1];
+  for (let i = 1; i < a.length; i++) {
+    const [q0, l0] = a[i - 1]!;
+    const [q1, l1] = a[i]!;
+    if (q <= q1 || i === a.length - 1) return l0 + ((q - q0) / (q1 - q0)) * (l1 - l0);
+  }
+  return a[0]![1]; // single anchor (unreachable: base always has three)
 }
 
 export type Level = "normal" | "alert" | "warning" | "danger";
@@ -72,7 +98,7 @@ export function replayLevels(gauges: Gauge[], dischargeByCell: Map<string, numbe
   for (const g of gauges) {
     const q = dischargeByCell.get(g.cellId);
     if (q === undefined) continue;
-    out.push({ id: g.id, levelM: round2(dischargeToLevel(q, g.thresholds)), source: "glofas-curve", dischargeM3s: Math.round(q) });
+    out.push({ id: g.id, levelM: round2(dischargeToLevel(q, g.thresholds, g.calibration)), source: "glofas-curve", dischargeM3s: Math.round(q) });
   }
   return out;
 }

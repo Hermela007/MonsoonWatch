@@ -23,6 +23,10 @@ import { logVerification } from "./verify-log";
 /** Flash refinements after the draft (the brief's "up to 3 tries"). */
 export const MAX_REFINES = 3;
 export const MAX_ATTEMPTS = 1 + MAX_REFINES;
+/** Villages planned per run (most urgent first) — bounds cost, rate limits and HUD noise. */
+export const MAX_VILLAGES_PER_RUN = 6;
+
+const URGENCY: Record<string, number> = { danger: 3, warning: 2, alert: 1 };
 
 export interface RunOptions {
   situation: Situation;
@@ -58,7 +62,16 @@ export async function runAgent(opts: RunOptions): Promise<{ run: AgentRun; outco
     // 1. Lead orchestrator
     const plan = await ai.planSituation(runId, s);
     const known = new Map(s.villages.map((v) => [v._id, v]));
-    const atRisk = plan.villages.filter((v) => known.has(v.villageId));
+    const flagged = plan.villages.filter((v) => known.has(v.villageId));
+    const atRisk = [...flagged]
+      .sort((a, b) => (URGENCY[b.level] ?? 0) - (URGENCY[a.level] ?? 0) || (a.etaHours ?? 999) - (b.etaHours ?? 999))
+      .slice(0, MAX_VILLAGES_PER_RUN);
+    if (flagged.length > atRisk.length) {
+      await emitStep({
+        runId, actor: "Agent", kind: "info", status: "ok",
+        summary: `Argon flagged ${flagged.length} villages; planning the ${atRisk.length} most urgent now (highest level, soonest first)`,
+      });
+    }
     for (const bad of plan.villages.filter((v) => !known.has(v.villageId))) {
       await emitStep({ runId, actor: "Verification", kind: "verify", status: "fail", summary: `Argon named unknown village id "${bad.villageId}" — ignored` });
     }
