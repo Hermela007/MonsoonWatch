@@ -16,7 +16,7 @@ export interface LandslideDetail { landslide: Hazards["landslide"]; sources: Run
 
 const cache = new Map<string, { at: number; value: Promise<LandslideDetail> }>();
 
-async function rainAt(regionId: string, ts: Date, mode: HazardMode): Promise<RainPoint[]> {
+export async function rainAt(regionId: string, ts: Date, mode: HazardMode): Promise<RainPoint[]> {
   const db = await getDb();
   const stations = await db
     .collection<Station>(COLLECTIONS.stations)
