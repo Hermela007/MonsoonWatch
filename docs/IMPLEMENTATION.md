@@ -16,7 +16,7 @@ Three rules make this work:
 | Workstream | Owner | Provides to others | Consumes from others |
 |---|---|---|---|
 | **A — 3D & Frontend** | Person A | The UI: control room, approval buttons, Tech HUD, resident page | API routes + live events from B and C |
-| **B — Agent & Gemini** | Person B | Agent runs, alerts, verification results, report analysis, voice | Readings, risk events, villages, centres, search from C |
+| **B — Agent & Gemini** | Person B | Agent runs, alerts, verification results, vulnerable-people pickup plans, voice | Readings, risk events, villages, centres, search from C |
 | **C — Data, MongoDB & Saint** | Person C | All data, DB, search, stream processing, live events, Saint handoff, README/videos | Alert approvals from A, agent outputs from B |
 
 ---
@@ -171,8 +171,7 @@ export interface Hazards {            // what the 3D scene draws for a given tim
 | `GET /regions/:id/hazards?ts&mode` | C (B supplies landslide fn) | `Hazards` |
 | `GET /search?q&type=place` | C | Atlas Search results |
 | `GET /search?q&type=hybrid` | C | Hybrid + reranked results |
-| `GET /reports/:id/similar` | C | Vector Search results |
-| `POST /reports` (multipart) | C stores → B analyses | `Report` |
+| ~~`GET /reports/:id/similar`~~ · ~~`POST /reports`~~ | — | Dropped with photo/video uploads (§1.7) |
 | `POST /replay/start` `{regionId, speed}` / `POST /replay/stop` | C | 202 |
 | `POST /agent/run` `{regionId, riskEventId?}` | B | `{runId}` (also auto-triggered by risk events) |
 | `GET /agent/runs/:id` | B | steps + alerts |
@@ -199,7 +198,7 @@ Producers: C emits from MongoDB **change streams**; B emits `agent.step` / `aler
 ### 1.5 Fixtures (`packages/shared/fixtures/`)
 Each owner commits realistic fixtures for what they provide, in the first 2 hours:
 - C: `region.kelantan.json`, `stations.json`, `readings.sample.json`, `villages.json`, `evac-centres.json`, `geo.json` (small), `hazards.sample.json`.
-- B: `agent-run.sample.json` (steps incl. one **fail → replan → pass**), `alerts.sample.json`, `report-analysis.sample.json`.
+- B: `agent-run.sample.json` (steps incl. one **fail → replan → pass**, the `vulnerable` check), `alerts.sample.json` (with `pickups`).
 - A: none needed (consumer), but owns `apps/web/src/mock/` that replays fixtures as fake SSE.
 
 `MOCK=1` makes the API serve fixtures and emit a scripted SSE sequence (C builds this in ~30 min; it is the most valuable 30 minutes of the weekend).
@@ -219,6 +218,17 @@ Gaps in §1.2–1.4 that were settled. The code in `packages/shared/src/` is the
 | 8 | Error format | Every non-2xx response body is `ApiError { error: { code, message } }`, `code` ∈ `bad_request \| not_found \| conflict \| unavailable \| internal`. The API sets this up globally; in a route, `throw new HttpError(404, "not_found", "…")` from `apps/api/src/errors.ts`. | `api.ts`, `apps/api/src/errors.ts` |
 
 Also added: `KnowledgeChunk` (the `knowledge` collection, used by hybrid search and B's `searchKnowledge`), and a `geo` collection for the OSM layers.
+
+### 1.7 Proposed changes (B, Fri 23 Oct ~21:15) — **pending A + C agreement**
+Merging the PR that adds this section = the team agrees. Shared code (`packages/shared`) is changed only after that, in a separate PR with fixtures.
+
+| # | Change | Why | Affects |
+|---|---|---|---|
+| 1 | **Drop resident photo/video uploads** and their Gemini analysis (old B6). Remove `Report.mediaUrl`, `mediaType`, `analysis.referenceObject` (C to decide if `Report`/`reports` go entirely), `POST /reports`, `/reports/:id/similar`, `report.new`, privacy blurring, Voyage image embeddings. | Not realistic in an emergency (no signal/battery, unreliable to judge, privacy). | A: upload button, report pins. C: routes, indexes. Shared: `Report`, `RiskEvent.type "report_disagreement"`, `SimilarReportsResponse`, events. |
+| 2 | **MongoDB Vector / Hybrid / Automated Embedding move to `knowledge`** (text) so we keep every MongoDB feature. | Reports were their only data. | C (indexes, `/search`). |
+| 3 | **New: vulnerable-people priority.** `Village.vulnerable?: { bedridden: number; disabled: number; elderly: number; noTransport: number; source: string; estimated: boolean }` — **counts only, no names**. `Alert.pickups?: { category: "bedridden" \| "disabled" \| "elderly" \| "noTransport"; people: number; vehicle: "boat" \| "4x4" \| "ambulance" \| "bus"; order: number }[]`. `CheckName` gains `"vulnerable"`. | Real-world value; strong fail → replan → pass demo beat. | Shared types + fixtures (C adds counts to `villages.json`), A (village cards), B (planning + check). |
+| 4 | **Gemini ↔ Saint boundary:** Gemini = before approval (sense, predict, plan, verify, draft). Saint = after approval (people, messages, logistics). No Gemini feature reads or sends messages to people. | Avoid duplicated work between B and C. | Everyone. |
+| 5 | **Video A 1:40–2:10** becomes the vulnerable-people beat (see GUIDELINES §9). | Old beat used resident video. | C (video), A (`?demo=1` preset). |
 
 ---
 
@@ -265,12 +275,12 @@ Also added: `KnowledgeChunk` (the `knowledge` collection, used by hybrid search 
 
 ### A8. Search, reports, voice, region switch (Sat evening)
 - Search bar → `/search?type=place` (fuzzy), results fly the camera. Second tab for hybrid queries showing a "hybrid · reranked by Voyage" badge.
-- Report pins; click → media, Gemini depth estimate ± uncertainty, "similar reports" list (Vector Search). Pulse if `risk.event` type `report_disagreement`.
+- Village cards: vulnerable-people counts (label "Estimated" when `estimated`) and the agent's pickup order from `Alert.pickups`.
 - Voice button (uses B's `/voice/session`).
 - Region dropdown → reload everything for another `Region`.
 
 ### A9. Resident page (Sat evening, `/resident`)
-- Mobile-first, no heavy 3D (static map image or small 2D): your location, risk level, time until water, route, voice button, upload button (camera).
+- Mobile-first, no heavy 3D (static map image or small 2D): your location, risk level, time until water, route, voice button.
 
 ### A10. Polish & recording mode (Sun AM)
 - `?demo=1`: hides dev UI, larger fonts, scripted camera presets for each video beat (keys 1–9).
@@ -279,7 +289,7 @@ Also added: `KnowledgeChunk` (the `knowledge` collection, used by hybrid search 
 
 ## 3. Workstream B — Agent & Gemini (Person B)
 
-**Goal:** a real, verified, multi-model agent that turns risk events into approved-ready alerts, plus multimodal report analysis and voice. Follow GUIDELINES §6.1 API rules exactly.
+**Goal:** a real, verified, multi-model agent that turns risk events into approved-ready alerts, plus vulnerable-people pickup planning and voice. Follow GUIDELINES §6.1 API rules exactly.
 
 ### B0. Setup (Fri, 30 min)
 - `npm i @google/genai@latest` (≥ 2.3.0). Install the official skills for your coding agent: `npx skills add google-gemini/gemini-skills --skill gemini-api-dev` and `--skill gemini-live-api-dev`.
@@ -296,7 +306,7 @@ Plain TS functions the orchestrator can call (function calling):
 - `agent/orchestrator.ts`: `gemini-4-argon`, `thinking_level: "high"`. Context: region config, latest readings + thresholds, risk events, villages, centres, relevant `knowledge` chunks (2014 post-mortems etc.).
 - Output (structured JSON, validated with zod): list of at-risk villages with hazard, level, ETA, reasoning.
 - Delegate each village to **`gemini-3.8-flash` subagents in parallel** (`Promise.all`): nearest suitable centre, route via `planRoute`, alert text in `Region.languages`.
-- Use `gemini-3.5-flash-lite` for cheap routing/classification (e.g. is this upload relevant?).
+- Use `gemini-3.5-flash-lite` for cheap routing/classification (e.g. does this risk event need a full agent run?).
 - Trigger: `risk.event` from C (auto) or `POST /agent/run`.
 
 ### B3. Verification loop (Sat AM) — **highest priority after B2**
@@ -318,9 +328,11 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 - Thresholds: run **Deep Research** (`deep-research-preview-04-2026`) for published rainfall-landslide thresholds in Malaysia/the region; store the brief + citations in `knowledge`, thresholds in `Region` config. Cite in README.
 - Expose `computeLandslide(regionId, ts)` for C's `/hazards`.
 
-### B6. Report analysis (Sat PM)
-- On `report.new`: Gemini video/image understanding → `{ estDepthM, uncertaintyM, referenceObject, notes }` (structured output). Blur faces/plates before storing (simple approach: ask the model for bounding boxes and blur client/server side; or skip storing frames).
-- If the estimate disagrees with the model's water level near that point → write `RiskEvent(report_disagreement)` → re-run orchestrator for downstream villages → ETA changes (demo beat: ~20 h → ~14 h).
+### B6. Vulnerable-people priority (Sat PM) — *replaces photo/video report analysis (§1.7)*
+- Subagents read `Village.vulnerable` (counts only) and plan `Alert.pickups`: order bedridden → disabled → elderly → no transport; vehicle by route (boat if it crosses a flooded segment, ambulance for bedridden where roads are open).
+- New deterministic check `vulnerable` in `agent/verify.ts`: every counted person covered across the village's alerts, priority order respected, vehicle suits the route.
+- Demo beat (Video A 1:40–2:10): first plan misses the bedridden group → check FAILS → replan → PASS.
+- Gemini only plans. Executing pickups / contacting people after approval is Saint's job (GUIDELINES §6.5).
 
 ### B7. Voice (Sat evening)
 - `gemini-3.8-live` session for the browser: grounded on the user's location risk (inject current hazards + nearest centre as context). Malay first, English fallback.
@@ -344,7 +356,7 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 - `apps/api/src/db/`: `client.ts`, `collections.ts`, `indexes/*.json` (search + vector index definitions **committed as files**), `setup.ts` (idempotent: creates time series collection, 2dsphere indexes, search indexes).
 
 ### C2. Ingest (Fri night)
-- `scripts/ingest-jps.ts`: fetch both JPS tables (URLs in GUIDELINES §4), parse with `cheerio`, upsert `stations` (with thresholds) and insert `raw_readings`. `-9999` → skip. Generate stable IDs for blank station IDs (hash of name). Station coordinates: JPS tables have none — **geocode once** (OSM Nominatim by station/village name, then hand-fix the 10 that matter for the demo) and store in `stations`.
+- `scripts/ingest-jps.ts`: fetch both JPS tables (URLs in GUIDELINES §4), parse with `cheerio`, upsert `stations` (with thresholds) and insert new readings into `raw_readings` **and** `reading_events` (the watchable live copy, see C5). `-9999` → skip. Generate stable IDs for blank station IDs (hash of name). Station coordinates: JPS tables have none — **geocode once** (OSM Nominatim by station/village name, then hand-fix the 10 that matter for the demo) and store in `stations`.
 - Run every 15 min (`setInterval` in API, or cron).
 - `scripts/load-replay-2014.ts`: GloFAS discharge for chosen main-channel cells + Open-Meteo archive rainfall for rain stations' locations, 10 Dec 2014 – 10 Jan 2015 → `raw_readings` with `mode: "replay"`.
 - `scripts/build-terrain.ts`: stitch Terrarium tiles for `Region.bbox` → heightmap PNG/binary in `apps/web/public/terrain/`.
@@ -355,12 +367,23 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 - `POST /replay/start {speed}`: walks replay readings in time order, re-emitting them as `reading.new` (and through the same stream processor) at e.g. 1 day = 30 s. Emits `replay.tick`.
 
 ### C4. Stream Processing (Sat AM)
-- Processor definition **committed** at `apps/api/src/db/stream-processors/risk.js`: source = change stream on `raw_readings`; join station thresholds; window (e.g. tumbling 15 min for river level; hopping 24 h for rain accumulation); emit threshold crossings → `$merge` into `risk_events` with `source: "stream_processing"`.
+- Processor definition **committed** at `apps/api/src/db/stream-processors/risk.js`: source = change stream on **`reading_events`** (a normal collection with the same docs as `raw_readings`, new readings only, 7-day TTL). Not `raw_readings`: time series collections can't be a Stream Processing source or be watched by change streams ([limitations](https://www.mongodb.com/docs/manual/core/timeseries/timeseries-limitations/)). Then: join station thresholds; window (e.g. tumbling 15 min for river level; hopping 24 h for rain accumulation); emit threshold crossings → `$merge` into `risk_events` with `source: "stream_processing"`.
 - Also write an `AgentStep` (actor "MongoDB Stream Processing") for the HUD.
 - Fallback if blocked on tier: same logic in a Node worker, but keep trying to ship the real processor — it's a named feature.
 
 ### C5. Live events (Sat AM)
-- `GET /api/stream`: one SSE endpoint fed by **change streams** on `raw_readings`, `risk_events`, `agent_steps`, `alerts`, `reports`, `evac_centres`, `saint_tasks`. Map each to the event names in §1.4.
+- `GET /api/stream`: one SSE endpoint fed by **change streams** (`apps/api/src/events/change-streams.ts`, started only when `MOCK` ≠ 1):
+
+  | Collection | Operations | SSE event |
+  |---|---|---|
+  | `reading_events` | insert | `reading.new { reading }` |
+  | `risk_events` | insert | `risk.event { riskEvent }` |
+  | `agent_steps` | insert, update, replace | `agent.step { step }` (steps are upserted running → ok/fail) |
+  | `alerts` | insert, update, replace | `alert.updated { alert }` |
+  | `evac_centres` | insert, update, replace | `evac.updated { evacCentre }` |
+  | `saint_tasks` | insert, update, replace | `saint.task { task }` |
+
+  Readings come from `reading_events`, not `raw_readings`: time series collections don't support change streams, so every writer of live readings (ingest, later replay) inserts into both. Dates are sent as ISO strings. Each stream keeps its resume token and reopens with `resumeAfter` (backoff 1 s → 30 s); a failing stream never crashes the API. No `report.new` (dropped, §1.7). `hazards.update` and `replay.tick` come later (C6, C3).
 
 ### C6. Hazards endpoint (Sat AM–PM)
 - `/regions/:id/hazards?ts`: water level per GloFAS cell / station (documented discharge → level mapping calibrated to JPS thresholds; label "approximation"), likely vs worst (± uncertainty band), blocked roads = road segments below water level (geospatial), landslide from B's `computeLandslide`.
@@ -369,10 +392,10 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 | Feature | Implementation |
 |---|---|
 | Atlas Search | `villages`/`stations` index with `autocomplete` + `fuzzy` on `name`, `altNames` → `/search?type=place` |
-| Automated Embedding | Configure on `reports.text` and `knowledge.chunk` (confirm current setup with MongoDB docs/booth). No manual embedding code path for these. |
-| Vector Search | `reports` vector index; `/reports/:id/similar` (+ geo filter within 5 km) |
-| Hybrid Search | `$rankFusion` of `$vectorSearch` + `$search` over `reports` + `knowledge` → `/search?type=hybrid` |
-| Voyage AI | Multimodal embeddings for report images/video frames; **rerank** hybrid results before returning (and before B passes them to Gemini) |
+| Automated Embedding | Configure on `knowledge.chunk` (confirm current setup with MongoDB docs/booth). No manual embedding code path. |
+| Vector Search | *Proposed (C to confirm):* `knowledge` vector index — semantic search used by B's `searchKnowledge` and the district panel |
+| Hybrid Search | `$rankFusion` of `$vectorSearch` + `$search` over `knowledge` → `/search?type=hybrid` |
+| Voyage AI | Multilingual text embeddings; **rerank** hybrid results before returning (and before B passes them to Gemini) |
 | Geospatial | `$geoNear` nearest centre; `$geoWithin` villages in flood/runout areas |
 - Seed `knowledge`: chunk 2014 flood post-mortems / district plans (public PDFs) + B's Deep Research briefs.
 - Ask the MongoDB booth about **Agent Engine** and **AI Model APIs** in the Atlas sidebar; adopt if quick.
@@ -399,7 +422,7 @@ Each checkpoint: 15 min, all three people, run `main` together, fix the top issu
 | **I0** | Fri ~21:00 | Contracts merged. `pnpm dev:mock` runs: A sees terrain + fixture layers + mock SSE in HUD. B's wrapper logs a real Argon call. C's ingest writes real JPS readings. |
 | **I1** | Fri ~23:30 | Real data in Atlas (live + 2014 replay). A renders real stations/villages from the API (not fixtures). B's tools read real DB. |
 | **I2** | Sat 13:00 | **Golden path, text-level:** replay start → reading → Stream Processing risk event → agent run (Argon + Flash subagents) → verification fail → replan → pass → alert card in 3D → Approve → SaintTask created. |
-| **I3** | Sat 19:00 | Flood + landslide layers driven by `/hazards`; search/vector/hybrid/rerank in UI; report upload → depth → ETA change; Saint loop (if allocated). |
+| **I3** | Sat 19:00 | Flood + landslide layers driven by `/hazards`; search/vector/hybrid/rerank in UI; vulnerable-people priority (fail → replan → pass); Saint loop (if allocated). |
 | **I4** | Sat 23:59 | **Feature freeze.** Voice, region switch, Tech HUD polish. Full dry run of Video A script. Only bug fixes after this. |
 | **I5** | Sun 10:30 | Videos cut, README complete, submission text drafted. Submit by **11:30** (deadline 12:00). |
 

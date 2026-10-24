@@ -10,13 +10,24 @@
     "dev": "pnpm --filter @monsoonwatch/api --filter @monsoonwatch/web --parallel run dev",
     "dev:mock": "cross-env MOCK=1 pnpm --filter @monsoonwatch/api --filter @monsoonwatch/web --parallel run dev",
     "seed": "pnpm --filter @monsoonwatch/scripts run seed",
-    "typecheck": "pnpm -r run typecheck"
+    "typecheck": "pnpm -r run typecheck",
+    "db:ping": "pnpm --filter @monsoonwatch/api run db:ping",
+    "jps:snapshot": "pnpm --filter @monsoonwatch/scripts run jps:snapshot",
+    "db:setup": "pnpm --filter @monsoonwatch/api run db:setup",
+    "ingest:jps": "pnpm --filter @monsoonwatch/scripts run ingest:jps",
+    "load:replay": "pnpm --filter @monsoonwatch/scripts run load:replay",
+    "geocode": "pnpm --filter @monsoonwatch/scripts run geocode",
+    "seed:region": "pnpm --filter @monsoonwatch/scripts run seed:region",
+    "load:places": "pnpm --filter @monsoonwatch/scripts run load:places",
+    "load:osm": "pnpm --filter @monsoonwatch/scripts run load:osm"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
     "typescript": "~5.9.3"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

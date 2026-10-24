@@ -4,11 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "seed": "tsx seed.ts",
-    "typecheck": "tsc --noEmit"
+    "seed": "tsx seed-region.ts && tsx ingest-jps.ts && tsx geocode-stations.ts && tsx load-places.ts && tsx load-osm.ts && tsx load-replay-2014.ts",
+    "typecheck": "tsc --noEmit",
+    "jps:snapshot": "tsx jps-snapshot.ts",
+    "ingest:jps": "tsx ingest-jps.ts",
+    "load:replay": "tsx load-replay-2014.ts",
+    "seed:region": "tsx seed-region.ts",
+    "geocode": "tsx geocode-stations.ts",
+    "load:places": "tsx load-places.ts",
+    "load:osm": "tsx load-osm.ts"
   },
   "dependencies": {
-    "@monsoonwatch/shared": "workspace:*"
+    "@monsoonwatch/api": "workspace:*",
+    "@monsoonwatch/shared": "workspace:*",
+    "cheerio": "^1.2.0",
+    "mongodb": "^7.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

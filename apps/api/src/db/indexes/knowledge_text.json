@@ -1,0 +1,16 @@
+{
+  "collection": "knowledge",
+  "name": "knowledge_text",
+  "type": "search",
+  "definition": {
+    "mappings": {
+      "dynamic": false,
+      "fields": {
+        "regionId": { "type": "token" },
+        "kind": { "type": "token" },
+        "title": { "type": "string", "analyzer": "lucene.standard" },
+        "chunk": { "type": "string", "analyzer": "lucene.standard" }
+      }
+    }
+  }
+}
