@@ -7,7 +7,8 @@ const envPath = fileURLToPath(new URL("../../../.env", import.meta.url));
 if (existsSync(envPath)) process.loadEnvFile(envPath);
 
 export const env = {
-  port: Number(process.env.API_PORT || 8787),
+  port: Number(process.env.PORT || process.env.API_PORT || 8787),
+  publicDemo: process.env.PUBLIC_DEMO === "1",
   mock: process.env.MOCK === "1",
   regionId: process.env.REGION_ID || "kelantan",
   mongodbUri: process.env.MONGODB_URI || "",

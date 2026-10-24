@@ -18,7 +18,7 @@ interface RunBody { regionId?: string; riskEventId?: string; source?: "sample" |
 
 export async function agentRoutes(app: FastifyInstance) {
   // Real mode: start runs automatically from Stream Processing risk events (AGENT_AUTO_RUN=0 to disable).
-  if (!env.mock) startAutoTrigger();
+  if (!env.mock && !env.publicDemo) startAutoTrigger();
 
   app.post<{ Body: RunBody }>("/agent/run", async (req, reply): Promise<AgentRunStarted> => {
     const regionId = req.body?.regionId ?? env.regionId;

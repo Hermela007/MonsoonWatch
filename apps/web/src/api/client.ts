@@ -1,12 +1,12 @@
-import type { Alert, AgentRunStarted, EvacCentre, SearchResponse, StationWithLatest, Village } from '@monsoonwatch/shared';
+import type { Alert, AgentRunDetail, AgentRunStarted, EvacCentre, SearchResponse, StationWithLatest, Village } from '@monsoonwatch/shared';
 import type { Town } from '../geo/region';
 
 let apiLive = false;
-/** Set once GET /api/stream connects; until then nothing calls the API (no 502 noise when it's down). */
+/** REST data requests are enabled while the live event stream is connected. */
 export const setApiLive = (v: boolean) => (apiLive = v);
 
 /** GET /api/... as JSON. Returns null when the API is down or slow, so callers fall back to local data. */
-async function getJson<T>(path: string, timeoutMs = 2500): Promise<T | null> {
+export async function getJson<T>(path: string, timeoutMs = 2500): Promise<T | null> {
   if (!apiLive) return null;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
@@ -65,10 +65,24 @@ async function postJson<T>(path: string, body: unknown, timeoutMs = 8000): Promi
 }
 
 /** POST /agent/run (Workstream B). */
-export const runAgent = (regionId: string) => postJson<AgentRunStarted>('/agent/run', { regionId });
+export const runAgent = (regionId: string, opts: { mode?: 'live' | 'replay'; at?: string } = {}) =>
+  postJson<AgentRunStarted>('/agent/run', { regionId, ...opts }, 30000);
+export const fetchAgentRun = (id: string) => getJson<AgentRunDetail>(`/agent/runs/${encodeURIComponent(id)}`, 6000);
+
+// C's replay status is kept local to the web client; shared contracts are unchanged.
+export interface ReplayStatus {
+  running: boolean;
+  regionId?: string;
+  ts?: string;
+  from?: string;
+  secondsPerDay?: number;
+}
+export const fetchReplayStatus = () => getJson<ReplayStatus>('/replay/status');
+export const startReplay = (regionId: string) => postJson<ReplayStatus>('/replay/start', { regionId, from: '2014-12-18', secondsPerDay: 30 }, 30000);
+export const stopReplay = () => postJson<ReplayStatus>('/replay/stop', {});
 /** POST /alerts/:id/approve | reject (Workstream B). Human-in-the-loop: nothing is sent without this. */
 export const decideAlert = (id: string, decision: 'approve' | 'reject', by: string) =>
-  postJson<Alert>(`/alerts/${encodeURIComponent(id)}/${decision}`, { by });
+  postJson<Alert>(`/alerts/${encodeURIComponent(id)}/${decision}`, decision === 'approve' ? { approvedBy: by } : { rejectedBy: by });
 
 /** Live JPS stations with their latest reading (C's API). */
 export const fetchStations = (regionId: string) => getJson<StationWithLatest[]>(`/regions/${regionId}/stations`, 6000);

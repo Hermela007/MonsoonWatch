@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { StationWithLatest } from '@monsoonwatch/shared';
+import type { Reading, StationWithLatest } from '@monsoonwatch/shared';
 import type { GeoFrame, LngLat } from '../geo/region';
 import { gridCoords, sampleField, type Heightmap } from '../terrain/heightmap';
 import { THEME } from '../theme';
@@ -37,13 +37,21 @@ export function createStations(stations: StationWithLatest[], hm: Heightmap, fra
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const sc = new THREE.Vector3();
-  const counts = usable.reduce((c, s) => ((c[gaugeStatus(s)!] += 1), c), { normal: 0, alert: 0, warning: 0, danger: 0 } as Record<GaugeStatus, number>);
-  const newest = usable.reduce((t, s) => Math.max(t, Date.parse(s.latest!.ts)), 0);
   return {
     mesh,
-    counts,
+    get counts() {
+      return usable.reduce((c, s) => ((c[gaugeStatus(s)!] += 1), c), { normal: 0, alert: 0, warning: 0, danger: 0 } as Record<GaugeStatus, number>);
+    },
     total: usable.length,
-    newest,
+    get newest() { return usable.reduce((t, s) => Math.max(t, Date.parse(s.latest!.ts)), 0); },
+    reading(reading: Reading) {
+      if (reading.meta.mode !== 'live' || reading.meta.kind !== 'river') return;
+      const i = usable.findIndex((s) => s._id === reading.meta.stationId);
+      if (i < 0 || Date.parse(reading.ts) < Date.parse(usable[i].latest!.ts)) return;
+      usable[i].latest = reading;
+      mesh.setColorAt(i, COLOR[gaugeStatus(usable[i])!]);
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    },
     update(cameraDistance: number) {
       const k = THREE.MathUtils.clamp(cameraDistance * 0.008, 0.5, 2.2);
       pos.forEach((p, i) => {

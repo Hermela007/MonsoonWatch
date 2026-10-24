@@ -21,12 +21,12 @@ import { createStreet } from './layers/street';
 import { loadAreaFor, type AreaData } from './data/areas';
 import { t } from './ui/copy';
 import { createEventHub } from './api/stream';
-import { decideAlert, fetchStations, runAgent, setApiLive } from './api/client';
+import { decideAlert, fetchAgentRun, fetchReplayStatus, fetchStations, runAgent, setApiLive, startReplay, stopReplay, type ReplayStatus } from './api/client';
 import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
 import { fetchEvacCentres, fetchVillages } from './api/client';
-import type { EvacCentre } from '@monsoonwatch/shared';
-import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, peakHour, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
+import type { Alert, EvacCentre } from '@monsoonwatch/shared';
+import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, REPLAY_START_MS, peakHour, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
 import { loadMalaysia, loadRealData } from './data/realData';
 import { createGeoContext } from './layers/geoContext';
 import { createStations } from './layers/stations';
@@ -464,15 +464,11 @@ async function main() {
   let centres: { name: string; lngLat: LngLat }[] = real.centres;
   const loadApiData = () => {
     void fetchStations(KELANTAN.id).then((list) => {
-      if (!list?.length || stations) return;
+      if (!list?.length) return;
+      if (stations) { scene.remove(stations.mesh); stations.dispose(); }
       stations = createStations(list, hm, frame);
       scene.add(stations.mesh);
-      const c = stations.counts;
-      const above = c.alert + c.warning + c.danger;
-      const when = new Date(stations.newest).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-      const el = document.getElementById('live-gauges')!;
-      el.textContent = `Live now: ${stations.total} JPS river gauges · ${above ? `${above} above Normal` : 'all Normal'} · ${when}`;
-      el.hidden = false;
+      updateGaugeCaption();
     });
     // Prefer the API's copies (same source, maintained by C) when it's running.
     void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...allPlaces, ...v]));
@@ -480,55 +476,129 @@ async function main() {
       if (c?.length) centres = c.map((x) => ({ name: x.name, lngLat: x.location.coordinates }));
     });
   };
+  const updateGaugeCaption = () => {
+      if (!stations) return;
+      const c = stations.counts;
+      const above = c.alert + c.warning + c.danger;
+      const when = new Date(stations.newest).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const el = document.getElementById('live-gauges')!;
+      el.textContent = `Live now: ${stations.total} JPS river gauges · ${above ? `${above} above Normal` : 'all Normal'} · ${when}`;
+      el.hidden = false;
+  };
 
   // ---- Control room: live events (or the scripted mock), Tech HUD, human approval ----------
+  let replay: ReplayStatus = { running: false };
+  let replayTs: string | undefined;
+  let agentTriggered = false;
+  let runBusy = false;
+  let activeRunId: string | null = null;
+  let syncingRun = false;
+  const applyReplay = (status: ReplayStatus) => {
+    replay = status;
+    replayTs = status.ts;
+    if (status.ts && document.body.dataset.mode === 'control') {
+      const h = Math.max(0, Math.min(REPLAY_HOURS, (Date.parse(status.ts) - REPLAY_START_MS) / 3600_000));
+      hour = targetHour = h;
+    }
+    control.setReplay(status.running, status.ts
+      ? `Reconstructed 2014 replay · ${new Date(status.ts).toLocaleDateString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' })}${status.running ? ' · running' : ' · stopped'}`
+      : status.running ? 'Starting reconstructed 2014 replay…' : 'Replay stopped');
+  };
+  const toggleReplay = async () => {
+    if (hub.mode === 'mock') {
+      replay.running = !replay.running;
+      if (replay.running) { hour = 0; targetHour = REPLAY_HOURS; agentTriggered = false; }
+      else targetHour = hour;
+      control.setReplay(replay.running, 'Scripted demo · reconstructed 2014 animation');
+      return;
+    }
+    if (hub.mode !== 'live') return control.note('API disconnected — reconnect before starting the replay.');
+    control.setReplay(replay.running, 'Updating replay…', true);
+    try { applyReplay(replay.running ? await stopReplay() : await startReplay(KELANTAN.id)); }
+    catch (err) {
+      control.setReplay(replay.running, `Replay: ${err instanceof Error ? err.message : String(err)}`);
+      const status = await fetchReplayStatus();
+      if (status) applyReplay(status);
+    }
+  };
   const control = createControlUi({
-    onReplay: () => {
-      hour = 0;
-      targetHour = REPLAY_HOURS;
-      agentTriggered = false;
-    },
-    onRun: () => startAgent(),
-    onDecide: (d) => void decide(d),
+    onReplay: () => void toggleReplay(),
+    onRun: () => void startAgent(),
+    onDecide: (id, d) => void decide(id, d),
+    onSelectAlert: (alert) => showAlertRoute(alert),
     onTaskDecide: (taskId, d) => {
-      // No Saint-task approval route exists in the shared API yet (§1.3), so this is handled locally.
-      if (hub.mode === 'live' && !usingMock) control.note('Saint task approval has no API route yet — recorded locally for the demo');
-      mockAgent.decideTask(taskId, d, 'Duty officer');
+      if (hub.mode === 'mock') mockAgent.decideTask(taskId, d, 'Duty officer');
+      else control.note('Saint task decisions need a backend endpoint from C.');
     },
   });
+  control.setMode('connecting');
   const hub = createEventHub({
-    forceMock: params.has('mock'),
+    forceMock: params.get('mock') === '1',
+    onReadOnly: (value) => control.setReadOnly(value),
     onMode: (m) => {
       control.setMode(m);
       setApiLive(m === 'live');
-      if (m === 'live') loadApiData();
+      if (m === 'live') {
+        loadApiData();
+        void fetchReplayStatus().then((status) => status && applyReplay(status));
+      }
     },
   });
   const mockAgent = createMockAgent(hub.emit);
-  let agentTriggered = false;
-  let alertShown = false;
-  let usingMock = false;
   const AGENT_VILLAGE = 'Kuala Krai';
   let agentVillageCell = -1;
 
-  hub.on('agent.step', ({ step }) => control.step(step));
-  hub.on('risk.event', ({ riskEvent }) => control.risk(riskEvent));
-  hub.on('saint.task', ({ task }) => control.task(task));
-  hub.on('alert.updated', ({ alert }) => {
-    control.alert(alert);
-    if (document.body.dataset.mode !== 'control') return;
-    // Draw the alert's route and fly to the village the first time we see it.
-    const pts = alert.route.coordinates.map((ll) => frame.lngLatToWorld(ll, sampleElev(ll)).add(new THREE.Vector3(0, 0.05, 0)));
-    if (pts.length >= 1 && !alertShown) {
-      alertShown = true;
-      home.setLabels(alert.villageId, t('higherGround'));
-      home.set(pts[0], pts.length > 1 ? pts : null, 0, timer.getElapsed());
-      focus.centre.copy(pts[0]);
-      focusTarget = 1;
-      const span = Math.max(14, pts[0].distanceTo(pts[pts.length - 1]) * 3);
-      director.flyTo({ target: pts[0].clone(), position: pts[0].clone().add(new THREE.Vector3(0.35, 0.62, 0.7).normalize().multiplyScalar(span)) }, 2600);
+  hub.on('agent.step', ({ step }) => {
+    control.step(step);
+    if (hub.mode === 'mock' && step.summary.includes('Waiting for a human')) {
+      runBusy = false;
+      control.setRunBusy(false);
     }
   });
+  hub.on('risk.event', ({ riskEvent }) => control.risk(riskEvent));
+  hub.on('saint.task', ({ task }) => control.task(task));
+  const showAlertRoute = (alert: Alert) => {
+    if (document.body.dataset.mode !== 'control') return;
+    const pts = alert.route.coordinates.map((ll) => frame.lngLatToWorld(ll, sampleElev(ll)).add(new THREE.Vector3(0, 0.05, 0)));
+    if (!pts.length) return;
+    home.setLabels(alert.villageId, alert.evacCentreId);
+    home.set(pts[0], pts.length > 1 ? pts : null, 0, timer.getElapsed());
+    focus.centre.copy(pts[0]);
+    focusTarget = 1;
+    const span = Math.max(14, pts[0].distanceTo(pts[pts.length - 1]) * 3);
+    director.flyTo({ target: pts[0].clone(), position: pts[0].clone().add(new THREE.Vector3(0.35, 0.62, 0.7).normalize().multiplyScalar(span)) }, 2600);
+  };
+  hub.on('alert.updated', ({ alert }) => {
+    if (alert.regionId !== KELANTAN.id) return;
+    control.alert(alert);
+    if (control.currentAlert?._id === alert._id) showAlertRoute(alert);
+  });
+  hub.on('replay.tick', ({ ts }) => applyReplay({ ...replay, ts }));
+  hub.on('reading.new', ({ reading }) => {
+    if (reading.meta.mode === 'live') { stations?.reading(reading); updateGaugeCaption(); }
+  });
+
+  // Recover persisted steps/alerts missed during a disconnect, and surface asynchronous run failures.
+  const syncRun = async () => {
+    if (!activeRunId || syncingRun || hub.mode !== 'live') return;
+    syncingRun = true;
+    try {
+      const detail = await fetchAgentRun(activeRunId);
+      if (!detail) return;
+      detail.steps.forEach((step) => control.step(step));
+      detail.alerts.forEach((alert) => control.alert(alert));
+      if (detail.run.status !== 'running') {
+        runBusy = false;
+        control.setRunBusy(false);
+        if (detail.run.status === 'failed') control.note(`Agent failed: ${detail.run.error ?? 'see the run steps'}`);
+        activeRunId = null;
+      }
+    } finally { syncingRun = false; }
+  };
+  window.setInterval(() => {
+    void syncRun();
+    if (hub.mode === 'live') void fetchReplayStatus().then((status) => status && applyReplay(status));
+  }, 5000);
 
   const sampleElev = (ll: LngLat) => {
     const c = nearestCell(hm, ll);
@@ -536,20 +606,26 @@ async function main() {
   };
 
   const startAgent = async () => {
+    if (runBusy) return;
+    if (hub.mode !== 'live' && hub.mode !== 'mock') return control.note('API disconnected — reconnect before running the agent.');
     agentTriggered = true;
-    alertShown = false;
-    control.reset();
+    runBusy = true;
+    control.setRunBusy(true);
+    if (hub.mode === 'mock') control.reset();
     home.set(null, null, 0, timer.getElapsed());
     const ll = realByName(AGENT_VILLAGE)!.lngLat;
     agentVillageCell = nearestCell(hm, ll)!;
-    if (hub.mode === 'live' && !usingMock) {
+    if (hub.mode === 'live') {
       try {
-        const r = await runAgent(KELANTAN.id);
+        const r = await runAgent(KELANTAN.id, replayTs ? { mode: 'replay', at: replayTs } : { mode: 'live' });
+        activeRunId = r.runId;
         control.note(`Agent run ${r.runId} started`);
         return;
       } catch (err) {
-        control.note(`API: ${err instanceof Error ? err.message : String(err)} — showing the scripted demo run instead`);
-        usingMock = true;
+        control.note(`API: ${err instanceof Error ? err.message : String(err)}`);
+        runBusy = false;
+        control.setRunBusy(false);
+        return;
       }
     }
     // Scripted run: route and ETA come from the terrain model so the 3D matches the card.
@@ -570,19 +646,13 @@ async function main() {
     });
   };
 
-  const decide = async (d: 'approve' | 'reject') => {
-    if (hub.mode === 'live' && !usingMock) {
-      const id = document.getElementById('alert-box')?.dataset.alertId;
-      if (id) {
-        try {
-          control.alert(await decideAlert(id, d, 'Duty officer'));
-          return;
-        } catch (err) {
-          control.note(`API: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
-    }
-    mockAgent.decide(d, 'Duty officer');
+  const decide = async (id: string, d: 'approve' | 'reject') => {
+    if (hub.mode === 'mock') { mockAgent.decide(d, 'Duty officer'); return; }
+    if (hub.mode !== 'live') return control.note('API disconnected — no decision was sent.');
+    control.setDeciding(true);
+    try { control.alert(await decideAlert(id, d, 'Duty officer')); }
+    catch (err) { control.note(`API: ${err instanceof Error ? err.message : String(err)}`); }
+    finally { control.setDeciding(false); }
   };
 
   // ---- Modes ---------------------------------------------------------------------------
@@ -599,9 +669,12 @@ async function main() {
       home.set(null, null, 0, timer.getElapsed());
       homePos = null;
       layoutShift();
-      director.flyTo(overview, 2200);
+      if (hub.mode === 'live' && replayTs) applyReplay(replay);
+      if (control.currentAlert) showAlertRoute(control.currentAlert);
+      else director.flyTo(overview, 2200);
     } else {
       mockAgent.stop();
+      if (hub.mode === 'mock') { runBusy = false; control.setRunBusy(false); }
       backToLanding();
     }
   };
@@ -621,7 +694,7 @@ async function main() {
     if (k === '3') (setMode('resident'), pick('Kuala Krai'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
     if (k === '4') (setMode('resident'), pick(hillPlaces[0]?.name ?? 'Kampung Jabir'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
     if (k === '5') (setMode('control'), window.setTimeout(() => void startAgent(), 2400));
-    if (k === '6') void decide('approve');
+    if (k === '6' && control.currentAlert?.status === 'verified') void decide(control.currentAlert._id, 'approve');
   });
   // A short settle-in from high above the state.
   controls.target.copy(ovTarget);
@@ -640,15 +713,15 @@ async function main() {
     const landing = document.body.dataset.view === 'landing' && document.body.dataset.mode !== 'control' && !homePos;
     if (landing) {
       targetHour = hour = hour >= REPLAY_HOURS + 24 ? 0 : hour + dt * (REPLAY_HOURS / 26);
-    } else if (wasLanding) hour = targetHour = NOW_HOUR;
+    } else if (wasLanding && !(document.body.dataset.mode === 'control' && replayTs)) hour = targetHour = NOW_HOUR;
     wasLanding = landing;
     // Replay time eases towards its target: forward slowly, back quickly.
     // Slow the replay right down while a landslide surges, so it can be seen.
     const rate = targetHour > hour ? (inStreet ? (street?.slideSurging ? 0.15 : 6) : 10) : 40;
     hour = targetHour > hour ? Math.min(targetHour, hour + dt * rate) : Math.max(targetHour, hour - dt * rate);
     focus.amount += (focusTarget - focus.amount) * Math.min(1, dt * 2.5);
-    // Control room replay: when the main river passes the Warning rise, Stream Processing → agent.
-    if (document.body.dataset.mode === 'control' && !agentTriggered && hour > 0.5 && stageM(hour) >= AGENT_TRIGGER_STAGE_M) void startAgent();
+    // Scripted demo only. Real runs are triggered by B's backend risk-event listener.
+    if (hub.mode === 'mock' && document.body.dataset.mode === 'control' && replay.running && !agentTriggered && hour > 0.5 && stageM(hour) >= AGENT_TRIGGER_STAGE_M) void startAgent();
     explode += (explodeTarget - explode) * Math.min(1, dt * 2.2);
 
     const camDist = camera.position.distanceTo(controls.target);
@@ -712,7 +785,7 @@ async function main() {
       if (stats) ui!.setStreet('on', { ...stats, buried: street.buried, ...street.counts });
       streetRain?.update(controls.target, camDist, Math.min(1, rainIntensity(hour) * 1.8 + 0.25), time);
     }
-    if (landing) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
+    if (landing || (document.body.dataset.mode === 'control' && (replayTs || replay.running))) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
     else ui!.setClock(hour, NOW_HOUR);
     camera.position.add(shakeOff);
     stage.render();

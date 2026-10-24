@@ -36,7 +36,8 @@ export function createMockAgent(emit: <K extends StreamEventName>(name: K, data:
     },
     { check: 'capacity', passed: true, detail: '1,240 people → centre with 1,500 places' },
     { check: 'freshness', passed: true, detail: 'Newest reading 6 min old' },
-    { check: 'language', passed: true, detail: 'Plain English, under 60 words' },
+    { check: 'language', passed: true, detail: 'Illustrative English message, under 60 words' },
+    { check: 'vulnerable', passed: true, detail: 'Scripted example only — no real pickup assessment' },
   ];
 
   return {
