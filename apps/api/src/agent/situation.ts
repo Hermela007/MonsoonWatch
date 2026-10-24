@@ -1,7 +1,7 @@
 // Everything the agent knows about a region at one moment. Loaded from MongoDB (situation-db.ts)
 // or from the labelled TEST scenario (sample/kelantan-test.ts).
 
-import type { EvacCentre, Hazards, KnowledgeChunk, Region, RiskEvent, RoadFeature, StationWithLatest, Village } from "@monsoonwatch/shared";
+import type { EvacCentre, Hazards, KnowledgeChunk, LngLat, Reading, Region, RiskEvent, RoadFeature, StationWithLatest, Village } from "@monsoonwatch/shared";
 
 export interface Situation {
   region: Region;
@@ -14,6 +14,8 @@ export interface Situation {
   roads: RoadFeature[];
   hazards: Pick<Hazards, "blockedRoads" | "blockedRoadIds" | "landslide">;
   knowledge: KnowledgeChunk[];
+  /** GloFAS main-channel cells (discharge m³/s, reconstructed) — the river evidence in the 2014 replay. */
+  glofas?: { id: string; label: string; lngLat: LngLat; latest: Reading | null }[];
   /** True for the sample scenario: shown in HUD summaries so test output is never mistaken for real. */
   isTestData: boolean;
 }
@@ -33,6 +35,11 @@ export function situationForPrompt(s: Situation) {
     riskEvents: s.riskEvents.map((e) => ({ id: e._id, ts: e.ts, type: e.type, stationId: e.stationId, level: e.level, value: e.value, threshold: e.threshold, message: e.message })),
     villages: s.villages.map((v) => ({ id: v._id, name: v.name, district: v.district, lngLat: v.location.coordinates, population: v.population, vulnerable: v.vulnerable })),
     evacCentres: s.centres.map((c) => ({ id: c._id, name: c.name, lngLat: c.location.coordinates, capacity: c.capacity, headcount: c.headcount, elevationM: c.elevationM })),
+    glofasCells: (s.glofas ?? []).map((g) => ({
+      id: g.id, label: g.label, lngLat: g.lngLat,
+      latestDischargeM3s: g.latest ? { ts: g.latest.ts, value: g.latest.value } : null,
+      note: "Reconstructed GloFAS discharge (m³/s), not a water level; thresholds approximate",
+    })),
     floodedRoadSegments: s.hazards.blockedRoadIds.length,
     landslideRunouts: s.hazards.landslide.runouts.length,
     knowledge: s.knowledge.map((k) => ({ title: k.title, kind: k.kind, sourceUrl: k.sourceUrl, text: k.chunk })),

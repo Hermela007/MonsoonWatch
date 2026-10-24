@@ -1,11 +1,14 @@
 // Loads a Situation from MongoDB (C's collections). Read-only.
+//   mode "live":   latest live readings, risk events from the last 24 h.
+//   mode "replay": the 2014 replay as of `at` (the replay clock) — latest replay reading per
+//                  station / GloFAS cell at or before `at`, replay risk events in the 24 h before.
 // Hazards (flooded segments, landslide runouts) come from C6 `/hazards` once it exists — until
-// then they are empty, which the HUD summary makes visible.
+// then they are empty.
 
 import {
   COLLECTIONS,
-  type EvacCentre, type KnowledgeChunk, type Region, type RiskEvent, type RoadFeature, type RoadProps,
-  type Station, type StationWithLatest, type Village, type LineStringGeom,
+  type EvacCentre, type KnowledgeChunk, type LineStringGeom, type Reading, type Region, type RiskEvent,
+  type RoadFeature, type RoadProps, type Station, type StationWithLatest, type Village,
 } from "@monsoonwatch/shared";
 import { getDb } from "../db/client";
 import { toReading, type ReadingDoc } from "../db/readings";
@@ -15,7 +18,15 @@ import type { Situation } from "./situation";
 const RISK_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_KNOWLEDGE = 40;
 
-export async function loadSituationFromDb(regionId: string, now = new Date()): Promise<Situation> {
+export interface LoadOptions {
+  mode?: "live" | "replay";
+  /** Live: now. Replay: the replay clock (e.g. the triggering risk event's ts). */
+  at?: Date;
+}
+
+export async function loadSituationFromDb(regionId: string, opts: LoadOptions = {}): Promise<Situation> {
+  const mode = opts.mode ?? "live";
+  const at = opts.at ?? new Date();
   const db = await getDb();
   const region = await db.collection<Region>(COLLECTIONS.regions).findOne({ _id: regionId });
   if (!region) throw new Error(`Region "${regionId}" not found`);
@@ -24,19 +35,28 @@ export async function loadSituationFromDb(regionId: string, now = new Date()): P
     .collection<Station>(COLLECTIONS.stations)
     .find({ regionId, location: { $exists: true } }, { projection: { jps: 0 } })
     .toArray();
+  const cells = region.glofasCells ?? [];
+  const ids = [...stations.map((s) => s._id), ...cells.map((c) => c.id)];
   const latest = await db
     .collection<ReadingDoc>(COLLECTIONS.rawReadings)
     .aggregate<{ _id: string; doc: ReadingDoc }>([
-      { $match: { "meta.stationId": { $in: stations.map((s) => s._id) }, "meta.mode": "live" } },
+      { $match: { "meta.stationId": { $in: ids }, "meta.mode": mode, ts: { $lte: at } } },
       { $sort: { ts: -1 } },
       { $group: { _id: "$meta.stationId", doc: { $first: "$$ROOT" } } },
     ])
     .toArray();
-  const byStation = new Map(latest.map((l) => [l._id, toReading(l.doc)]));
-  const withLatest: StationWithLatest[] = stations.map((s) => ({ ...s, latest: byStation.get(s._id) ?? null }));
+  const byId = new Map<string, Reading>(latest.map((l) => [l._id, toReading(l.doc)]));
+  const withLatest: StationWithLatest[] = stations.map((s) => ({ ...s, latest: byId.get(s._id) ?? null }));
 
-  const since = new Date(now.getTime() - RISK_WINDOW_MS);
-  const riskDocs = await db.collection(COLLECTIONS.riskEvents).find({ regionId, ts: { $gte: since } }).sort({ ts: -1 }).limit(200).toArray();
+  const since = new Date(at.getTime() - RISK_WINDOW_MS);
+  // `mode` is an extra field C's stream processor writes on risk events; older docs may lack it (= live).
+  const modeFilter = mode === "replay" ? { mode: "replay" } : { mode: { $ne: "replay" } };
+  const riskDocs = await db
+    .collection(COLLECTIONS.riskEvents)
+    .find({ regionId, ...modeFilter, ts: { $gte: since, $lte: at } })
+    .sort({ ts: -1 })
+    .limit(200)
+    .toArray();
   const riskEvents = riskDocs.map((d) => serialize<RiskEvent>(d));
 
   const [villages, centres, knowledge, roadDocs] = await Promise.all([
@@ -51,8 +71,8 @@ export async function loadSituationFromDb(regionId: string, now = new Date()): P
 
   return {
     region,
-    mode: "live",
-    now,
+    mode,
+    now: at,
     stations: withLatest,
     riskEvents,
     villages,
@@ -61,6 +81,7 @@ export async function loadSituationFromDb(regionId: string, now = new Date()): P
     // TODO(C6): use /regions/:id/hazards (blockedRoadIds + runouts) when it lands.
     hazards: { blockedRoadIds: [], blockedRoads: { type: "MultiLineString", coordinates: [] }, landslide: { cells: [], runouts: [] } },
     knowledge: knowledge.map((k) => serialize<KnowledgeChunk>(k)),
+    glofas: cells.map((c) => ({ id: c.id, label: c.label, lngLat: c.lngLat, latest: byId.get(c.id) ?? null })),
     isTestData: false,
   };
 }
