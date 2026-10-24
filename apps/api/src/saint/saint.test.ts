@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Alert } from "@monsoonwatch/shared";
-import { buildBrief, whatsappUrl } from "./brief";
+import type { Alert, AreaWarning } from "@monsoonwatch/shared";
+import { readFileSync } from "node:fs";
+import { AREA_BRIEF_MAX_VILLAGES, buildAreaBrief, buildBrief, whatsappUrl } from "./brief";
 import { normaliseName, parseCheckins } from "./checkin";
 
 test("parses a check-in line inside a longer WhatsApp message", () => {
@@ -61,4 +62,34 @@ test("whatsapp link encodes the brief; no number → null", () => {
   assert.equal(whatsappUrl("", "x"), null);
   const url = whatsappUrl("+44 7700 900000", "Hi & bye\nnext");
   assert.equal(url, "https://wa.me/447700900000?text=Hi%20%26%20bye%0Anext");
+});
+
+const areaFixture = JSON.parse(readFileSync(new URL("../../../../packages/shared/fixtures/area-warning.evacuate.json", import.meta.url), "utf8")) as AreaWarning;
+
+test("district warning brief: villages, estimated people, vulnerable, Malay first, check-in line with the warning id", () => {
+  const warning = { ...areaFixture, status: "approved" as const, approvedBy: "Duty officer", approvedAt: "2014-12-24T04:00:00.000Z" };
+  const brief = buildAreaBrief({ taskId: "saint-1", warning, villageNames: ["Kampung Sample A", "Kampung Sample B"] });
+  assert.match(brief, /DISTRICT EVACUATION WARNING/);
+  assert.match(brief, /District: Kuala Krai/);
+  assert.match(brief, /Villages \(2\): Kampung Sample A, Kampung Sample B\n/);
+  assert.match(brief, /People: about 2,000 \(estimated\)/);
+  assert.match(brief, /5 bedridden, 20 disabled, 160 elderly, 65 without transport/);
+  assert.ok(brief.indexOf("[BM]") < brief.indexOf("[EN]"));
+  assert.match(brief, new RegExp(`MW CHECKIN alert=${warning._id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} centre=<centre name>`));
+  // The check-in line Thea fills in parses back to the warning id.
+  const line = `MW CHECKIN alert=${warning._id} centre=SK Dabong people=40 status=arrived`;
+  assert.equal(parseCheckins(line).checkins[0]!.alertId, warning._id);
+});
+
+test("district warning brief caps the village list", () => {
+  const ids = Array.from({ length: 40 }, (_, i) => `v-${i}`);
+  const warning = { ...areaFixture, villageIds: ids };
+  const brief = buildAreaBrief({ taskId: "t", warning, villageNames: ids.slice(0, AREA_BRIEF_MAX_VILLAGES) });
+  assert.match(brief, new RegExp(`Villages \\(40\\): .* and ${40 - AREA_BRIEF_MAX_VILLAGES} more`));
+});
+
+test("keeps underscores inside ids but strips WhatsApp italics", () => {
+  const c = parseCheckins("_MW CHECKIN alert=area:r1:at_risk:Kuala Krai:flood centre=SK Dabong people=4 status=moving_").checkins[0]!;
+  assert.equal(c.alertId, "area:r1:at_risk:Kuala Krai:flood");
+  assert.equal(c.status, "moving");
 });
