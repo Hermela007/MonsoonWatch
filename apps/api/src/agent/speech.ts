@@ -16,9 +16,10 @@ import { interact } from "./gemini";
 import { MODELS } from "./models";
 import { emitStep } from "./steps";
 
-/** Prebuilt voice from the docs' list: "Charon" (Informative). */
-export const ALERT_VOICE = "Charon";
-export const ALERT_STYLE = "calm, clear and slow, like an official public safety announcement";
+/** Prebuilt voice from the docs' list: "Kore" (Firm) — a woman's voice, suits an official announcement. */
+export const ALERT_VOICE = "Kore";
+/** Brisk for the 2–4 min demo, but still clear enough for a loudspeaker. */
+export const ALERT_STYLE = "clear, calm and brisk, speaking at a quick but easily understood pace, like an official public safety announcement";
 
 const AUDIO_DIR = new URL("../../data/audio/", import.meta.url);
 
