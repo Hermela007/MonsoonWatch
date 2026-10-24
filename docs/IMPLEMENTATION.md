@@ -356,7 +356,7 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 - `apps/api/src/db/`: `client.ts`, `collections.ts`, `indexes/*.json` (search + vector index definitions **committed as files**), `setup.ts` (idempotent: creates time series collection, 2dsphere indexes, search indexes).
 
 ### C2. Ingest (Fri night)
-- `scripts/ingest-jps.ts`: fetch both JPS tables (URLs in GUIDELINES §4), parse with `cheerio`, upsert `stations` (with thresholds) and insert `raw_readings`. `-9999` → skip. Generate stable IDs for blank station IDs (hash of name). Station coordinates: JPS tables have none — **geocode once** (OSM Nominatim by station/village name, then hand-fix the 10 that matter for the demo) and store in `stations`.
+- `scripts/ingest-jps.ts`: fetch both JPS tables (URLs in GUIDELINES §4), parse with `cheerio`, upsert `stations` (with thresholds) and insert new readings into `raw_readings` **and** `reading_events` (the watchable live copy, see C5). `-9999` → skip. Generate stable IDs for blank station IDs (hash of name). Station coordinates: JPS tables have none — **geocode once** (OSM Nominatim by station/village name, then hand-fix the 10 that matter for the demo) and store in `stations`.
 - Run every 15 min (`setInterval` in API, or cron).
 - `scripts/load-replay-2014.ts`: GloFAS discharge for chosen main-channel cells + Open-Meteo archive rainfall for rain stations' locations, 10 Dec 2014 – 10 Jan 2015 → `raw_readings` with `mode: "replay"`.
 - `scripts/build-terrain.ts`: stitch Terrarium tiles for `Region.bbox` → heightmap PNG/binary in `apps/web/public/terrain/`.
@@ -367,12 +367,23 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 - `POST /replay/start {speed}`: walks replay readings in time order, re-emitting them as `reading.new` (and through the same stream processor) at e.g. 1 day = 30 s. Emits `replay.tick`.
 
 ### C4. Stream Processing (Sat AM)
-- Processor definition **committed** at `apps/api/src/db/stream-processors/risk.js`: source = change stream on `raw_readings`; join station thresholds; window (e.g. tumbling 15 min for river level; hopping 24 h for rain accumulation); emit threshold crossings → `$merge` into `risk_events` with `source: "stream_processing"`.
+- Processor definition **committed** at `apps/api/src/db/stream-processors/risk.js`: source = change stream on **`reading_events`** (a normal collection with the same docs as `raw_readings`, new readings only, 7-day TTL). Not `raw_readings`: time series collections can't be a Stream Processing source or be watched by change streams ([limitations](https://www.mongodb.com/docs/manual/core/timeseries/timeseries-limitations/)). Then: join station thresholds; window (e.g. tumbling 15 min for river level; hopping 24 h for rain accumulation); emit threshold crossings → `$merge` into `risk_events` with `source: "stream_processing"`.
 - Also write an `AgentStep` (actor "MongoDB Stream Processing") for the HUD.
 - Fallback if blocked on tier: same logic in a Node worker, but keep trying to ship the real processor — it's a named feature.
 
 ### C5. Live events (Sat AM)
-- `GET /api/stream`: one SSE endpoint fed by **change streams** on `raw_readings`, `risk_events`, `agent_steps`, `alerts`, `evac_centres`, `saint_tasks`. Map each to the event names in §1.4.
+- `GET /api/stream`: one SSE endpoint fed by **change streams** (`apps/api/src/events/change-streams.ts`, started only when `MOCK` ≠ 1):
+
+  | Collection | Operations | SSE event |
+  |---|---|---|
+  | `reading_events` | insert | `reading.new { reading }` |
+  | `risk_events` | insert | `risk.event { riskEvent }` |
+  | `agent_steps` | insert, update, replace | `agent.step { step }` (steps are upserted running → ok/fail) |
+  | `alerts` | insert, update, replace | `alert.updated { alert }` |
+  | `evac_centres` | insert, update, replace | `evac.updated { evacCentre }` |
+  | `saint_tasks` | insert, update, replace | `saint.task { task }` |
+
+  Readings come from `reading_events`, not `raw_readings`: time series collections don't support change streams, so every writer of live readings (ingest, later replay) inserts into both. Dates are sent as ISO strings. Each stream keeps its resume token and reopens with `resumeAfter` (backoff 1 s → 30 s); a failing stream never crashes the API. No `report.new` (dropped, §1.7). `hazards.update` and `replay.tick` come later (C6, C3).
 
 ### C6. Hazards endpoint (Sat AM–PM)
 - `/regions/:id/hazards?ts`: water level per GloFAS cell / station (documented discharge → level mapping calibrated to JPS thresholds; label "approximation"), likely vs worst (± uncertainty band), blocked roads = road segments below water level (geospatial), landslide from B's `computeLandslide`.

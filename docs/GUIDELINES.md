@@ -46,7 +46,7 @@ Judges score from: the demo video(s), the project brief/submission text, and thi
 ```
                ┌───────────────────────────────────────────────────┐
  JPS (live) ──▶│ ingest/ scrapers (every 15 min)                   │
- Open-Meteo ──▶│  → raw_readings (MongoDB)                         │
+ Open-Meteo ──▶│  → raw_readings (time series) + reading_events    │
  GloFAS     ──▶└──────────────┬────────────────────────────────────┘
                               │ change stream
                               ▼
@@ -125,7 +125,8 @@ The MongoDB brief: *"The more of them you use, the more points you get."* We use
 |---|---|---|
 | `regions` | normal | One config doc per region: bbox, stations, river cells, evacuation centres, language(s), thresholds. **Region switch = load a different doc.** |
 | `stations` | normal + `2dsphere` | JPS river and rain stations with thresholds. |
-| `raw_readings` | **time series** (`timeField: ts`, `metaField: {stationId, kind}`) | Every reading ever ingested (live + replay). |
+| `raw_readings` | **time series** (`timeField: ts`, `metaField: {stationId, kind}`) | Every reading ever ingested (live + replay). Full history for charts. **Not watchable:** time series collections support neither change streams nor being a Stream Processing source ([limitations](https://www.mongodb.com/docs/manual/core/timeseries/timeseries-limitations/)). |
+| `reading_events` | normal, TTL 7 days on `ts` | Same docs as `raw_readings`, **new readings only** (ingest writes both). The live feed: the change stream (→ SSE `reading.new`) and Atlas Stream Processing watch this collection. |
 | `risk_events` | normal | Output of Stream Processing (threshold crossings, rain accumulation alerts). |
 | `villages` | normal + `2dsphere` | Settlements with population estimate, polygon/point. |
 | `evac_centres` | normal + `2dsphere` | Capacity, current headcount. |
@@ -145,7 +146,7 @@ The MongoDB brief: *"The more of them you use, the more points you get."* We use
 | 2 | **Atlas Vector Search** | *Proposed (C to confirm):* semantic search over `knowledge` (2014 post-mortems, district plans, Deep Research briefs) — e.g. the agent asks "what went wrong at Kuala Krai in 2014?". | Agent step / district panel shows the matching passages with similarity scores. |
 | 3 | **Hybrid Search** (`$rankFusion` of `$search` + `$vectorSearch`) | Query `knowledge` with mixed keyword/meaning: "jalan ditutup Pasir Mas" (road closed). | Query box shows both result lists fused, with a "hybrid" badge. |
 | 4 | **Automated Embedding** | New `knowledge` docs are embedded automatically on insert (no manual embedding code path). | Insert a Deep Research brief live → it appears in vector results seconds later. Mention in voice-over. |
-| 5 | **Atlas Stream Processing** | Source: change stream on `raw_readings`. Tumbling/hopping windows compute rain accumulation per station and detect threshold crossings vs `stations` thresholds → `$merge` into `risk_events`. | Tech HUD: "Stream processor fired: Sg. Galas @ Kg. Lembaga crossed ALERT" → agent starts. |
+| 5 | **Atlas Stream Processing** | Source: change stream on `reading_events` (not `raw_readings`: time series collections can't be a Stream Processing source). Tumbling/hopping windows compute rain accumulation per station and detect threshold crossings vs `stations` thresholds → `$merge` into `risk_events`. | Tech HUD: "Stream processor fired: Sg. Galas @ Kg. Lembaga crossed ALERT" → agent starts. |
 | 6 | **Voyage AI** | Multilingual text embeddings (Malay + English), **reranker** on hybrid/vector results before they go to Gemini. | Results panel shows "reranked by Voyage" with before/after order. |
 | + | **Time series** | `raw_readings`. | Station chart (last 6 days). |
 | + | **Geospatial** (`2dsphere`, `$geoNear`, `$geoWithin`) | Nearest evac centre; villages inside landslide runout polygons / flood extent. | Route + nearest centre highlighted. |

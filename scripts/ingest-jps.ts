@@ -1,5 +1,7 @@
 // `pnpm ingest:jps` — fetch live JPS river levels + rainfall for Kelantan, upsert `stations`,
-// insert new `raw_readings` (time series, mode "live"). Safe to re-run: existing readings are skipped.
+// insert new readings (mode "live") into `raw_readings` (time series, full history) AND `reading_events`
+// (normal collection, 7-day TTL — the live feed that change streams / Stream Processing watch, since time
+// series collections can't be watched). Safe to re-run: readings already in raw_readings are skipped.
 //   pnpm ingest:jps                  fetch once (falls back to the saved snapshot if JPS is down)
 //   pnpm ingest:jps --watch          fetch every 15 minutes until stopped (Ctrl+C)
 //   pnpm ingest:jps --from-snapshot  use scripts/data/jps/*.latest.html only (offline)
@@ -103,7 +105,11 @@ async function ingestOnce() {
     .toArray();
   const have = new Set(existing.map((e) => `${e.meta.stationId}|${e.ts.getTime()}`));
   const fresh = candidates.filter((c) => !have.has(`${c.meta.stationId}|${c.ts.getTime()}`));
-  if (fresh.length) await readings.insertMany(fresh, { ordered: false });
+  if (fresh.length) {
+    await readings.insertMany(fresh.map((d) => ({ ...d })), { ordered: false });
+    // Same docs to the live feed → change stream → SSE `reading.new` (and Stream Processing).
+    await db.collection<ReadingDoc>(COLLECTIONS.readingEvents).insertMany(fresh.map((d) => ({ ...d })), { ordered: false });
+  }
 
   // 3. Summary
   const now = Date.now();
@@ -112,7 +118,7 @@ async function ingestOnce() {
   console.log(
     `✅ JPS ${new Date().toISOString()} — river ${riverRows.length} (${river.from}), rain ${rainRows.length} (${rain.from}); ` +
       `stations +${stationRes.upsertedCount} new / ${stationRes.modifiedCount} updated; ` +
-      `readings +${fresh.length} new, ${candidates.length - fresh.length} already stored; ${stale} stations stale (>2 h); ${Date.now() - started} ms`,
+      `readings +${fresh.length} new (raw_readings + reading_events), ${candidates.length - fresh.length} already stored; ${stale} stations stale (>2 h); ${Date.now() - started} ms`,
   );
   for (const r of aboveAlert) {
     const t = r.thresholds!;

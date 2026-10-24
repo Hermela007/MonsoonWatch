@@ -3,6 +3,7 @@ export const COLLECTIONS = {
   regions: "regions",
   stations: "stations",
   rawReadings: "raw_readings", // time series
+  readingEvents: "reading_events", // live feed: new readings, 7-day TTL — change streams watch this (time series can't be watched)
   riskEvents: "risk_events",
   villages: "villages",
   evacCentres: "evac_centres",

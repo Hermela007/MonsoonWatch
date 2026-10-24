@@ -9,7 +9,8 @@ import { stationRoutes } from "./routes/stations";
 import { streamRoutes } from "./routes/stream";
 
 export function buildServer() {
-  const app = Fastify({ logger: true });
+  // forceCloseConnections: open SSE clients would otherwise keep app.close() waiting on shutdown.
+  const app = Fastify({ logger: true, forceCloseConnections: true });
   registerErrorHandlers(app);
   // Every GET route (any workstream) is retried once on a transient MongoDB connection error.
   // Non-GET routes are never retried, so writes like alert approval can't happen twice.

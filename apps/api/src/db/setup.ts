@@ -4,6 +4,8 @@
 //   pnpm db:setup --update   also push changed search index definitions
 //
 // Note: raw_readings is a time series collection, so `ts` is stored as a BSON Date.
+// reading_events gets the same docs (new readings only, 7-day TTL) because time series collections
+// can't be watched by change streams or Stream Processing.
 // The API converts it to an ISO string when returning a Reading.
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -17,6 +19,7 @@ const update = process.argv.includes("--update");
 const NORMAL_COLLECTIONS = [
   COLLECTIONS.regions,
   COLLECTIONS.stations,
+  COLLECTIONS.readingEvents,
   COLLECTIONS.riskEvents,
   COLLECTIONS.villages,
   COLLECTIONS.evacCentres,
@@ -36,6 +39,10 @@ const INDEXES: [string, IndexSpecification, CreateIndexesOptions?][] = [
   [COLLECTIONS.evacCentres, { location: "2dsphere" }],
   [COLLECTIONS.evacCentres, { regionId: 1 }],
   [COLLECTIONS.rawReadings, { "meta.stationId": 1, ts: -1 }],
+  // reading_events: the live copy of new readings. raw_readings is time series, which supports neither
+  // change streams nor being a Stream Processing source, so those watch this collection instead.
+  [COLLECTIONS.readingEvents, { ts: 1 }, { expireAfterSeconds: 7 * 24 * 3600 }],
+  [COLLECTIONS.readingEvents, { "meta.stationId": 1, ts: -1 }],
   [COLLECTIONS.riskEvents, { regionId: 1, ts: -1 }],
   [COLLECTIONS.alerts, { runId: 1 }],
   [COLLECTIONS.alerts, { regionId: 1, status: 1 }],
@@ -72,7 +79,7 @@ async function ensureCollections(db: Db) {
 async function ensureIndexes(db: Db) {
   for (const [collection, spec, options] of INDEXES) {
     const name = await db.collection(collection).createIndex(spec, options); // no-op if it exists
-    console.log(`  ✓ ${collection}.${name}`);
+    console.log(`  ✓ ${collection}.${name}${options?.expireAfterSeconds !== undefined ? ` (TTL ${options.expireAfterSeconds} s)` : ""}`);
   }
 }
 
