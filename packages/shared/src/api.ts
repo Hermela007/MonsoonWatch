@@ -1,5 +1,5 @@
 // REST response shapes not covered by a single domain type (§1.6 decisions 2, 3, 7, 8).
-import type { AgentRun, AgentStep, Alert, LngLat, Report, Station, Reading } from "./types";
+import type { AgentRun, AgentStep, Alert, AreaWarning, LngLat, Report, Station, Reading } from "./types";
 
 // GET /regions/:id/stations — latest is null when the station has no readings yet.
 export type StationWithLatest = Station & { latest: Reading | null };
@@ -35,6 +35,7 @@ export interface AgentRunDetail {
   run: AgentRun;
   steps: AgentStep[]; // oldest first
   alerts: Alert[];
+  areaWarnings?: AreaWarning[]; // district warnings + advisories for villages with no individual alert
 }
 
 // Every non-2xx response from the API has this body.

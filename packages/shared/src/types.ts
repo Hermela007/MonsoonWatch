@@ -135,11 +135,43 @@ export interface Alert {
   people: number; // how many people this alert sends to evacCentreId (capacity check uses this)
   pickups?: Pickup[]; // vulnerable-people pickups planned for this alert (§1.7 decision 3)
   route: { type: "LineString"; coordinates: LngLat[] };
+  // "boat": rescue boats; there is no navigable-water data, so `route` is NOT a boat path —
+  // the UI draws no line, only "boat pickup → <centre>". Absent = "road".
+  routeMode?: "road" | "boat";
+  // Who planned it: deterministic rules planner or Gemini (Flash-Lite draft → Flash refine). Absent = unknown.
+  plannedBy?: "rules" | "gemini";
   messages: { lang: string; text: string }[];
   verification: VerificationResult[];
   status: "draft" | "verified" | "approved" | "rejected" | "sent";
   approvedBy?: string;
   approvedAt?: string;
+}
+
+// A district-level warning (collection `area_warnings`) for villages with no individual Alert:
+//   evacuate — at-risk villages the planners could not give a verified plan (no route / no space /
+//              Gemini cap): move now; officials arrange transport and pickups.
+//   advisory — villages near a river at alert+ ("watch") or where the flood model can't judge
+//              ("unknown"): be ready to move. Never "safe".
+// Deterministic template text (no AI). Same human approval as an Alert; approval → SaintTask.
+export interface AreaWarning {
+  _id: string; // "area:<runId>:<basis>:<district>:<hazard>" | "advisory:…"
+  regionId: string;
+  runId: string;
+  kind: "evacuate" | "advisory";
+  basis: string; // why these villages are in it (shown to the official)
+  district: string;
+  hazard: "flood" | "landslide";
+  level: Exclude<RiskLevel, "normal">;
+  villageIds: string[];
+  people: number; // total population of the villages (estimated where village data is)
+  vulnerable: number;
+  vulnerableByCategory: Record<VulnerableCategory, number>; // pickups NOT planned — officials arrange them
+  evidence: string[]; // checkable signals from the strongest village
+  messages: { lang: string; text: string }[]; // each starts with its level word (WASPADA/AMARAN/BAHAYA)
+  status: "needs_approval" | "approved" | "rejected" | "sent";
+  approvedBy?: string;
+  approvedAt?: string;
+  label: string; // "Area-wide warning (deterministic template, no AI)"
 }
 
 // One agent run (collection `agent_runs`). Its HUD lines are AgentSteps in `agent_steps`.
@@ -168,7 +200,8 @@ export interface AgentStep {
 
 export interface SaintTask {
   _id: string;
-  alertId: string;
+  alertId: string; // id of the approved Alert — or of the AreaWarning when target = "area_warning"
+  target?: "alert" | "area_warning"; // absent = "alert"
   ts: string;
   type: "send_alert" | "chase_reply" | "log_checkin" | "supply_order" | "sitrep";
   status: "queued" | "in_progress" | "awaiting_approval" | "done" | "failed";

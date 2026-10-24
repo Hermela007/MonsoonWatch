@@ -1,0 +1,36 @@
+{
+  "_id": "advisory:run-sample-2014-12-24:watch:Kuala Krai:flood",
+  "regionId": "kelantan",
+  "runId": "run-sample-2014-12-24",
+  "kind": "advisory",
+  "basis": "River gauge nearby at alert or above; flooding not shown at these villages by the (approximate) flood model",
+  "district": "Kuala Krai",
+  "hazard": "flood",
+  "level": "warning",
+  "villageIds": [
+    "v-kg-sample-c"
+  ],
+  "people": 600,
+  "vulnerable": 75,
+  "vulnerableByCategory": {
+    "bedridden": 1,
+    "disabled": 6,
+    "elderly": 48,
+    "noTransport": 20
+  },
+  "evidence": [
+    "river gauge at WARNING within 10 km"
+  ],
+  "messages": [
+    {
+      "lang": "ms",
+      "text": "AMARAN: paras sungai berhampiran Kampung Sample C (daerah Kuala Krai) di tahap AMARAN. Banjir belum ditunjukkan di kampung anda, tetapi bersedia untuk berpindah ke kawasan tinggi atau pusat pemindahan terdekat. Bantu jiran yang terlantar, OKU dan warga emas. Ikut arahan pihak berkuasa."
+    },
+    {
+      "lang": "en",
+      "text": "WARNING: the river near Kampung Sample C (Kuala Krai district) is at WARNING level. Flooding is not yet shown at your village, but be ready to move to higher ground or the nearest evacuation centre. Help bedridden, disabled and elderly neighbours. Follow official instructions."
+    }
+  ],
+  "status": "needs_approval",
+  "label": "Area-wide warning (deterministic template, no AI)"
+}

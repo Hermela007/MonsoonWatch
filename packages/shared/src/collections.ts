@@ -11,6 +11,7 @@ export const COLLECTIONS = {
   reports: "reports",
   knowledge: "knowledge",
   alerts: "alerts",
+  areaWarnings: "area_warnings", // district evacuate warnings + advisories (AreaWarning)
   agentRuns: "agent_runs", // one doc per run (AgentRun)
   agentSteps: "agent_steps", // one doc per HUD line (AgentStep) — change stream → `agent.step`
   saintTasks: "saint_tasks",

@@ -81,6 +81,7 @@ const SPECS: StreamSpec[] = [
   // Steps are upserted running → ok/fail, so updates and replaces matter too.
   spec({ collection: COLLECTIONS.agentSteps, ops: ["insert", "update", "replace"], event: "agent.step", payload: (d) => ({ step: serialize(d) }) }),
   spec({ collection: COLLECTIONS.alerts, ops: ["insert", "update", "replace"], event: "alert.updated", payload: (d) => ({ alert: serialize(d) }) }),
+  spec({ collection: COLLECTIONS.areaWarnings, ops: ["insert", "update", "replace"], event: "area_warning.updated", payload: (d) => ({ areaWarning: serialize(d) }) }),
   spec({ collection: COLLECTIONS.evacCentres, ops: ["insert", "update", "replace"], event: "evac.updated", payload: (d) => ({ evacCentre: serialize(d) }) }),
   spec({ collection: COLLECTIONS.saintTasks, ops: ["insert", "update", "replace"], event: "saint.task", payload: (d) => ({ task: serialize(d) }) }),
 ];
