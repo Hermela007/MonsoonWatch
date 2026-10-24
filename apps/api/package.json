@@ -8,7 +8,8 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "db:ping": "tsx src/db/ping.ts",
-    "db:setup": "tsx src/db/setup.ts"
+    "db:setup": "tsx src/db/setup.ts",
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@fastify/compress": "^9.2.2",
