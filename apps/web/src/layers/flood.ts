@@ -40,6 +40,7 @@ uniform vec3 uFocus;
 uniform float uFocusR;
 uniform float uFocusOn;
 uniform float uForecast; // expected peak rise (m) to outline around the home
+uniform sampler2D uMask;
 varying vec2 vUv;
 varying vec3 vWorld;
 varying float vViewDist;
@@ -52,6 +53,7 @@ float noise(vec2 p) {
 }
 
 void main() {
+  if (texture2D(uMask, vUv).r < 0.5) discard;
   // Depth per pixel from bilinearly filtered fields → smooth shorelines instead of grid stairs.
   vec4 f = texture2D(uField, vUv);
   float sea = f.a;
@@ -165,7 +167,7 @@ function fieldTexture(hm: Heightmap, hy: Hydrology) {
 }
 
 /** Flood element: a transparent water sheet that rises and spreads with the river stage. */
-export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogColor: THREE.Color) {
+export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogColor: THREE.Color, mask: THREE.Texture) {
   const { cols, rows } = hm;
   const n = cols * rows;
   const pos = new Float32Array(n * 3);
@@ -218,6 +220,7 @@ export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogCo
       uFocusR: { value: 6 },
       uFocusOn: { value: 0 },
       uForecast: { value: 1000 },
+      uMask: { value: mask },
     },
   });
   const mesh = new THREE.Mesh(geometry, material);

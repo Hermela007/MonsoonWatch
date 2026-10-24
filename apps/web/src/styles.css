@@ -196,7 +196,12 @@ h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: u
 body[data-view='result'] #legend .forecast-key { display: inline-flex; }
 #legend .grid-note { font-family: var(--mono); font-size: 11px; color: var(--faint); }
 body.street #legend, body[data-mode='control'] #legend { opacity: 0; }
-@media (max-width: 767px) { #legend { top: 52px; bottom: auto; right: 16px; left: 16px; justify-content: flex-end; gap: 12px; } #legend .grid-note { display: none; } }
+@media (max-width: 767px) {
+  #legend { top: 52px; bottom: auto; right: 16px; left: 16px; justify-content: flex-end; flex-wrap: wrap; gap: 4px 12px; }
+  #legend .grid-note { display: none; }
+  /* A soft paper fade behind the header so map labels never collide with it. */
+  .topbar::before { content: ''; position: absolute; inset: 0 0 -46px 0; background: linear-gradient(var(--paper) 55%, rgba(244, 242, 238, 0)); z-index: -1; }
+}
 
 /* Atlas labels */
 .atlas { pointer-events: none; white-space: nowrap; transform: translateY(-50%); }
@@ -212,14 +217,9 @@ body.street #legend, body[data-mode='control'] #legend { opacity: 0; }
 #caption { right: 24px; top: 64px; width: 340px; text-align: right; pointer-events: none; }
 .caption-place { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
 #caption p { font-size: 13px; line-height: 1.5; color: var(--muted); margin: 6px 0 0; }
-#locator { right: 24px; bottom: 52px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: none; }
-#locator path { fill: #e8e5df; stroke: #b9b3a9; stroke-width: 0.5; }
-#locator path.kel { fill: var(--ink); stroke: var(--ink); }
-#locator rect { fill: none; stroke: var(--flood); stroke-width: 1.2; }
-#locator span { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
 #sources { left: 24px; bottom: 14px; margin: 0; font-size: 10.5px; color: var(--faint); pointer-events: none; max-width: 60vw; }
 #legend .live { font-family: var(--mono); font-size: 11px; color: var(--ink); }
-body:not([data-view='landing']) #caption, body:not([data-view='landing']) #sources, body.street #locator, body[data-mode='control'] #caption { opacity: 0; }
-body[data-view='landing'] #landing ~ * {}
-@media (max-width: 1100px) { #caption { width: 260px; } .caption-place { font-size: 24px; } }
-@media (max-width: 767px) { #caption, #locator, #sources { display: none; } }
+body:not([data-view='landing']) #caption, body:not([data-view='landing']) #sources, body.street @media (max-width: 1100px) { #caption { width: 260px; } .caption-place { font-size: 24px; } }
+@media (max-width: 767px) { #caption, 
+.place-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.fact { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); }

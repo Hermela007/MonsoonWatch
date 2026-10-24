@@ -15,8 +15,9 @@ export interface Town {
 // Local stand-in until `region.kelantan.json` lands in packages/shared (Workstream C).
 export const KELANTAN = {
   id: 'kelantan',
-  name: 'Kelantan river valley',
-  bbox: [101.8, 4.7, 102.55, 6.28] as BBox,
+  name: 'Kelantan',
+  // The whole state of Kelantan (boundary: geoBoundaries ADM1), with a small margin.
+  bbox: [101.3, 4.53, 102.7, 6.27] as BBox,
 };
 
 /**

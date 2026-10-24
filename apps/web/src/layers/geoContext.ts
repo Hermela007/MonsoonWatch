@@ -22,6 +22,8 @@ export function createGeoContext(opts: {
   frame: GeoFrame;
   rivers: NamedRiver[];
   towns: { name: string; lngLat: LngLat; major: boolean }[];
+  /** Inside Kelantan? Rivers outside the state are not drawn. */
+  inside: (ll: LngLat) => boolean;
 }) {
   const { hm, frame } = opts;
   const group = new THREE.Group();
@@ -48,7 +50,8 @@ export function createGeoContext(opts: {
   for (const r of opts.rivers) {
     const name = latinName(r.name);
     const radius = /Kelantan|Galas|Lebir/.test(name) ? 0.11 : 0.07;
-    for (const line of r.lines) {
+    for (const full of r.lines) {
+      const line = full.filter((ll) => opts.inside(ll));
       if (line.length < 2) continue;
       const pts = line.map((ll) => frame.lngLatToWorld(ll, groundAt(ll)).add(new THREE.Vector3(0, 0.05, 0)));
       const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.min(400, pts.length * 2), radius, 4, false);
@@ -56,12 +59,16 @@ export function createGeoContext(opts: {
       group.add(new THREE.Mesh(geo, mat));
     }
     // Label at the midpoint of the river's longest piece.
-    const longest = [...r.lines].sort((a, b) => b.length - a.length)[0];
-    if (longest?.length > 4) label(name, longest[Math.floor(longest.length / 2)], 'river', 0.25);
+    const longest = [...r.lines].map((l) => l.filter((ll) => opts.inside(ll))).sort((a, b) => b.length - a.length)[0];
+    if (longest?.length > 4 && /Kelantan|Galas|Lebir|Nenggiri|Pergau|Golok/.test(name)) label(name, longest[Math.floor(longest.length / 2)], 'river', 0.25);
   }
   for (const t of opts.towns) label(t.name, t.lngLat, t.major ? 'town major' : 'town');
-  label('South China Sea', [102.45, 6.24], 'sea', 0);
-  label('THAILAND', [101.86, 6.1], 'country', 0.3);
+  // Where Kelantan sits, without a map: its neighbours, named just beyond the border.
+  label('South China Sea', [102.55, 6.36], 'sea', 0);
+  label('THAILAND', [101.5, 6.08], 'country', 0);
+  label('PERAK', [101.12, 5.3], 'country', 0);
+  label('PAHANG', [101.85, 4.38], 'country', 0);
+  label('TERENGGANU', [102.82, 5.15], 'country', 0);
 
   return {
     group,
@@ -69,7 +76,7 @@ export function createGeoContext(opts: {
     update(camera: THREE.Camera, focusOn: boolean) {
       for (const l of labels) {
         const d = camera.position.distanceTo(l.obj.position);
-        const vis = l.kind.includes('major') || l.kind === 'sea' || l.kind === 'country' ? d < 900 : d < 160;
+        const vis = l.kind.includes('major') || l.kind === 'sea' || l.kind === 'country' ? d < 900 : d < 200;
         l.obj.visible = vis && !(focusOn && l.kind === 'river' && d > 60);
       }
     },

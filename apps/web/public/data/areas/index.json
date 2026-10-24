@@ -78,5 +78,15 @@
   ],
   "buildings": 179,
   "roads": 13
+ },
+ {
+  "name": "Kampung Jabir",
+  "slug": "kampung-jabir",
+  "center": [
+   101.889747,
+   5.542273
+  ],
+  "buildings": 102,
+  "roads": 8
  }
 ]

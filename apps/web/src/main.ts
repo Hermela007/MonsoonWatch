@@ -10,9 +10,7 @@ import { routeToSafeGround } from './terrain/route';
 import { createStage } from './scene/stage';
 import { createCameraDirector, type Shot } from './scene/camera';
 import { pickTerrain } from './scene/pick';
-import { createValley, type Focus } from './layers/valley';
-import { createStack } from './layers/stack';
-import { loadImagery } from './terrain/imagery';
+import { boundaryMask, createValley, type Focus } from './layers/valley';
 import { createFlood } from './layers/flood';
 import { createRain } from './layers/rain';
 import { createLandslides } from './layers/landslides';
@@ -30,7 +28,6 @@ import type { EvacCentre } from '@monsoonwatch/shared';
 import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
 import { loadMalaysia, loadRealData } from './data/realData';
 import { createGeoContext } from './layers/geoContext';
-import { createPeninsula } from './layers/peninsula';
 import { createStations } from './layers/stations';
 import { FOG } from './theme';
 
@@ -38,26 +35,13 @@ const params = new URLSearchParams(location.search);
 const isPhone = matchMedia('(max-width: 767px), (pointer: coarse)').matches;
 const EXAG = Number(params.get('exag')) || 3;
 // Same analysis grid on every device: a safety answer must not depend on screen size.
-const COLS = Number(params.get('res')) || 480;
+const COLS = Number(params.get('res')) || 600;
 const FOCUS_KM = 6;
 // Closer than this the 150 m terrain looks blocky; the street view covers close-ups.
 const VALLEY_MIN_KM = 7;
 const WHATIF_HOURS = 72;
 // Illustrative trigger (rise above normal, m) until C's Stream Processing emits real risk events.
 const AGENT_TRIGGER_STAGE_M = PEAK_STAGE_M * 0.45;
-
-/** Small locator map of Peninsular Malaysia with Kelantan filled and the modelled valley boxed. */
-function locatorSvg(m: { states: { name: string; polygons: [number, number][][] }[] }, bbox: [number, number, number, number]) {
-  const [x0, y0, x1, y1] = [99.6, 1.2, 104.6, 6.9];
-  const W = 110;
-  const H = (W * (y1 - y0)) / (x1 - x0);
-  const P = ([lon, lat]: [number, number]) => `${(((lon - x0) / (x1 - x0)) * W).toFixed(1)},${(((y1 - lat) / (y1 - y0)) * H).toFixed(1)}`;
-  const paths = m.states
-    .map((s) => s.polygons.map((r) => `<path d="M${r.map(P).join('L')}Z" class="${s.name === 'Kelantan' ? 'kel' : ''}"/>`).join(''))
-    .join('');
-  const [a, b] = [P([bbox[0], bbox[3]]).split(','), P([bbox[2], bbox[1]]).split(',')];
-  return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" width="${W}" height="${H.toFixed(0)}" role="img" aria-label="Kelantan within Peninsular Malaysia">${paths}<rect x="${a[0]}" y="${a[1]}" width="${(+b[0] - +a[0]).toFixed(1)}" height="${(+b[1] - +a[1]).toFixed(1)}"/></svg><span>Kelantan, Malaysia</span>`;
-}
 
 async function main() {
   const frame = new GeoFrame(KELANTAN.bbox, EXAG);
@@ -72,8 +56,6 @@ async function main() {
   // Real data (Workstream C's committed files): places, Dec 2014 rain and river discharge.
   const realP = loadRealData();
   const malaysiaP = loadMalaysia().catch(() => null);
-  const imageryW = isPhone ? 768 : 1536;
-  const imageryP = loadImagery(KELANTAN.bbox, isPhone ? 10 : 11, imageryW, Math.round((imageryW * frame.heightKm) / frame.widthKm));
   const hm = await loadTerrariumGrid(KELANTAN.bbox, 10, COLS, rows, (d, n) => loadingBar(0.05 + 0.7 * (d / n)));
   loadingBar(0.8);
   await new Promise((r) => setTimeout(r, 20));
@@ -85,77 +67,46 @@ async function main() {
   loadingBar(0.95);
   await new Promise((r) => setTimeout(r, 20));
 
-  const imageryCanvas = await imageryP;
   const stage = createStage(document.getElementById('app')!, { bloom: false, maxPixelRatio: isPhone ? 1.5 : 2 });
   const { scene, camera, controls } = stage;
   const director = createCameraDirector(camera, controls);
   controls.minDistance = VALLEY_MIN_KM;
 
-  let imagery: THREE.CanvasTexture | null = null;
-  if (imageryCanvas) {
-    // Satellite sea is navy; paint it a soft sea-green to keep the palette natural.
-    const mask = document.createElement('canvas');
-    mask.width = hm.cols;
-    mask.height = hm.rows;
-    const mctx = mask.getContext('2d')!;
-    const md = mctx.createImageData(hm.cols, hm.rows);
-    for (let i = 0; i < hm.cols * hm.rows; i++) if (hy.seaMask[i]) md.data.set([169, 198, 191, 255], i * 4);
-    mctx.putImageData(md, 0, 0);
-    const ictx = imageryCanvas.getContext('2d')!;
-    ictx.imageSmoothingEnabled = true;
-    ictx.filter = 'blur(3px)';
-    ictx.drawImage(mask, 0, 0, imageryCanvas.width, imageryCanvas.height);
-    // Neutral, low-contrast photo: colour is reserved for risk.
-    // (copy first: drawing a canvas onto itself with a filter is unreliable)
-    const copy = document.createElement('canvas');
-    copy.width = imageryCanvas.width;
-    copy.height = imageryCanvas.height;
-    copy.getContext('2d')!.drawImage(imageryCanvas, 0, 0);
-    ictx.filter = 'grayscale(1) contrast(0.45) brightness(1.9)';
-    ictx.drawImage(copy, 0, 0);
-    ictx.filter = 'none';
-    imagery = new THREE.CanvasTexture(imageryCanvas);
-    imagery.colorSpace = THREE.SRGBColorSpace;
-    imagery.anisotropy = stage.renderer.capabilities.getMaxAnisotropy();
-  }
+  // The model is Kelantan itself: terrain and water are cut to the real state boundary.
+  const malaysia = await malaysiaP;
+  const kelRing = (malaysia?.states.find((s) => s.name === 'Kelantan')?.polygons ?? [])
+    .sort((a, b) => b.length - a.length)[0] ?? [
+    [KELANTAN.bbox[0], KELANTAN.bbox[1]], [KELANTAN.bbox[2], KELANTAN.bbox[1]], [KELANTAN.bbox[2], KELANTAN.bbox[3]], [KELANTAN.bbox[0], KELANTAN.bbox[3]],
+  ] as LngLat[];
+  const boundary = boundaryMask(hm, kelRing);
   const SLAB_DEPTH = 2.2;
-  const valley = createValley(hm, hy, frame, stage.fogColor);
-  // Valley-wide landslide hotspots: always shown, amber until enough rain has fallen.
-  const hotspotSources = findSlideSources(hm, hy, { minSlopeDeg: 26, minElevM: 150, spacingKm: 7, max: 28 });
-  const stack = createStack(hm, hy, frame, imagery, -SLAB_DEPTH, hotspotSources.map((h) => h.path));
-  scene.add(stack.group);
-  const hotspots = createLandslides(
-    hotspotSources,
-    hm,
-    frame,
-    stage.fogColor,
-    { tubeRadiusKm: 0.09, labelled: 3, labelText: 'Landslide risk', labelSpacingKm: 35 },
-  );
+  const valley = createValley(hm, hy, frame, stage.fogColor, boundary.texture, kelRing);
+  // State-wide landslide hotspots (inside Kelantan only).
+  const hotspotSources = findSlideSources(hm, hy, { minSlopeDeg: 26, minElevM: 150, spacingKm: 9, max: 30 }).filter((h) => {
+    const r = Math.floor(h.cell / hm.cols);
+    return boundary.inside(cellLngLat(hm, h.cell - r * hm.cols, r));
+  });
+  const hotspots = createLandslides(hotspotSources, hm, frame, stage.fogColor, { tubeRadiusKm: 0.09, labelled: 1, labelText: 'Landslide risk', labelSpacingKm: 60 });
   scene.add(hotspots.group);
 
-  // Atlas: real named rivers and place labels, and the peninsula map for the opening zoom.
-  const MAJOR = ['Kota Bharu', 'Pasir Mas', 'Tanah Merah', 'Kuala Krai', 'Dabong', 'Gua Musang'];
+  // Atlas: real named rivers and towns inside Kelantan; neighbours named just beyond the border.
+  const MAJOR = ['Kota Bharu', 'Pasir Mas', 'Tanah Merah', 'Kuala Krai', 'Dabong', 'Gua Musang', 'Jeli', 'Machang'];
   const geoCtx = createGeoContext({
     hm,
     frame,
+    inside: boundary.inside,
     rivers: real.rivers,
-    towns: real.villages.filter((v) => v.kind === 'city' || v.kind === 'town' || MAJOR.includes(v.name)).map((v) => ({ name: v.name, lngLat: v.lngLat, major: MAJOR.includes(v.name) })),
+    towns: real.villages.filter((v) => MAJOR.includes(v.name) && (v.kind === 'city' || v.kind === 'town' || v.name === 'Dabong')).map((v) => ({ name: v.name, lngLat: v.lngLat, major: true })),
   });
   scene.add(geoCtx.group);
-  const malaysia = await malaysiaP;
-  const peninsula = malaysia ? createPeninsula(malaysia, frame, -SLAB_DEPTH - 0.8) : null;
-  if (peninsula) scene.add(peninsula.group);
   let stations: ReturnType<typeof createStations> | null = null;
-  // Caption and locator, from the data.
   {
     const peakDate = new Date(`${real.peak.date}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
-    document.getElementById('caption-fact')!.textContent = `In December 2014 the Kelantan river peaked at ${real.peak.m3s.toLocaleString('en-GB')} m³/s on ${peakDate} (GloFAS). This replays that flood, and the landslides the rain set off.`;
-    if (malaysia) document.getElementById('locator')!.innerHTML = locatorSvg(malaysia, KELANTAN.bbox);
+    document.getElementById('caption-fact')!.textContent = `Replaying December 2014: the Kelantan river peaked at ${real.peak.m3s.toLocaleString('en-GB')} m³/s on ${peakDate} (GloFAS), and heavy rain set off landslides in the hills.`;
   }
-  // The exploded layer stack is retired (it read as an abstract diagram); only its shadow remains.
   let explode = 0;
-  let explodeTarget = 0;
-  const flood = createFlood(hm, hy, frame, stage.fogColor);
+  const explodeTarget = 0;
+  const flood = createFlood(hm, hy, frame, stage.fogColor, boundary.texture);
   const rain = createRain();
   const home = createHomeLayer();
   home.setLabels(t('yourHome'), t('higherGround'));
@@ -187,12 +138,14 @@ async function main() {
   let focusTarget = 0;
 
   // Landing: low oblique view up the valley from the south-east — hills, floodplain and slopes in one frame.
-  // Seen from the South China Sea: the delta and Kota Bharu in front, the river leading back to the hills.
-  const overview: Shot = { position: new THREE.Vector3(34, 58, -128), target: new THREE.Vector3(-6, 0, 14) };
+  // North-up, tilted like a map, framing the whole state so its real outline reads at once.
+  const ovTarget = frame.lngLatToWorld([101.98, 5.42]);
+  // On phones the card covers the lower half, so step back to keep the whole outline in view.
+  const overview: Shot = { position: ovTarget.clone().add(isPhone ? new THREE.Vector3(0, 380, 210) : new THREE.Vector3(0, 245, 150)), target: ovTarget };
 
   const layoutShift = () => {
     const view = document.body.dataset.view;
-    if (isPhone) stage.setShift(0, view === 'result' ? window.innerHeight * 0.22 : window.innerHeight * 0.18);
+    if (isPhone) stage.setShift(0, view === 'result' ? window.innerHeight * 0.22 : window.innerHeight * 0.12);
     else stage.setShift(view === 'control' ? -40 : 210, 0);
   };
   window.addEventListener('resize', layoutShift);
@@ -273,7 +226,6 @@ async function main() {
 
     focus.centre.copy(homePos);
     focusTarget = 1;
-    explodeTarget = 0;
     hour = targetHour = NOW_HOUR;
     whatIf = false;
     ui!.setWhatIf(false);
@@ -380,12 +332,11 @@ async function main() {
     }
     homePos = null;
     focusTarget = 0;
-    explodeTarget = 0;
     hour = targetHour = NOW_HOUR;
     whatIf = false;
     ui!.showLanding();
     layoutShift();
-    director.flyTo(overview, 2400, () => (controls.autoRotate = true));
+    director.flyTo(overview, 2400);
   };
 
   ui = createResidentUi(realTowns.slice(0, 20), {
@@ -610,12 +561,11 @@ async function main() {
       ui!.showLanding();
       document.body.dataset.view = 'control';
       controls.autoRotate = false;
-      explodeTarget = 0;
-      focusTarget = 0;
+        focusTarget = 0;
       home.set(null, null, 0, timer.getElapsed());
       homePos = null;
       layoutShift();
-      director.flyTo({ position: new THREE.Vector3(-30, 95, 120), target: new THREE.Vector3(-6, 0, -20) }, 2200);
+      director.flyTo(overview, 2200);
     } else {
       mockAgent.stop();
       backToLanding();
@@ -639,9 +589,10 @@ async function main() {
     if (k === '5') (setMode('control'), window.setTimeout(() => void startAgent(), 2400));
     if (k === '6') void decide('approve');
   });
-  // Establishing shot: from Peninsular Malaysia down into the Kelantan valley.
-  controls.target.set(-19, 0, 150);
-  director.flyTo(overview, 5200, () => (controls.autoRotate = !homePos));
+  // A short settle-in from high above the state.
+  controls.target.copy(ovTarget);
+  camera.position.copy(ovTarget).add(new THREE.Vector3(0, 330, 40));
+  director.flyTo(overview, 3600);
 
   // ---- Frame loop --------------------------------------------------------
   stage.renderer.setAnimationLoop((now) => {
@@ -665,12 +616,10 @@ async function main() {
     // Control room replay: when the main river passes the Warning rise, Stream Processing → agent.
     if (document.body.dataset.mode === 'control' && !agentTriggered && hour > 0.5 && stageM(hour) >= AGENT_TRIGGER_STAGE_M) void startAgent();
     explode += (explodeTarget - explode) * Math.min(1, dt * 2.2);
-    stack.setExplode(explode);
 
     const camDist = camera.position.distanceTo(controls.target);
     FOG.value = 0.26 / Math.max(camDist, 60);
     geoCtx.update(camera, !!homePos);
-    peninsula?.update(camDist);
     stations?.update(camDist);
     const s = stageM(Math.min(hour, REPLAY_HOURS));
     valley.update(rainAccumulated(hour), time, focus);

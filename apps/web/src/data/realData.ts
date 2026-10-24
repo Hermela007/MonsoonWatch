@@ -16,7 +16,13 @@ export async function loadRealData(): Promise<RealData> {
   return (await res.json()) as RealData;
 }
 
+/** State outlines (geoBoundaries ADM1, CC BY 4.0) — used for the Kelantan boundary. */
+export interface MalaysiaData {
+  source: string;
+  states: { name: string; polygons: LngLat[][] }[];
+}
+
 export async function loadMalaysia() {
   const res = await fetch('/data/malaysia.json');
-  return res.ok ? ((await res.json()) as import('../layers/peninsula').MalaysiaData) : null;
+  return res.ok ? ((await res.json()) as MalaysiaData) : null;
 }

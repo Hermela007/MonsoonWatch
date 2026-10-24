@@ -62,11 +62,6 @@
       <ol id="hud-list"></ol>
     </aside>
 
-    <div id="caption" class="ui">
-      <div class="caption-place">Kelantan, Malaysia</div>
-      <p id="caption-fact"></p>
-    </div>
-    <div id="locator" class="ui" aria-hidden="true"></div>
     <p id="sources" class="ui">Terrain: SRTM via AWS Terrain Tiles · Rivers, roads, places: OpenStreetMap · Buildings: Overture Maps · Rain: Open-Meteo · River flow: GloFAS · Gauges: JPS · Boundaries: geoBoundaries</p>
 
     <div id="legend" class="ui" aria-hidden="true">
@@ -78,6 +73,7 @@
     </div>
 
     <section id="landing" class="card ui" aria-labelledby="ask-title">
+      <div class="place-kicker">Kelantan, Malaysia</div>
       <h1 id="ask-title" data-copy="askTitle"></h1>
       <p class="sub" data-copy="askSub"></p>
       <form id="place-form" autocomplete="off">
@@ -86,6 +82,7 @@
       <div id="suggestions" class="suggestions"></div>
       <button id="btn-locate" class="btn btn-ghost" type="button">📍 <span data-copy="useLocation"></span></button>
       <p id="landing-note" class="note" role="status"></p>
+      <p id="caption-fact" class="fact"></p>
       <p class="footer" data-copy="footer"></p>
     </section>
 

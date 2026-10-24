@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { GeoFrame } from '../geo/region';
-import { cellLngLat, type Heightmap } from '../terrain/heightmap';
+import type { GeoFrame, LngLat } from '../geo/region';
+import { cellLngLat, gridCoords, sampleField, type Heightmap } from '../terrain/heightmap';
 import type { Hydrology } from '../terrain/hydrology';
 import { FOG, THEME } from '../theme';
 
@@ -52,6 +52,7 @@ varying vec2 vUv;
 varying vec3 vNormalW;
 varying vec3 vWorld;
 varying float vViewDist;
+uniform sampler2D uMask;
 
 // Anti-aliased grid line of period p (world km), width w (px).
 float gridLine(vec2 p, float period, float w) {
@@ -61,6 +62,8 @@ float gridLine(vec2 p, float period, float w) {
 }
 
 void main() {
+  // Only Kelantan: the state boundary, rasterised crisply into uMask.
+  if (texture2D(uMask, vUv).r < 0.5) discard;
   vec3 n = normalize(vNormalW);
   float diff = clamp(dot(n, uSunDir), 0.0, 1.0);
   // Off-white model surface; hill-shading in neutral greys so the relief reads.
@@ -103,7 +106,7 @@ export interface Focus {
 }
 
 /** Terrain slab: satellite imagery on the DEM, earthy sides, spotlight around the resident's home. */
-export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogColor: THREE.Color) {
+export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogColor: THREE.Color, mask: THREE.Texture, boundary: LngLat[]) {
   const { cols, rows } = hm;
   const n = cols * rows;
   const pos = new Float32Array(n * 3);
@@ -140,6 +143,7 @@ export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogC
     vertexShader,
     fragmentShader,
     uniforms: {
+      uMask: { value: mask },
       uDetail: { value: null as THREE.Texture | null },
       uDetailRect: { value: new THREE.Vector4(0, 0, 0, 0) },
       uDetailOn: { value: 0 },
@@ -165,7 +169,7 @@ export function createValley(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogC
   // Earthy sides down to a flat base, so the valley reads as a cut-out block.
   const group = new THREE.Group();
   group.add(surface);
-  const base = createSkirt(hm, frame, pos, 2.2);
+  const base = createBoundaryWall(hm, frame, boundary, 2.2);
   group.add(base);
 
   return {
@@ -231,4 +235,71 @@ export function createSkirt(hm: Heightmap, frame: GeoFrame, topPos: Float32Array
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+}
+
+/** Soil-coloured wall along the real state boundary, its top following the terrain. */
+export function createBoundaryWall(hm: Heightmap, frame: GeoFrame, ring: LngLat[], depth: number) {
+  const groundAt = (ll: LngLat) => {
+    const { gx, gy } = gridCoords(hm, ll);
+    const e = sampleField(hm, hm.elevM, gx, gy);
+    return Number.isNaN(e) ? 0 : Math.max(e, 0);
+  };
+  // Densify so the wall's top follows the relief (~0.4 km steps).
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    const steps = Math.max(1, Math.ceil(Math.hypot((b[0] - a[0]) * 111, (b[1] - a[1]) * 110.6) / 0.4));
+    for (let k = 0; k < steps; k++) {
+      const ll: LngLat = [a[0] + ((b[0] - a[0]) * k) / steps, a[1] + ((b[1] - a[1]) * k) / steps];
+      pts.push(frame.lngLatToWorld(ll, groundAt(ll)));
+    }
+  }
+  const verts: number[] = [];
+  const cols: number[] = [];
+  const top = new THREE.Color(0xe4e1db);
+  const bottom = new THREE.Color(0xcfcac2);
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    verts.push(a.x, a.y, a.z, a.x, -depth, a.z, b.x, b.y, b.z, b.x, b.y, b.z, a.x, -depth, a.z, b.x, -depth, b.z);
+    for (const c of [top, bottom, top, top, bottom, bottom]) cols.push(c.r, c.g, c.b);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+}
+
+/** Crisp mask of a lon/lat polygon over the heightmap's grid (uv-aligned, north at the top). */
+export function boundaryMask(hm: Heightmap, ring: LngLat[], px = 2048) {
+  const [minLon, minLat, maxLon, maxLat] = hm.bbox;
+  const W = px;
+  const H = Math.round((px * (maxLat - minLat)) / (maxLon - minLon));
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = '#fff';
+  g.beginPath();
+  ring.forEach(([lon, lat], k) => {
+    const x = ((lon - minLon) / (maxLon - minLon)) * W;
+    const y = ((maxLat - lat) / (maxLat - minLat)) * H;
+    if (k) g.lineTo(x, y);
+    else g.moveTo(x, y);
+  });
+  g.closePath();
+  g.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.NoColorSpace;
+  // Also return a per-cell inside test for filtering data (hotspots, labels).
+  const data = g.getImageData(0, 0, W, H).data;
+  const inside = (ll: LngLat) => {
+    const x = Math.floor(((ll[0] - minLon) / (maxLon - minLon)) * W);
+    const y = Math.floor(((maxLat - ll[1]) / (maxLat - minLat)) * H);
+    return x >= 0 && y >= 0 && x < W && y < H && data[(y * W + x) * 4] > 127;
+  };
+  return { texture: tex, inside };
 }
