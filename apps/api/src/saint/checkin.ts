@@ -23,7 +23,8 @@ export function parseCheckins(text: string): ParseResult {
   const checkins: Checkin[] = [];
   const errors: ParseResult["errors"] = [];
   for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.replace(/[*_`]/g, "").replace(/\s+/g, " ").trim(); // WhatsApp formatting marks
+    // WhatsApp formatting marks: * and ` anywhere, _ only at word edges (ids like "at_risk" keep theirs).
+    const line = rawLine.replace(/[*`]/g, "").replace(/(^|\s)_+/g, "$1").replace(/_+(?=\s|$)/g, "").replace(/\s+/g, " ").trim();
     const start = line.toUpperCase().indexOf("MW CHECKIN");
     if (start < 0) continue;
     const body = line.slice(start + "MW CHECKIN".length);
