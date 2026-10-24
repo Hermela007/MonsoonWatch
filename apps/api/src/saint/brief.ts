@@ -1,6 +1,6 @@
 // Builds the "Saint brief" the official sends to Thea on WhatsApp after approving an alert,
 // and the click-to-chat link that pre-fills it. Pure functions (no DB) so they're easy to test.
-import type { Alert, EvacCentre, Village } from "@monsoonwatch/shared";
+import type { Alert, AreaWarning, EvacCentre, Village } from "@monsoonwatch/shared";
 
 const LANG_LABEL: Record<string, string> = { ms: "BM", en: "EN" };
 
@@ -53,6 +53,49 @@ export function buildBrief(input: {
     ``,
     `Please: 1) WhatsApp this alert to the ketua kampung of ${villageName}; 2) when I ask, chase if there's no reply; 3) report back to me and end each report with this one line, filled in:`,
     `MW CHECKIN alert=${alert._id} centre=${centreName} people=<number> status=<acknowledged|moving|arrived>`,
+  ].join("\n");
+}
+
+/** Village names shown in a district brief; the rest are counted, to keep the WhatsApp link short. */
+export const AREA_BRIEF_MAX_VILLAGES = 15;
+const CATEGORY_LABEL: Record<string, string> = { bedridden: "bedridden", disabled: "disabled", elderly: "elderly", noTransport: "without transport" };
+
+/**
+ * Brief for a district-level warning (AreaWarning). There is no planned centre or route: officials
+ * arrange transport, so the leader reports which centre people went to and Thea fills centre= too.
+ */
+export function buildAreaBrief(input: { taskId: string; warning: AreaWarning; villageNames: string[] }): string {
+  const { taskId, warning: w, villageNames } = input;
+  const shown = villageNames.slice(0, AREA_BRIEF_MAX_VILLAGES);
+  const more = w.villageIds.length - shown.length;
+  const vulnerable = Object.entries(w.vulnerableByCategory ?? {})
+    .filter(([, n]) => n > 0)
+    .map(([c, n]) => `${n.toLocaleString("en-GB")} ${CATEGORY_LABEL[c] ?? c}`);
+  const approvedAt = w.approvedAt
+    ? new Date(w.approvedAt).toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur", dateStyle: "medium", timeStyle: "short" }) + " MYT"
+    : "time unknown";
+  const messages = [...w.messages]
+    .sort((a, b) => (a.lang === "ms" ? -1 : b.lang === "ms" ? 1 : 0))
+    .map((m) => `[${LANG_LABEL[m.lang] ?? m.lang.toUpperCase()}] ${m.text}`);
+  const what = w.kind === "evacuate" ? "DISTRICT EVACUATION WARNING" : "DISTRICT ADVISORY (be ready to move)";
+
+  return [
+    `MonsoonWatch: APPROVED ${what} (Saint task ${taskId})`,
+    `Warning: ${w._id}`,
+    `District: ${w.district}`,
+    `Hazard: ${w.hazard.toUpperCase()}, level ${w.level.toUpperCase()}`,
+    `Villages (${w.villageIds.length}): ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`,
+    `People: about ${w.people.toLocaleString("en-GB")} (estimated)`,
+    vulnerable.length ? `Vulnerable residents, pickups NOT planned (estimated): ${vulnerable.join(", ")}` : `Vulnerable residents: none recorded`,
+    `No centre or route is planned for this warning: officials arrange transport.`,
+    ...(w.evidence?.length ? [`Why: ${w.evidence.slice(0, 3).join("; ")}`] : []),
+    `Approved by ${w.approvedBy ?? "an official"} at ${approvedAt}`,
+    ``,
+    `Message for the ketua kampung of each village above:`,
+    ...messages,
+    ``,
+    `Please: 1) WhatsApp this warning to the ketua kampung you are cleared to contact; 2) when I ask, chase if there's no reply; 3) report back to me and end each report with this one line, filled in (centre = where the leader says people are going):`,
+    `MW CHECKIN alert=${w._id} centre=<centre name> people=<number> status=<acknowledged|moving|arrived>`,
   ].join("\n");
 }
 
