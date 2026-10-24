@@ -15,7 +15,7 @@ import type { EvacCentre, Pickup, Village } from "@monsoonwatch/shared";
 import { buildAndVerifyVillage, type BuiltVillage } from "./build-alerts";
 import { EXCLUDE, MAX_SNAP_KM } from "./evacuate";
 import { haversineKm } from "./geo";
-import { routesToNearestTargets, type RoadGraph, type RouteResult } from "./route";
+import { nearestNode, routesToNearestTargets, type RoadGraph, type RouteResult } from "./route";
 import type { AtRiskVillage, VillageGroup, VillagePlan } from "./schemas";
 import { LineIndex, type AlertLevel, type VillageRisk } from "./shortlist";
 import type { Situation } from "./situation";
@@ -237,6 +237,20 @@ export interface RulesContext {
   blocked: ReadonlySet<string>;
 }
 
+/** Free places at the centres Gemini would be shown (the GEMINI_CENTRES_SHOWN nearest not at risk, as in centresFor). */
+function geminiCeiling(s: Situation, v: Village, ledger: CapacityLedger): number {
+  return s.centres
+    .filter((c) => s.centreStatusById?.get(c._id) !== "at_risk")
+    .map((c) => ({ c, km: haversineKm(v.location.coordinates, c.location.coordinates) }))
+    .sort((a, b) => a.km - b.km)
+    .slice(0, GEMINI_CENTRES_SHOWN)
+    .reduce((n, x) => n + Math.max(0, ledger.free(x.c)), 0);
+}
+
+function notEnoughSpace(v: Village, ceiling: number, no: (to: "fallback", reason: FallbackReason, detail: string) => RulesResult): RulesResult {
+  return no("fallback", "not_enough_space", `${v.name}: ${v.population.toLocaleString()} people but only ${ceiling.toLocaleString()} free places at the ${GEMINI_CENTRES_SHOWN} nearest centres — area-wide warning (no plan could fit)`);
+}
+
 /** Plan one village by rules; on success its capacity is booked in the ledger. */
 export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: AtRiskVillage = claimFromScreen(risk, ctx.situation)): RulesResult {
   const { situation: s, graph, ledger } = ctx;
@@ -250,6 +264,21 @@ export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: 
 
   const candidates = s.centres.filter((c) => ctx.usable.has(c._id) && ledger.free(c) > 0);
   const byId = new Map(candidates.map((c) => [c._id, c]));
+  // Shortcut (same result, no routing): if even the maxGroups largest free centres within maxRouteKm
+  // in a straight line (an upper bound on what routing could reach) can't fit everyone, AND the
+  // centres Gemini would see can't either, the village goes to the area-wide fallback below anyway.
+  // Skips two 40 km graph searches for the big towns (most of the planner's time on real data).
+  const snap = nearestNode(graph, v.location.coordinates);
+  if (snap && snap.km <= MAX_SNAP_KM.car) {
+    const bound = candidates
+      .filter((c) => haversineKm(v.location.coordinates, c.location.coordinates) <= RULES.maxRouteKm)
+      .map((c) => ledger.free(c))
+      .sort((a, b) => b - a)
+      .slice(0, RULES.maxGroups)
+      .reduce((n, x) => n + x, 0);
+    const ceiling = geminiCeiling(s, v, ledger);
+    if (v.population > bound && v.population > ceiling) return notEnoughSpace(v, ceiling, no);
+  }
   const { startSnapKm, reached } = routesToNearestTargets(graph, ctx.blocked, v.location.coordinates,
     candidates.map((c) => ({ id: c._id, lngLat: c.location.coordinates })), {
       maxKm: RULES.maxRouteKm,
@@ -291,15 +320,8 @@ export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: 
   if (left > 0) {
     // More people than free places at what Gemini could use (the GEMINI_CENTRES_SHOWN nearest centres it is shown) →
     // no Gemini attempt can pass the capacity check: area-wide warning straight away.
-    const ceiling = s.centres
-      .filter((c) => s.centreStatusById?.get(c._id) !== "at_risk") // same list Gemini gets (centresFor)
-      .map((c) => ({ c, km: haversineKm(v.location.coordinates, c.location.coordinates) }))
-      .sort((a, b) => a.km - b.km)
-      .slice(0, GEMINI_CENTRES_SHOWN)
-      .reduce((n, x) => n + Math.max(0, ledger.free(x.c)), 0);
-    if (v.population > ceiling) {
-      return no("fallback", "not_enough_space", `${v.name}: ${v.population.toLocaleString()} people but only ${ceiling.toLocaleString()} free places at the ${GEMINI_CENTRES_SHOWN} nearest centres — area-wide warning (no plan could fit)`);
-    }
+    const ceiling = geminiCeiling(s, v, ledger);
+    if (v.population > ceiling) return notEnoughSpace(v, ceiling, no);
     if (groups.length === 0) {
       const anyNear = candidates.some((c) => haversineKm(v.location.coordinates, c.location.coordinates) <= RULES.maxRouteKm);
       return anyNear
@@ -344,6 +366,27 @@ export function planAllByRules(ctx: Omit<RulesContext, "usable" | "blocked" | "l
     blocked: new Set(ctx.situation.hazards.blockedRoadIds),
   };
   const results = atRisk.map((r) => planVillageByRules(full, r, claims.get(r.village._id)));
+  const count = (st: string) => [...status.values()].filter((x) => x === st).length;
+  return { results, ledger: full.ledger, centresAtRisk: count("at_risk"), centresUnknown: count("unknown"), centreStatusSource: ctx.situation.centreStatusById ? "C's flood model" : "B stand-in" };
+}
+
+/**
+ * Same as planAllByRules, but yields to the event loop between villages so the API (SSE, HUD,
+ * other requests) stays responsive while a run plans hundreds of villages. Same results.
+ */
+export async function planAllByRulesAsync(ctx: Omit<RulesContext, "usable" | "blocked" | "ledger"> & { ledger?: CapacityLedger }, atRisk: VillageRisk[], claims = new Map<string, AtRiskVillage>()) {
+  const status = centreStatus(ctx.situation);
+  const full: RulesContext = {
+    ...ctx,
+    ledger: ctx.ledger ?? new CapacityLedger(ctx.situation.centres),
+    usable: new Set([...status].filter(([, st]) => st === "usable").map(([id]) => id)),
+    blocked: new Set(ctx.situation.hazards.blockedRoadIds),
+  };
+  const results: RulesResult[] = [];
+  for (const r of atRisk) {
+    results.push(planVillageByRules(full, r, claims.get(r.village._id)));
+    await new Promise<void>((done) => setImmediate(done));
+  }
   const count = (st: string) => [...status.values()].filter((x) => x === st).length;
   return { results, ledger: full.ledger, centresAtRisk: count("at_risk"), centresUnknown: count("unknown"), centreStatusSource: ctx.situation.centreStatusById ? "C's flood model" : "B stand-in" };
 }
