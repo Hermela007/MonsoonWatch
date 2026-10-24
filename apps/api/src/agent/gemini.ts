@@ -51,9 +51,13 @@ export interface InteractOptions {
   tools?: FunctionTool[];
   /** Plain JSON Schema for structured output (use interactJson for zod validation). */
   responseJsonSchema?: Record<string, unknown>;
+  /** TTS: return audio (WAV by default) spoken by this prebuilt voice, e.g. "Charon". */
+  audioVoice?: string;
   previousInteractionId?: string;
   /** Required for agents; use for outputs > 65,536 tokens. Polls until done. */
   background?: boolean;
+  /** Agent settings, e.g. Deep Research: { type: "deep-research", visualization: "off", ... }. */
+  agentConfig?: Record<string, unknown>;
 }
 
 export interface InteractResult {
@@ -61,6 +65,8 @@ export interface InteractResult {
   text: string | null;
   functionCalls: FunctionCall[];
   usage: { inputTokens?: number; outputTokens?: number; thoughtTokens?: number; totalTokens?: number };
+  /** Base64 audio when audioVoice was set (unary TTS defaults to audio/wav with a RIFF header). */
+  audio: { data: string; mimeType?: string } | null;
   latencyMs: number;
   raw: GoogleGenAIInteraction;
 }
@@ -68,6 +74,7 @@ export interface InteractResult {
 const FORBIDDEN_CONFIG_KEYS = ["temperature", "top_p", "top_k", "thinking_budget", "cached_content"];
 const BACKGROUND_POLL_MS = 5_000;
 const BACKGROUND_TIMEOUT_MS = 20 * 60_000;
+const AGENT_TIMEOUT_MS = 60 * 60_000; // Deep Research: "most within 20 minutes", max 60
 
 let client: GoogleGenAI | null = null;
 
@@ -100,8 +107,14 @@ function buildParams(opts: InteractOptions): Record<string, unknown> {
   if (opts.tools?.length) params.tools = opts.tools;
   if (opts.previousInteractionId) params.previous_interaction_id = opts.previousInteractionId;
   if (opts.background || opts.agent) params.background = true;
+  if (opts.agentConfig) params.agent_config = opts.agentConfig;
 
   if (opts.thinkingLevel) params.generation_config = { thinking_level: opts.thinkingLevel };
+  if (opts.audioVoice) {
+    // Speech generation docs: response_format { type: "audio" } + generation_config.speech_config.
+    params.response_format = { type: "audio" };
+    params.generation_config = { ...((params.generation_config as object) ?? {}), speech_config: [{ voice: opts.audioVoice }] };
+  }
 
   if (opts.responseJsonSchema) {
     params.response_format = { type: "text", mime_type: "application/json", schema: opts.responseJsonSchema };
@@ -114,8 +127,8 @@ function buildParams(opts: InteractOptions): Record<string, unknown> {
   return params;
 }
 
-async function waitForBackground(id: string): Promise<GoogleGenAIInteraction> {
-  const deadline = Date.now() + BACKGROUND_TIMEOUT_MS;
+async function waitForBackground(id: string, timeoutMs = BACKGROUND_TIMEOUT_MS): Promise<GoogleGenAIInteraction> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const it = await getClient().interactions.get(id);
     if (it.status === "completed") return it;
@@ -155,7 +168,7 @@ export async function interact(opts: InteractOptions): Promise<InteractResult> {
     let it = opts.agent
       ? await interactions.create(params as AgentCreateParams)
       : await interactions.create(params as CreateParams);
-    if (params.background && it.status !== "completed") it = await waitForBackground(it.id);
+    if (params.background && it.status !== "completed") it = await waitForBackground(it.id, opts.agent ? AGENT_TIMEOUT_MS : BACKGROUND_TIMEOUT_MS);
 
     const u = it.usage;
     const usage = {
@@ -170,6 +183,7 @@ export async function interact(opts: InteractOptions): Promise<InteractResult> {
       id: it.id,
       text: it.output_text ?? null,
       functionCalls: extractFunctionCalls(it),
+      audio: it.output_audio?.data ? { data: it.output_audio.data, mimeType: it.output_audio.mime_type } : null,
       usage,
       latencyMs: Date.now() - startedAt,
       raw: it,

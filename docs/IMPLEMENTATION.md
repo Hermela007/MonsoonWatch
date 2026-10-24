@@ -410,13 +410,15 @@ Two real Atlas Stream Processing processors, defined in **`apps/api/src/db/strea
 - Landslide: hook `setLandslideProvider(fn)` for B's `computeLandslide`; empty until registered.
 
 ### C7. Search features (Sat PM) — each needs a UI moment with A
+**Built** — code in [`apps/api/src/search/`](../apps/api/src/search/), routes in [`routes/search.ts`](../apps/api/src/routes/search.ts). `searchPlaces(q, { limit, runId })` and `searchKnowledge(q, { limit, runId })` are exported for in-process use (B's agent). Every call writes Tech HUD steps to `agent_steps` (runId `search-<8 hex>`, or the caller's `runId`) → `agent.step` on `/api/stream`. 400 for `q` < 2 chars, unknown `type` or bad `limit`.
+
 | Feature | Implementation |
 |---|---|
-| Atlas Search | `villages`/`stations` index with `autocomplete` + `fuzzy` on `name`, `altNames` → `/search?type=place` |
-| Automated Embedding | Configure on `knowledge.chunk` (confirm current setup with MongoDB docs/booth). No manual embedding code path. |
-| Vector Search | *Proposed (C to confirm):* `knowledge` vector index — semantic search used by B's `searchKnowledge` and the district panel |
-| Hybrid Search | `$rankFusion` of `$vectorSearch` + `$search` over `knowledge` → `/search?type=hybrid` |
-| Voyage AI | Multilingual text embeddings; **rerank** hybrid results before returning (and before B passes them to Gemini) |
+| Atlas Search | `GET /api/search?q=&type=place[&limit=8]` → [`search/places.ts`](../apps/api/src/search/places.ts). `$search` on the `places` index of `villages` ([def](../apps/api/src/db/indexes/places.villages.json)) and `stations` ([def](../apps/api/src/db/indexes/places.stations.json)) in parallel: `compound` with `filter` regionId + `should` autocomplete (boost 2) and fuzzy `text` (maxEdits 1, prefixLength 1) on `name` (+ `altNames` at half weight for villages), merged by `searchScore`. HUD: "MongoDB Atlas Search". Warm p95 ≈ 70 ms. |
+| Automated Embedding | `knowledge_vec` ([def](../apps/api/src/db/indexes/knowledge_vec.json)) is an `autoEmbed` index (Voyage `voyage-4`) on `knowledge.chunk`: Atlas embeds on insert and embeds the query text. No embedding code in the repo. |
+| Vector Search | autoEmbed `$vectorSearch` is the vector half of hybrid search, and on its own in `GET /api/knowledge/:id/similar[?limit=5]` → `{ id, title, hits }` (passages closest in meaning, `vectorSearchScore`). HUD: "MongoDB Vector Search". |
+| Hybrid Search | `GET /api/search?q=&type=hybrid[&limit=5]` → [`search/knowledge.ts`](../apps/api/src/search/knowledge.ts). `$rankFusion` (weights vector 0.6 / text 0.4, `scoreDetails`) of `$vectorSearch` + `$search` (`knowledge_text`, [def](../apps/api/src/db/indexes/knowledge_text.json)) over `knowledge`, top 20. HUD: "MongoDB Hybrid Search" — "Fused N vector + text results". |
+| Voyage AI | Embeddings via automated embedding (above). **Rerank:** MongoDB native `$rerank` (model `rerank-2.5`, multilingual) on the 20 fused ids as a second query, `maxTimeMS` 3 s; hits keep `rankBeforeRerank` (fused position) for the before/after view. HUD: "Voyage rerank" — "Reranked 20 → 5". If `$rerank` fails or times out the fused order is returned with `reranked: false`, a warning is logged and the HUD step is `fail`; the request never fails. Needs the Native Reranking project setting (enabled). E.g. "jalan ditutup Kuala Krai": fused #7, #4, #8, #5, #2 → reranked 1–5. Warm p95 ≈ 510 ms for the whole hybrid request (fusion ≈ 200–270 ms + rerank ≈ 190–570 ms). |
 | Geospatial | `$geoNear` nearest centre; `$geoWithin` villages in flood/runout areas |
 - Seed `knowledge`: chunk 2014 flood post-mortems / district plans (public PDFs) + B's Deep Research briefs.
 - Ask the MongoDB booth about **Agent Engine** and **AI Model APIs** in the Atlas sidebar; adopt if quick.

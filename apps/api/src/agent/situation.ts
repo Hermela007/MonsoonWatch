@@ -16,6 +16,8 @@ export interface Situation {
   knowledge: KnowledgeChunk[];
   /** GloFAS main-channel cells (discharge m³/s, reconstructed) — the river evidence in the 2014 replay. */
   glofas?: { id: string; label: string; lngLat: LngLat; latest: Reading | null }[];
+  /** Caveats from the hazard models (approximate flood model, screening landslide model). */
+  hazardNotes?: string[];
   /** True for the sample scenario: shown in HUD summaries so test output is never mistaken for real. */
   isTestData: boolean;
 }
@@ -41,6 +43,7 @@ export function situationForPrompt(s: Situation) {
       note: "Reconstructed GloFAS discharge (m³/s), not a water level; thresholds approximate",
     })),
     floodedRoadSegments: s.hazards.blockedRoadIds.length,
+    hazardNotes: s.hazardNotes ?? [],
     landslideRunouts: s.hazards.landslide.runouts.length,
     knowledge: s.knowledge.map((k) => ({ title: k.title, kind: k.kind, sourceUrl: k.sourceUrl, text: k.chunk })),
   };
