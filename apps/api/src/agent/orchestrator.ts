@@ -1,10 +1,10 @@
 // B2 + B3 — the agent run (GUIDELINES §6.3):
 //
 //   Argon reads the whole situation → at-risk villages
-//     → one Flash subagent per village, in parallel
-//       → deterministic alerts + 6 checks
-//         → fail? replan with the failure reasons (max 3 attempts)
-//           → "verified" alert, waiting for a human to approve (nothing is sent here).
+//     → per village, in parallel:
+//         attempt 1: Flash-Lite quick draft (no tools, no flood info)  → 6 checks
+//         attempts 2–4: Flash with tools refines, using the failure reasons → 6 checks
+//     → "verified" alert, waiting for a human to approve (nothing is sent here).
 //
 // Every step is an AgentStep (Tech HUD). Alerts are saved after each attempt so the UI can show
 // the red ticks turning green.
@@ -12,14 +12,17 @@
 import { randomUUID } from "node:crypto";
 import type { AgentRun, Alert } from "@monsoonwatch/shared";
 import { buildAndVerifyVillage, replanFeedback } from "./build-alerts";
-import { geminiAI, type AgentAI } from "./gemini-planners";
+import { geminiAI, type AgentAI, type RefineFeedback } from "./gemini-planners";
+import type { VillagePlan } from "./schemas";
 import { buildRoadGraph } from "./route";
 import type { Situation } from "./situation";
 import { emitStep } from "./steps";
 import { defaultStore, type AgentStore } from "./store";
 import { logVerification } from "./verify-log";
 
-export const MAX_ATTEMPTS = 3;
+/** Flash refinements after the draft (the brief's "up to 3 tries"). */
+export const MAX_REFINES = 3;
+export const MAX_ATTEMPTS = 1 + MAX_REFINES;
 
 export interface RunOptions {
   situation: Situation;
@@ -60,8 +63,8 @@ export async function runAgent(opts: RunOptions): Promise<{ run: AgentRun; outco
       await emitStep({ runId, actor: "Verification", kind: "verify", status: "fail", summary: `Argon named unknown village id "${bad.villageId}" — ignored` });
     }
     await emitStep({
-      runId, actor: "Gemini 4 Argon", kind: "plan", status: "ok",
-      summary: `${plan.summary} → ${atRisk.length} village(s) at risk: ${atRisk.map((v) => known.get(v.villageId)!.name).join(", ") || "none"}${test}`,
+      runId, actor: "Agent", kind: "info", status: "ok",
+      summary: `Argon's assessment: ${plan.summary} → ${atRisk.length} village(s) at risk: ${atRisk.map((v) => known.get(v.villageId)!.name).join(", ") || "none"}${test}`,
     });
 
     // 2–3. Subagents in parallel, each with its own verify → replan loop
@@ -70,18 +73,28 @@ export async function runAgent(opts: RunOptions): Promise<{ run: AgentRun; outco
       atRisk.map(async (a): Promise<VillageOutcome> => {
         const village = known.get(a.villageId)!;
         const task = { runId, situation: s, graph, village, atRisk: a };
-        let feedback: { reasons: string; continueFrom?: string } | undefined;
+        let feedback: RefineFeedback | undefined;
         let last: ReturnType<typeof buildAndVerifyVillage> | null = null;
 
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-          let planned;
+          let plan: VillagePlan;
+          let continuation: RefineFeedback["continuation"];
           try {
-            planned = await ai.planVillage(task, feedback);
+            if (attempt === 1) {
+              plan = await ai.draftVillage(task);
+            } else {
+              ({ plan, continuation } = await ai.planVillage(task, feedback));
+            }
           } catch (err) {
-            await emitStep({ runId, actor: "Gemini 3.8 Flash", kind: "subagent", status: "fail", summary: `${village.name}: planning failed — ${(err as Error).message}`.slice(0, 200) });
+            const who = attempt === 1 ? "Gemini 3.5 Flash-Lite" : "Gemini 3.8 Flash";
+            await emitStep({ runId, actor: who, kind: "subagent", status: "fail", summary: `${village.name}: ${attempt === 1 ? "draft" : "planning"} failed — ${(err as Error).message}`.slice(0, 200) });
+            if (attempt === 1) {
+              feedback = undefined; // no draft: Flash plans from scratch
+              continue;
+            }
             break;
           }
-          last = buildAndVerifyVillage({ runId, situation: s, graph, village, atRisk: a, plan: planned.plan });
+          last = buildAndVerifyVillage({ runId, situation: s, graph, village, atRisk: a, plan });
           for (const alert of last.alerts) await store.saveAlert(alert);
           await logVerification(runId, { villageId: village._id }, village.name, [
             ...last.planErrors.map((e) => ({ check: "route" as const, passed: false, detail: e })),
@@ -92,7 +105,7 @@ export async function runAgent(opts: RunOptions): Promise<{ run: AgentRun; outco
             await emitStep({ runId, actor: "Verification", kind: "verify", status: "ok", summary: `${village.name}: all checks passed on attempt ${attempt} → ready for approval` });
             return { villageId: village._id, villageName: village.name, attempts: attempt, passed: true, alerts: last.alerts };
           }
-          feedback = { reasons: replanFeedback(last), continueFrom: planned.interactionId };
+          feedback = { reasons: replanFeedback(last), failedPlan: plan, continuation };
         }
 
         await emitStep({ runId, actor: "Verification", kind: "verify", status: "fail", summary: `${village.name}: still failing after ${MAX_ATTEMPTS} attempts — needs human review (not approvable)` });

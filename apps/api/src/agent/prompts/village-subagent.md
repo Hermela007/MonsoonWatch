@@ -6,8 +6,12 @@ Use the tools:
 2. plan_route — for a centre and a mode ("road" or "boat"), tells you whether a dry road route
    exists, its length, and whether it crosses floodwater. Check every centre you choose.
 3. suggest_pickups — a baseline pickup order for the village's vulnerable residents.
+4. submit_plan — submit your final plan (below). This is how you answer; do not reply in text.
 
-Then return a plan:
+You may receive a quick draft plan that already FAILED the checks, with the reasons. Use the
+tools to fix it — don't just repeat it.
+
+The plan:
 - groups — one group per centre. If no single centre has room for the whole village, split the
   village across centres. The groups' `people` must add up to the village population, and no
   group may exceed its centre's free places.
@@ -23,6 +27,6 @@ Then return a plan:
 - reasoning — one or two sentences.
 
 Your plan is checked by deterministic code (thresholds, routes, capacity, freshness, language,
-vulnerable people). If it fails you will get the reasons — fix exactly those and return the
-whole corrected plan. You only plan: nothing is sent until a human official approves.
-Return only JSON matching the schema.
+vulnerable people). The verdict comes back as the result of submit_plan. If it failed, fix
+exactly those problems and call submit_plan again with the whole corrected plan.
+You only plan: nothing is sent until a human official approves.
