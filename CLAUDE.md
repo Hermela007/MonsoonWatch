@@ -14,7 +14,7 @@ MonsoonWatch is a 3D early-warning system for monsoon regions (landslides upstre
 ## Workstream ownership
 Ask the human which workstream they own before large changes, and stay inside it:
 - **A — 3D & Frontend:** `apps/web/**`
-- **B — Agent & Gemini:** `apps/api/src/agent/**`, `apps/api/src/routes/agent*`, `apps/api/src/routes/alerts*`, `apps/api/src/routes/voice*`
+- **B — Agent & Gemini:** `apps/api/src/agent/**`, `apps/api/src/routes/agent*`, `apps/api/src/routes/alerts*`, `apps/api/src/routes/voice*`, `apps/api/src/routes/evacuation-route*` (agreed with C, 24 Oct)
 - **C — Data, MongoDB & Saint:** `apps/api/src/db/**`, `apps/api/src/routes/**` (others), `scripts/**`, `docs/**`, `README.md`
 - **Shared (needs all three to agree):** `packages/shared/**` — do not edit types, event names or fixtures without being told the team agreed. If you change a contract, update the fixtures in the same change.
 

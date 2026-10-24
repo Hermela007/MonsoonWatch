@@ -173,6 +173,7 @@ export interface Hazards {            // what the 3D scene draws for a given tim
 | `GET /search?q&type=hybrid` | C | Hybrid + reranked results |
 | ~~`GET /reports/:id/similar`~~ · ~~`POST /reports`~~ | — | Dropped with photo/video uploads (§1.7) |
 | `POST /replay/start` `{regionId, secondsPerDay?, from?}` / `POST /replay/stop` / `GET /replay/status` | C | 202 / 202 / `{ running, replayId?, ts?, secondsPerDay?, … }` |
+| `GET /regions/:id/evacuation-route?lng&lat&travel&mode&ts&centreId&people` | B | `EvacuationRoute` (`packages/shared/src/routing.ts`; fixtures `evacuation-route.*.json`). Deterministic, no Gemini; same routing as the agent |
 | `POST /agent/run` `{regionId, riskEventId?}` | B | `{runId}` (also auto-triggered by risk events) |
 | `GET /agent/runs/:id` | B | steps + alerts |
 | `POST /alerts/:id/approve` · `/reject` | B (A calls it) | `Alert` |

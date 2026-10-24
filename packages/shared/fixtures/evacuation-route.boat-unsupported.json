@@ -1,0 +1,54 @@
+{
+  "status": "no_route",
+  "reason": "unsupported_mode",
+  "message": "[TEST DATA] Boat routing is not available: there is no navigable-water data, so no boat route is claimed. Officials coordinate rescue boats.",
+  "query": {
+    "regionId": "kelantan",
+    "travel": "boat",
+    "mode": "replay",
+    "ts": "2014-12-24T04:00:00.000Z",
+    "centreId": null,
+    "people": 4
+  },
+  "generatedAt": "2026-10-24T15:00:00.000Z",
+  "version": "kelantan:replay:2014-12-24T04:00:00.000Z:roads-84596",
+  "origin": {
+    "requested": [
+      102.2003,
+      5.3004
+    ],
+    "snapped": null,
+    "snapDistanceM": null
+  },
+  "centre": null,
+  "geometry": null,
+  "distanceM": null,
+  "durationSeconds": null,
+  "durationBasis": null,
+  "steps": [],
+  "hazards": {
+    "status": "unknown",
+    "assessedAt": null,
+    "source": null,
+    "crossesFlood": null,
+    "segments": {
+      "flooded": 0,
+      "clear": 0,
+      "outsideFloodplain": 0,
+      "unknown": 0
+    },
+    "floodedSegmentsAvoided": null,
+    "detourM": null,
+    "landslideRunoutsCrossed": null,
+    "confirmedClosures": {
+      "available": false,
+      "source": null
+    },
+    "notes": []
+  },
+  "alternatives": [],
+  "sources": [],
+  "limitations": [
+    "Boat routing needs navigable-water data, which MonsoonWatch does not have."
+  ]
+}
