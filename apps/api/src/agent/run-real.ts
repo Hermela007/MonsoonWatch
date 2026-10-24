@@ -9,7 +9,7 @@ import { env } from "../env";
 import { runAgent } from "./orchestrator";
 import { loadSituationFromDb } from "./situation-db";
 import { getMemorySteps } from "./steps";
-import { situationForPrompt } from "./situation";
+import { shortlistForArgon, shortlistSummary, situationForPrompt } from "./situation";
 import { MAX_VILLAGES_PER_RUN } from "./orchestrator";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
@@ -20,10 +20,22 @@ const runId = `real-${mode}-${Date.now()}`;
 try {
   const situation = await loadSituationFromDb(arg("region") ?? env.regionId, { mode, at });
   if (process.argv.includes("--dry-run")) {
-    const chars = JSON.stringify(situationForPrompt(situation)).length;
-    const argonIn = Math.round(chars / 4); // rough: ~4 characters per token
+    const tokens = (v: unknown) => Math.round(JSON.stringify(v ?? null).length / 4); // rough: ~4 characters per token
+    const full = situationForPrompt(situation, { full: true });
+    const shortlist = shortlistForArgon(situation);
+    const sent = situationForPrompt(situation, { shortlist });
+    const SECTIONS = ["villages", "evacCentres", "stations", "knowledge", "glofasCells", "riskEvents"] as const;
+    const count = (v: unknown) => (Array.isArray(v) ? v.length : "");
+    const rows: Record<string, { allItems: number | string; allTokens: number; sentItems: number | string; sentTokens: number }> = {};
+    for (const k of SECTIONS) rows[k] = { allItems: count(full[k]), allTokens: tokens(full[k]), sentItems: count(sent[k]), sentTokens: tokens(sent[k]) };
+    const rest = (o: Record<string, unknown>) => tokens(Object.fromEntries(Object.entries(o).filter(([k]) => !(SECTIONS as readonly string[]).includes(k))));
+    rows.other = { allItems: "", allTokens: rest(full), sentItems: "", sentTokens: rest(sent) };
+    rows.TOTAL = { allItems: "", allTokens: tokens(full), sentItems: "", sentTokens: tokens(sent) };
     console.log(`DRY RUN (no Gemini calls) · ${mode} @ ${at.toISOString()}`);
-    console.log(`Argon input ≈ ${argonIn.toLocaleString()} tokens (${situation.villages.length} villages, ${situation.centres.length} centres, ${situation.stations.length} stations, ${situation.knowledge.length} knowledge chunks)`);
+    console.log("Argon input by section (≈ tokens, 4 chars/token) — all data vs. what the shortlist sends:");
+    console.table(rows);
+    console.log(shortlistSummary(shortlist));
+    console.log(`Argon input ≈ ${tokens(sent).toLocaleString()} tokens (was ≈ ${tokens(full).toLocaleString()} without the shortlist)`);
     console.log(`Then up to ${MAX_VILLAGES_PER_RUN} villages × (1 Flash-Lite draft + ~3–6 Flash turns of ~1–2k tokens each).`);
     process.exit(0);
   }

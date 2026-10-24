@@ -13,6 +13,23 @@ export function haversineKm(a: LngLat, b: LngLat): number {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
 
+/** Shortest distance from `p` to the polyline `line`, km (local equirectangular projection). */
+export function pointToLineKm(p: LngLat, line: LngLat[]): number {
+  if (line.length === 1) return haversineKm(p, line[0]!);
+  const kx = 111.32 * Math.cos((p[1] * Math.PI) / 180);
+  const ky = 110.57;
+  let best = Infinity;
+  for (let i = 0; i < line.length - 1; i++) {
+    const ax = (line[i]![0] - p[0]) * kx, ay = (line[i]![1] - p[1]) * ky;
+    const bx = (line[i + 1]![0] - p[0]) * kx, by = (line[i + 1]![1] - p[1]) * ky;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2));
+    best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+  }
+  return best;
+}
+
 function orient(p: LngLat, q: LngLat, r: LngLat): number {
   const v = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]);
   return Math.abs(v) < 1e-12 ? 0 : v > 0 ? 1 : 2;

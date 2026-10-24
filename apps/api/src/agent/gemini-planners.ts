@@ -17,7 +17,8 @@ import { haversineKm } from "./geo";
 import { MODELS } from "./models";
 import { planRoute, type RoadGraph, type RouteMode } from "./route";
 import { OrchestratorPlanSchema, VillagePlanSchema, type AtRiskVillage, type OrchestratorPlan, type VillagePlan } from "./schemas";
-import { situationForPrompt, type Situation } from "./situation";
+import { shortlistForArgon, shortlistSummary, situationForPrompt, type Situation } from "./situation";
+import { emitStep } from "./steps";
 import { runWithTools, submitResult, type AgentTool, type ToolLoopResult } from "./tool-loop";
 import { suggestPickups } from "./vulnerable";
 
@@ -155,14 +156,17 @@ function villageTools(task: VillageTask): AgentTool[] {
 
 export const geminiAI: AgentAI = {
   async planSituation(runId, situation) {
+    // Argon sees a deterministic shortlist; the checks still use the full Situation.
+    const shortlist = shortlistForArgon(situation);
+    await emitStep({ runId, actor: "Agent", kind: "info", status: "ok", summary: `${shortlistSummary(shortlist)}${tag(situation)}`.slice(0, 300) });
     const { data } = await interactJson({
       runId,
       model: MODELS.argon,
       thinkingLevel: "high",
       kind: "plan",
-      summary: `Orchestrating ${situation.villages.length} villages, ${situation.riskEvents.length} risk events${tag(situation)}`,
+      summary: `Orchestrating ${shortlist.villages.length} shortlisted villages (of ${situation.villages.length}), ${situation.riskEvents.length} risk events${tag(situation)}`,
       systemInstruction: prompt("orchestrator"),
-      input: JSON.stringify(situationForPrompt(situation)),
+      input: JSON.stringify(situationForPrompt(situation, { shortlist })),
       schema: OrchestratorPlanSchema,
     });
     return data;
