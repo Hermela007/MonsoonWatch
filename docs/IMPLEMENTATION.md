@@ -16,7 +16,7 @@ Three rules make this work:
 | Workstream | Owner | Provides to others | Consumes from others |
 |---|---|---|---|
 | **A — 3D & Frontend** | Person A | The UI: control room, approval buttons, Tech HUD, resident page | API routes + live events from B and C |
-| **B — Agent & Gemini** | Person B | Agent runs, alerts, verification results, vulnerable-people pickup plans, voice | Readings, risk events, villages, centres, search from C |
+| **B — Agent & Gemini** | Person B | Agent runs, alerts, verification results, vulnerable-people pickup plans, landslide screening, spoken alert, evacuation routing | Readings, risk events, villages, centres, search from C |
 | **C — Data, MongoDB & Saint** | Person C | All data, DB, search, stream processing, live events, Saint handoff, README/videos | Alert approvals from A, agent outputs from B |
 
 ---
@@ -174,10 +174,11 @@ export interface Hazards {            // what the 3D scene draws for a given tim
 | ~~`GET /reports/:id/similar`~~ · ~~`POST /reports`~~ | — | Dropped with photo/video uploads (§1.7) |
 | `POST /replay/start` `{regionId, secondsPerDay?, from?}` / `POST /replay/stop` / `GET /replay/status` | C | 202 / 202 / `{ running, replayId?, ts?, secondsPerDay?, … }` |
 | `GET /regions/:id/evacuation-route?lng&lat&travel&mode&ts&centreId&people` | B | `EvacuationRoute` (`packages/shared/src/routing.ts`; fixtures `evacuation-route.*.json`). Deterministic, no Gemini; same routing as the agent |
-| `POST /agent/run` `{regionId, riskEventId?}` | B | `{runId}` (also auto-triggered by risk events) |
+| `POST /agent/run` `{regionId?, riskEventId?, source?: "sample"\|"db", mode?, at?}` | B | `{runId}` (202; also auto-triggered by Stream Processing risk events; blocked when `PUBLIC_DEMO=1`) |
 | `GET /agent/runs/:id` | B | steps + alerts |
 | `POST /alerts/:id/approve` · `/reject` | B (A calls it) | `Alert` |
-| `POST /voice/session` | B | Live API session config/token for the browser |
+| `GET /alerts/:id/audio/:lang` | B | `audio/wav` spoken alert (Gemini TTS, generated after approval; 404 until ready) |
+| ~~`POST /voice/session`~~ | — | Dropped with Live voice (24 Oct) |
 | `POST /saint/updates` | C | 204 (for Saint or the shared-sheet sync) |
 | `GET /stream` | C | **Server-Sent Events** (below) |
 
@@ -199,7 +200,7 @@ Producers: C emits from MongoDB **change streams**; B emits `agent.step` / `aler
 ### 1.5 Fixtures (`packages/shared/fixtures/`)
 Each owner commits realistic fixtures for what they provide, in the first 2 hours:
 - C: `region.kelantan.json`, `stations.json`, `readings.sample.json`, `villages.json`, `evac-centres.json`, `geo.json` (small), `hazards.sample.json`.
-- B: `agent-run.sample.json` (steps incl. one **fail → replan → pass**, the `vulnerable` check), `alerts.sample.json` (with `pickups`).
+- B: `evacuation-route.{ok,all-routes-flooded,boat-unsupported}.json` (done, schema-checked). Still to add: `agent-run.sample.json`, `alerts.sample.json` (can be generated from the scripted orchestrator test, no Gemini).
 - A: none needed (consumer), but owns `apps/web/src/mock/` that replays fixtures as fake SSE.
 
 `MOCK=1` makes the API serve fixtures and emit a scripted SSE sequence (C builds this in ~30 min; it is the most valuable 30 minutes of the weekend).
@@ -232,6 +233,18 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 | 5 | **Video A 1:40–2:10** becomes the vulnerable-people beat (see GUIDELINES §9). | Old beat used resident video. | C (video), A (`?demo=1` preset). |
 
 ---
+
+### 1.8 Decisions (Sat 24 Oct)
+| # | Decision | Where |
+|---|---|---|
+| 1 | §1.7 agreed and merged: photo/video uploads dropped; vulnerable-people priority (`Village.vulnerable`, `Alert.pickups`, check `vulnerable`). | `types.ts`, `agent/vulnerable.ts` |
+| 2 | Gemini ↔ Saint boundary: Gemini works before approval (sense, predict, plan, verify, draft); Saint after approval (people, messages, logistics). | GUIDELINES §6.5 |
+| 3 | Gemini 3.8 Live voice Q&A dropped; spoken alert (TTS) after approval instead. Antigravity + Nano Banana not used. | GUIDELINES §6.2 |
+| 4 | Landslide thresholds = Deep Research **option A** (mixed windows, each level checked on its own window; caveats shown). | `agent/research/output/` |
+| 5 | Verification loop = Flash-Lite draft → checks → Flash refine (≤ 3); ≤ 6 villages per run. | `agent/orchestrator.ts` |
+| 6 | Replay flood evidence = C's gauge levels reconstructed from GloFAS, labelled approximate. | `agent/situation-db.ts` |
+| 7 | Evacuation routing contract (A + B + C): one routing logic for residents and agent; missing hazard data = unknown; boat = `unsupported_mode`; `people` default 1. | `packages/shared/src/routing.ts` |
+| 8 | `PUBLIC_DEMO=1` (A) blocks API mutations and automatic agent runs; read-only GETs stay public. An admin token may be added for operators but never overrides public-demo mode or ships in the frontend. | A's `server.ts` / `env.ts` |
 
 ## 2. Workstream A — 3D & Frontend (Person A)
 
@@ -274,14 +287,14 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 - Toggleable "Under the hood" panel listing `AgentStep`s: actor badge (sponsor colours), summary, latency, tokens. Fade-in animation, monospace, auto-scroll.
 - This is how judges *see* the tech — keep it beautiful and readable in a 1080p recording.
 
-### A8. Search, reports, voice, region switch (Sat evening)
+### A8. Search, spoken alert, region switch (Sat evening)
 - Search bar → `/search?type=place` (fuzzy), results fly the camera. Second tab for hybrid queries showing a "hybrid · reranked by Voyage" badge.
 - Village cards: vulnerable-people counts (label "Estimated" when `estimated`) and the agent's pickup order from `Alert.pickups`.
-- Voice button (uses B's `/voice/session`).
+- Approved alert card: play button for the spoken alert (`GET /alerts/:id/audio/ms|en`, 404 until ready).
 - Region dropdown → reload everything for another `Region`.
 
 ### A9. Resident page (Sat evening, `/resident`)
-- Mobile-first, no heavy 3D (static map image or small 2D): your location, risk level, time until water, route, voice button.
+- Mobile-first, no heavy 3D (static map image or small 2D): your location, risk level, time until water, evacuation route (`GET /regions/:id/evacuation-route`, with its hazard status).
 
 ### A10. Polish & recording mode (Sun AM)
 - `?demo=1`: hides dev UI, larger fonts, scripted camera presets for each video beat (keys 1–9).
@@ -290,25 +303,24 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 
 ## 3. Workstream B — Agent & Gemini (Person B)
 
-**Goal:** a real, verified, multi-model agent that turns risk events into approved-ready alerts, plus vulnerable-people pickup planning and voice. Follow GUIDELINES §6.1 API rules exactly.
+**Goal:** a real, verified, multi-model agent that turns risk events into approved-ready alerts, plus vulnerable-people pickup planning, landslide screening, the spoken alert and evacuation routing. Follow GUIDELINES §6.1 API rules exactly.
+
+**Status (Sat 24 Oct, 16:00):** B0–B6 done and merged; B7 = spoken alert (done); evacuation routing contract merged, endpoint next. Tests: `pnpm --filter @monsoonwatch/api test`. Useful scripts (no Gemini unless stated): `agent/inspect-situation.ts`, `agent/run-real.ts --dry-run`, `agent/run-sample.ts` (Gemini, test data), `agent/run-real.ts` (Gemini, real data), `agent/speak-sample.ts` (TTS).
 
 ### B0. Setup (Fri, 30 min)
 - `npm i @google/genai@latest` (≥ 2.3.0). Install the official skills for your coding agent: `npx skills add google-gemini/gemini-skills --skill gemini-api-dev` and `--skill gemini-live-api-dev`.
 - `apps/api/src/agent/gemini.ts`: one thin wrapper around `client.interactions.create` that **logs every call as an `AgentStep`** (actor = model name, tokens, latency). Use `thinking_level`; never set temperature/top_p/top_k.
 - **Done when:** a hello-world Argon call runs and appears as an `AgentStep` in Mongo (or in-memory in mock mode).
 
-### B1. Tools for the agent (Fri night, against C's fixtures)
-Plain TS functions the orchestrator can call (function calling):
-`getRiskEvents`, `getLatestReadings`, `getVillagesNear(lngLat, km)`, `getEvacCentres`, `getBlockedRoads(ts)`, `getLandslideRunouts(ts)`, `searchKnowledge(q)` (C's hybrid search), `planRoute(from, to, avoid)`.
-- Until C's DB is ready, tools read `packages/shared/fixtures`.
-- `planRoute`: simple graph search over OSM road segments (from `/regions/:id/geo`) with blocked segments removed. Keep it deterministic.
+### B1. Tools for the agent — *done*
+- Argon gets the whole situation in context (`agent/situation-db.ts`: readings, risk events, villages, centres, C's `getHazards`, landslide events, knowledge); no data-fetching tools needed.
+- Flash subagent tools: `list_evac_centres` (12 nearest), `plan_route` (deterministic `agent/route.ts`: Dijkstra over C's junction-split segments, flooded ids removed), `suggest_pickups`, `submit_plan`.
 
 ### B2. Orchestrator (Sat AM)
 - `agent/orchestrator.ts`: `gemini-4-argon`, `thinking_level: "high"`. Context: region config, latest readings + thresholds, risk events, villages, centres, relevant `knowledge` chunks (2014 post-mortems etc.).
 - Output (structured JSON, validated with zod): list of at-risk villages with hazard, level, ETA, reasoning.
-- Delegate each village to **`gemini-3.8-flash` subagents in parallel** (`Promise.all`): nearest suitable centre, route via `planRoute`, alert text in `Region.languages`.
-- Use `gemini-3.5-flash-lite` for cheap routing/classification (e.g. does this risk event need a full agent run?).
-- Trigger: `risk.event` from C (auto) or `POST /agent/run`.
+- At most 6 villages per run (danger first, soonest ETA). Per village, in parallel: **Flash-Lite quick draft** (no tools) → checks → **Flash refines** with tools via `submit_plan` (thinking "low").
+- Trigger: `POST /agent/run`, or automatically (`agent/auto-trigger.ts`) from Stream Processing `risk.event`s: level ≥ warning, dedupe by `_id`, first event per station/level or escalation only, bursts coalesced, one run per region + mode; replay restarts reset it. `AGENT_AUTO_RUN=0` disables; off in mock and public-demo mode.
 
 ### B3. Verification loop (Sat AM) — **highest priority after B2**
 `agent/verify.ts`, deterministic code, no LLM:
@@ -316,30 +328,34 @@ Plain TS functions the orchestrator can call (function calling):
 |---|---|
 | `threshold` | claimed level matches latest reading vs station thresholds (or landslide screen) |
 | `route` | route does not intersect blocked roads or runout lines (`$geoIntersects` or turf.js) |
-| `capacity` | centre `capacity - headcount ≥ village.population` (else split) |
+| `capacity` | centre `capacity - headcount ≥ alert.people`; a village's alerts add up to its population (split across centres) |
 | `freshness` | supporting readings newer than 60 min (live mode) |
 | `language` | every language in `Region.languages` present, ≤ 500 chars |
+| `vulnerable` | every counted vulnerable person has a pickup, priority order kept, vehicle suits the route |
 Loop: `plan → verify → if fail: replan with failure reasons (max 3) → status "verified"`. Every check is an `AgentStep` (`kind: "verify"`). **Make sure the demo scenario produces at least one real failure** (e.g. the nearest route crosses a flooded road).
 
 ### B4. Approval endpoints (Sat AM)
-- `POST /alerts/:id/approve|reject` (record approver + time). Approve → status `approved` → write `SaintTask(send_alert)` (C's Saint handoff picks it up). **Nothing is sent before approval.**
+- `POST /alerts/:id/approve|reject` — *done*. Only `verified` alerts can be approved; `approvedBy` required. Approve → `approved` → `SaintTask(send_alert, queued)` with the spoken-alert URLs → TTS generated in the background. **Nothing is sent before approval.** Blocked when `PUBLIC_DEMO=1`.
 
-### B5. Landslide screening model (Sat PM — pair with A for visuals)
+### B5. Landslide screening model — *done* (see GUIDELINES §6.4)
 - `agent/landslide.ts` (deterministic): slope per terrain cell × accumulated rain from nearest rain stations (`rain6d`) vs thresholds → risk 0–1. Runout = steepest-descent path from high-risk cells.
 - Thresholds: run **Deep Research** (`deep-research-preview-04-2026`) for published rainfall-landslide thresholds in Malaysia/the region; store the brief + citations in `knowledge`, thresholds in `Region` config. Cite in README.
 - Expose `computeLandslide(regionId, ts)` for C's `/hazards`.
 
-### B6. Vulnerable-people priority (Sat PM) — *replaces photo/video report analysis (§1.7)*
+### B6. Vulnerable-people priority — *done* (replaced photo/video report analysis, §1.7)
 - Subagents read `Village.vulnerable` (counts only) and plan `Alert.pickups`: order bedridden → disabled → elderly → no transport; vehicle by route (boat if it crosses a flooded segment, ambulance for bedridden where roads are open).
 - New deterministic check `vulnerable` in `agent/verify.ts`: every counted person covered across the village's alerts, priority order respected, vehicle suits the route.
 - Demo beat (Video A 1:40–2:10): first plan misses the bedridden group → check FAILS → replan → PASS.
 - Gemini only plans. Executing pickups / contacting people after approval is Saint's job (GUIDELINES §6.5).
 
-### B7. Voice (Sat evening)
-- `gemini-3.8-live` session for the browser: grounded on the user's location risk (inject current hazards + nearest centre as context). Malay first, English fallback.
-- Optional: `gemini-3.8-flash-tts` to read out the approved alert.
+### B7. Spoken alert — *done* (Live voice Q&A dropped, 24 Oct)
+- `agent/speech.ts`: after approval, `gemini-3.8-flash-tts` reads the approved text verbatim (Malay, then English; voice Kore, brisk). WAV in `apps/api/data/audio/` (git-ignored), `GET /alerts/:id/audio/:lang`.
 
-### B8. Flood history brief (stretch)
+### B8. Evacuation routing (A's request, 24 Oct) — contract merged, endpoint next
+- Contract: `packages/shared/src/routing.ts` + fixtures (GUIDELINES §6.6). Core: `agent/evacuate.ts` (tested). Endpoint `routes/evacuation-route.ts` (B) uses C's `getRoadStatus` + centre status when they land; until then unclear segments are `unknown`.
+- Same logic for the agent (`plan_route` tool, route check). Boat → `unsupported_mode`.
+
+### B9. Flood history brief (stretch, not started)
 - Deep Research per district → `knowledge` → shown in district panel with citations.
 
 ---
@@ -449,10 +465,10 @@ Each checkpoint: 15 min, all three people, run `main` together, fix the top issu
 | **I1** | Fri ~23:30 | Real data in Atlas (live + 2014 replay). A renders real stations/villages from the API (not fixtures). B's tools read real DB. |
 | **I2** | Sat 13:00 | **Golden path, text-level:** replay start → reading → Stream Processing risk event → agent run (Argon + Flash subagents) → verification fail → replan → pass → alert card in 3D → Approve → SaintTask created. |
 | **I3** | Sat 19:00 | Flood + landslide layers driven by `/hazards`; search/vector/hybrid/rerank in UI; vulnerable-people priority (fail → replan → pass); Saint loop (if allocated). |
-| **I4** | Sat 23:59 | **Feature freeze.** Voice, region switch, Tech HUD polish. Full dry run of Video A script. Only bug fixes after this. |
+| **I4** | Sat 23:59 | **Feature freeze.** Evacuation route in the UI, spoken alert, region switch, Tech HUD polish. Full dry run of Video A script. Only bug fixes after this. |
 | **I5** | Sun 10:30 | Videos cut, README complete, submission text drafted. Submit by **11:30** (deadline 12:00). |
 
-**If a checkpoint fails:** cut scope, don't move the checkpoint. Cut order (first to go): Nano Banana illustration → B8 history brief → TTS → resident page polish → second region data (use a fixture region) → voice. **Never cut:** verification loop, approval step, Tech HUD, MongoDB feature moments, 2014 replay.
+**If a checkpoint fails:** cut scope, don't move the checkpoint. Cut order (first to go): B9 history brief → resident page polish → second region data (use a fixture region) → spoken alert in the UI. **Never cut:** verification loop, approval step, Tech HUD, MongoDB feature moments, 2014 replay.
 
 ---
 
