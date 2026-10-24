@@ -23,7 +23,7 @@ import { buildAndVerifyVillage, replanFeedback } from "./build-alerts";
 import { GEMINI_DEFAULTS, accountabilitySummary, buildAdvisories, buildAreaWarnings, countBy, coverageSummary, rulesSummary, selectForGemini, type AreaWarning, type PlannedBy } from "./coverage";
 import { applyEscalations, checkEscalation, escalateScreen, unsupportedNumbers, type EscalationVerdict } from "./escalation";
 import { geminiAI, type AgentAI, type RefineFeedback } from "./gemini-planners";
-import { planAllByRules, type GeminiReason } from "./rules-planner";
+import { planAllByRulesAsync, type GeminiReason } from "./rules-planner";
 import type { AtRiskVillage, OrchestratorPlan, VillagePlan } from "./schemas";
 import { buildRoadGraph, type RoadGraph } from "./route";
 import { shortlistForArgon, shortlistSummary, type VillageRisk } from "./shortlist";
@@ -167,7 +167,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     // 2. Rules planner: every at-risk village, no Gemini
     const graph = buildRoadGraph(s.roads);
     const t0 = Date.now();
-    const { results, ledger } = planAllByRules({ runId, situation: s, graph }, atRisk, claims);
+    const { results, ledger } = await planAllByRulesAsync({ runId, situation: s, graph }, atRisk, claims);
     await emitStep({ runId, actor: "Rules planner", kind: "verify", status: "ok", latencyMs: Date.now() - t0, summary: `${rulesSummary(results)}${test}` });
 
     const plannedBy = new Map<string, PlannedBy>();
