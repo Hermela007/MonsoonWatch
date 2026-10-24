@@ -80,7 +80,7 @@ void main() {
   col = mix(col, uLine, (1.0 - min(cl, 1.0)) * 0.35 * step(5.0, vElev) * (1.0 - smoothstep(20.0, 120.0, vViewDist)));
 
   // Rivers: thin lines in the flood colour (the water sheet takes over as they rise).
-  col = mix(col, uRiverCol * 0.85, smoothstep(0.55, 0.95, vRiverFlag) * 0.85);
+  col = mix(col, uRiverCol * 0.85, smoothstep(0.55, 0.95, vRiverFlag) * 0.85 * smoothstep(40.0, 90.0, vViewDist));
 
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
 

@@ -195,7 +195,7 @@ h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: u
 #legend .forecast-key { display: none; }
 body[data-view='result'] #legend .forecast-key { display: inline-flex; }
 #legend .grid-note { font-family: var(--mono); font-size: 11px; color: var(--faint); }
-body.street #legend, body[data-mode='control'] #legend { opacity: 0; }
+body.street #legend { opacity: 0; }
 @media (max-width: 767px) {
   #legend { top: 52px; bottom: auto; right: 16px; left: 16px; justify-content: flex-end; flex-wrap: wrap; gap: 4px 12px; }
   #legend .grid-note { display: none; }
@@ -213,13 +213,15 @@ body.street #legend, body[data-mode='control'] #legend { opacity: 0; }
 .atlas.country, .atlas.state { font-size: 11px; letter-spacing: 0.35em; color: var(--faint); font-weight: 600; }
 .atlas.state { color: var(--ink); font-size: 13px; }
 
-/* Caption, locator, sources (landing) */
-#caption { right: 24px; top: 64px; width: 340px; text-align: right; pointer-events: none; }
-.caption-place { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
-#caption p { font-size: 13px; line-height: 1.5; color: var(--muted); margin: 6px 0 0; }
+/* Data sources (landing only) */
 #sources { left: 24px; bottom: 14px; margin: 0; font-size: 10.5px; color: var(--faint); pointer-events: none; max-width: 60vw; }
+body:not([data-view='landing']) #sources, body[data-mode='control'] #sources { opacity: 0; }
+@media (max-width: 1023px) { #sources { display: none; } }
 #legend .live { font-family: var(--mono); font-size: 11px; color: var(--ink); }
-body:not([data-view='landing']) #caption, body:not([data-view='landing']) #sources, body.street @media (max-width: 1100px) { #caption { width: 260px; } .caption-place { font-size: 24px; } }
-@media (max-width: 767px) { #caption, 
+/* Live readings belong to live operations; resident views show only the 2014 replay. */
+body:not([data-mode='control']) #legend .live { display: none; }
+@media (min-width: 1024px) { body[data-mode='control'] #legend { right: auto; left: 448px; } }
+@media (max-width: 1023px) { body[data-mode='control'] #legend { opacity: 0; } }
+
 .place-kicker { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
 .fact { font-size: 12px; line-height: 1.5; color: var(--muted); margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--rule); }

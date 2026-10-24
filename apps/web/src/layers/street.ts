@@ -205,7 +205,23 @@ export function createStreet(opts: {
     const hand = hy.filledM[i] - hy.drainElevM[i];
     if (ref < 0 || hand < hy.filledM[ref] - hy.drainElevM[ref]) ref = i;
   }
-  const waterAbs = (hour: number) => (ref < 0 ? -Infinity : hy.drainElevM[ref] + stageM(hour) * hy.stageScale[ref]);
+  // Height above the river and share of the rise, smoothly sampled — the same model as the map.
+  const handField = new Float32Array(hm.cols * hm.rows);
+  for (let i = 0; i < handField.length; i++) {
+    const d = hy.drainElevM[i];
+    handField[i] = hy.seaMask[i] ? 0 : d === NO_DRAIN_M ? 200 : Math.max(0, hy.filledM[i] - d);
+  }
+  const handScale = (x: number, z: number): [number, number] => {
+    const { gx, gy } = gridCoords(hm, toLngLat(x, z));
+    const h = sampleField(hm, handField, gx, gy);
+    const k = sampleField(hm, hy.stageScale, gx, gy);
+    return [Number.isNaN(h) ? 200 : h, Number.isNaN(k) ? 0 : k];
+  };
+  const depthAtLocal = (x: number, z: number, stage: number) => {
+    const [h, k] = handScale(x, z);
+    return stage * k - h;
+  };
+  void ref;
 
   // Ground.
   const groundGeo = new THREE.PlaneGeometry(GROUND_M, GROUND_M, 180, 180).rotateX(-Math.PI / 2);
@@ -225,7 +241,9 @@ export function createStreet(opts: {
   disposables.push(built);
 
   // Water.
-  const water = createStreetWater(houses, sky, { near: 250, far: 1100 }, groundY);
+  const water = createStreetWater(houses, sky, { near: 250, far: 1100 }, groundY, handScale);
+  waterUniforms.uWaterGround.value = water.textures.ground;
+  waterUniforms.uWaterHand.value = water.textures.hand;
   scene.add(water.mesh);
   disposables.push(water);
 
@@ -296,12 +314,23 @@ export function createStreet(opts: {
 
   let lastHour = NaN;
   let level = -Infinity;
+  let stageNow = 0;
+  // Per-building height above the river and share of the rise (fixed; depth = stage × share − height).
+  const bHS = houses.map((h) => handScale(h.x, h.z));
   let homeDepthNow = 0;
   const bands = houses.map(() => -1);
   return {
     scene,
     get level() {
       return level;
+    },
+    /** Earliest replay hour any building here gets water (for a playback that starts dry), or null. */
+    firstWetHour(): number | null {
+      for (let h = 0; h <= REPLAY_HOURS; h += 1) {
+        const s = stageM(h);
+        if (bHS.some(([hh, k]) => s * k - hh > 0.05)) return h;
+      }
+      return null;
     },
     /** Ground height (local m) — to keep the camera out of hillsides. */
     groundAt: groundY,
@@ -322,7 +351,7 @@ export function createStreet(opts: {
     /** Every frame: waves, clouds, landslide. */
     animate(hour: number, timeS: number) {
       dome.update(timeS);
-      waterUniforms.uWaterLevel.value = Number.isFinite(level) ? level : -1e9;
+      waterUniforms.uWaterStage.value = stageNow;
       waterUniforms.uWaterTime.value = timeS;
       slide?.update(hour, timeS);
       if (slide) {
@@ -337,17 +366,16 @@ export function createStreet(opts: {
         });
         if (buriedCount === 0 && r === 0) lastHour = NaN;
       }
-      water.mesh.visible = Number.isFinite(level);
-      if (water.mesh.visible) water.update(level, homeDepthNow, timeS);
+      water.update(stageNow, homeDepthNow, timeS);
     },
     /** When the replay hour changes: water level and roof tints. */
     update(hour: number) {
       if (hour === lastHour) return null;
       lastHour = hour;
-      level = waterAbs(hour) - ground0;
+      stageNow = stageM(hour);
       let wet = 0;
       houses.forEach((h, i) => {
-        const depth = Number.isFinite(level) ? level - groundY(h.x, h.z) : 0;
+        const depth = stageNow * bHS[i][1] - bHS[i][0];
         const band = DEPTH_BANDS.findIndex((b) => depth <= b.max);
         if (band !== bands[i] && !buried[i]) {
           bands[i] = band;
@@ -356,7 +384,9 @@ export function createStreet(opts: {
         if (depth > 0.05) wet++;
         if (i === homeIdx) homeDepthNow = depth;
       });
-      if (homeIdx < 0) homeDepthNow = Number.isFinite(level) ? level - groundY(0, 0) : 0;
+      if (homeIdx < 0) homeDepthNow = depthAtLocal(0, 0, stageNow);
+      // Water surface at the home (for keeping the camera above it).
+      level = homeDepthNow > 0 ? groundY(homeHouse.x, homeHouse.z) + homeDepthNow : -Infinity;
       el.textContent = homeDepthNow > 0.05 ? `${opts.homeLabel} · ${homeDepthNow.toFixed(1)} m of water` : `${opts.homeLabel} · dry`;
       el.classList.toggle('wet', homeDepthNow > 0.05);
       return { wet, total: houses.length, homeDepth: homeDepthNow, buried: buriedCount };

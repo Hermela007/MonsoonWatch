@@ -34,6 +34,7 @@ export function createGeoContext(opts: {
     return Number.isNaN(e) ? 0 : Math.max(e, 0);
   };
   const labels: { obj: CSS2DObject; el: HTMLElement; kind: string }[] = [];
+  const riverMeshes: THREE.Mesh[] = [];
   const label = (text: string, ll: LngLat, cls: string, lift = 0.4) => {
     const el = document.createElement('div');
     el.className = `atlas ${cls}`;
@@ -45,7 +46,7 @@ export function createGeoContext(opts: {
   };
 
   // Rivers as thin lines on the terrain; the main stem slightly heavier.
-  const mat = new THREE.MeshBasicMaterial({ color: THEME.flood, transparent: true, opacity: 0.9 });
+  const mat = new THREE.MeshBasicMaterial({ color: THEME.flood, transparent: true, opacity: 0.9, depthWrite: false });
   owned.push(mat);
   for (const r of opts.rivers) {
     const name = latinName(r.name);
@@ -56,7 +57,9 @@ export function createGeoContext(opts: {
       const pts = line.map((ll) => frame.lngLatToWorld(ll, groundAt(ll)).add(new THREE.Vector3(0, 0.05, 0)));
       const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), Math.min(400, pts.length * 2), radius, 4, false);
       owned.push(geo);
-      group.add(new THREE.Mesh(geo, mat));
+      const mesh = new THREE.Mesh(geo, mat);
+      riverMeshes.push(mesh);
+      group.add(mesh);
     }
     // Label at the midpoint of the river's longest piece.
     const longest = [...r.lines].map((l) => l.filter((ll) => opts.inside(ll))).sort((a, b) => b.length - a.length)[0];
@@ -73,7 +76,10 @@ export function createGeoContext(opts: {
   return {
     group,
     /** Fade labels with distance so the frame never gets busy. */
-    update(camera: THREE.Camera, focusOn: boolean) {
+    update(camera: THREE.Camera, focusOn: boolean, cameraDistance = 999) {
+      // River centre lines are a far-view cue only; close up, the modelled water is the river.
+      mat.opacity = 0.9 * THREE.MathUtils.smoothstep(cameraDistance, 45, 90);
+      riverMeshes.forEach((m) => (m.visible = mat.opacity > 0.01));
       for (const l of labels) {
         const d = camera.position.distanceTo(l.obj.position);
         const vis = l.kind.includes('major') || l.kind === 'sea' || l.kind === 'country' ? d < 900 : d < 200;

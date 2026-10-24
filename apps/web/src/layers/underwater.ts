@@ -3,7 +3,10 @@ import { THEME } from '../theme';
 
 /** Shared by every street material: the current water level and clock. */
 export const waterUniforms = {
-  uWaterLevel: { value: -1e9 },
+  uWaterStage: { value: -1 },
+  uWaterGround: { value: null as THREE.Texture | null },
+  uWaterHand: { value: null as THREE.Texture | null },
+  uWaterSize: { value: 900 },
   uWaterTime: { value: 0 },
   uWaterTint: { value: THEME.floodLight },
   uWaterDeep: { value: THEME.flood },
@@ -56,14 +59,19 @@ export function addUnderwater<T extends THREE.MeshStandardMaterial>(mat: T, grid
       vWPos = (modelMatrix * wpos4).xyz;`,
     );
     shader.fragmentShader =
-      'varying vec3 vWPos;\nuniform float uWaterLevel;\nuniform float uWaterTime;\nuniform vec3 uWaterTint;\nuniform vec3 uWaterDeep;\n' +
+      'varying vec3 vWPos;\nuniform float uWaterStage;\nuniform sampler2D uWaterGround;\nuniform sampler2D uWaterHand;\nuniform float uWaterSize;\nuniform float uWaterTime;\nuniform vec3 uWaterTint;\nuniform vec3 uWaterDeep;\n' +
       CAUSTIC +
       shader.fragmentShader.replace(
         '#include <opaque_fragment>',
         `#include <opaque_fragment>
         ${grid ? GRID : ''}
         {
-          float wd = uWaterLevel - vWPos.y;
+          // Water surface here, from the same model as the water mesh (0 outside its square).
+          vec2 wuv = vec2(vWPos.x / uWaterSize + 0.5, 0.5 - vWPos.z / uWaterSize);
+          float inSq = step(0.0, wuv.x) * step(wuv.x, 1.0) * step(0.0, wuv.y) * step(wuv.y, 1.0);
+          vec2 hs = texture2D(uWaterHand, wuv).rg;
+          float wdepth = (uWaterStage * hs.g - hs.r) * inSq;
+          float wd = wdepth > 0.0 ? texture2D(uWaterGround, wuv).r + wdepth - vWPos.y : -1.0;
           if (wd > 0.0) {
             float k = 1.0 - exp(-wd / 2.5);
             gl_FragColor.rgb = mix(gl_FragColor.rgb * mix(vec3(1.0), uWaterTint, 0.75), uWaterDeep * 0.9, k * 0.7);

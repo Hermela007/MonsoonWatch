@@ -25,7 +25,7 @@ import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
 import { fetchEvacCentres, fetchVillages } from './api/client';
 import type { EvacCentre } from '@monsoonwatch/shared';
-import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
+import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, peakHour, rainAccumulated, rainIntensity, setRealSeries, stageM } from './data/replay2014';
 import { loadMalaysia, loadRealData } from './data/realData';
 import { createGeoContext } from './layers/geoContext';
 import { createStations } from './layers/stations';
@@ -299,11 +299,26 @@ async function main() {
     stage.setScene(street.scene);
     director.flyTo({ target, position: pos }, 2400);
     ui!.setStreet('on');
+    playStreet();
+  };
+
+  /** Street playback: start a few hours before water first reaches these buildings, play to the peak. */
+  const playStreet = () => {
+    if (!street) return;
+    const fw = street.firstWetHour();
+    const start = fw === null ? NOW_HOUR : Math.max(0, fw - 8);
+    hour = start;
+    targetHour = Math.min(REPLAY_HOURS, Math.max(peakHour() + 12, (fw ?? start) + 24));
+    whatIf = true;
+    ui!.setWhatIf(true);
   };
 
   const leaveStreet = () => {
     if (!inStreet) return;
     inStreet = false;
+    hour = targetHour = NOW_HOUR;
+    whatIf = false;
+    ui!.setWhatIf(false);
     director.cancel();
     camera.near = 0.05;
     camera.far = 2000;
@@ -368,6 +383,7 @@ async function main() {
       director.tour(shots, 7000, () => viewShot && director.flyTo(viewShot, 2000));
     },
     onWhatIf: () => {
+      if (inStreet && !whatIf) return playStreet();
       whatIf = !whatIf;
       targetHour = whatIf ? Math.min(REPLAY_HOURS, NOW_HOUR + WHATIF_HOURS) : NOW_HOUR;
       ui!.setWhatIf(whatIf);
@@ -610,7 +626,7 @@ async function main() {
     wasLanding = landing;
     // Replay time eases towards its target: forward slowly, back quickly.
     // Slow the replay right down while a landslide surges, so it can be seen.
-    const rate = targetHour > hour ? (inStreet && street?.slideSurging ? 0.15 : 10) : 40;
+    const rate = targetHour > hour ? (inStreet ? (street?.slideSurging ? 0.15 : 2.5) : 10) : 40;
     hour = targetHour > hour ? Math.min(targetHour, hour + dt * rate) : Math.max(targetHour, hour - dt * rate);
     focus.amount += (focusTarget - focus.amount) * Math.min(1, dt * 2.5);
     // Control room replay: when the main river passes the Warning rise, Stream Processing → agent.
@@ -619,8 +635,11 @@ async function main() {
 
     const camDist = camera.position.distanceTo(controls.target);
     FOG.value = 0.26 / Math.max(camDist, 60);
-    geoCtx.update(camera, !!homePos);
-    stations?.update(camDist);
+    geoCtx.update(camera, !!homePos, camDist);
+    if (stations) {
+      stations.mesh.visible = document.body.dataset.mode === 'control';
+      stations.update(camDist);
+    }
     const s = stageM(Math.min(hour, REPLAY_HOURS));
     valley.update(rainAccumulated(hour), time, focus);
     // Around a chosen home, outline where the water is expected to reach at the peak.
@@ -655,7 +674,7 @@ async function main() {
       if (stats) ui!.setStreet('on', { ...stats, buried: street.buried, ...street.counts });
       streetRain?.update(controls.target, camDist, Math.min(1, rainIntensity(hour) * 1.8 + 0.25), time);
     }
-    if (landing) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
+    if (landing || inStreet) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
     else ui!.setClock(hour, NOW_HOUR);
     stage.render();
   });

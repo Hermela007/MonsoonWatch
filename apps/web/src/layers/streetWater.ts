@@ -18,8 +18,9 @@ float noise(vec2 p) {
 const vertexShader = /* glsl */ `
 uniform float uTime;
 uniform float uCalm; // 0 = full waves, 1 = flat
-uniform float uLevel; // water surface, local metres
+uniform float uStage; // main-river rise (m)
 uniform sampler2D uGround; // ground height, local metres
+uniform sampler2D uHand; // r: height above nearest drainage (m), g: share of the river rise reaching here
 uniform float uSize;
 uniform vec3 uOrigin;
 varying vec3 vWorld;
@@ -42,7 +43,11 @@ void main() {
   vec4 world = modelMatrix * vec4(position, 1.0);
   vec2 p = world.xz;
   vec2 guv = vec2((p.x - uOrigin.x) / uSize + 0.5, 0.5 - (p.y - uOrigin.z) / uSize);
-  vDepth = uLevel - texture2D(uGround, guv).r;
+  // Same model as the map and the card: depth = river rise × share − height above the river.
+  vec2 hs = texture2D(uHand, guv).rg;
+  float ground = texture2D(uGround, guv).r;
+  vDepth = uStage * hs.g - hs.r;
+  world.y = ground + max(vDepth, 0.0) + (vDepth > 0.0 ? 0.0 : -0.6);
   // Waves die out in shallow water instead of poking through the ground.
   float s = (1.0 - uCalm) * smoothstep(0.0, 2.5, vDepth);
   vec3 tangent = vec3(1.0, 0.0, 0.0);
@@ -141,6 +146,23 @@ function wallFoamTexture(houses: House[]) {
 }
 
 /** Ground heights (local m) over the water square, as a filterable half-float texture. */
+function fieldTexture(f: (x: number, z: number) => [number, number]) {
+  const N = 192;
+  const data = new Uint16Array(N * N * 2);
+  for (let j = 0; j < N; j++) {
+    const z = (0.5 - (j + 0.5) / N) * SIZE_M;
+    for (let i = 0; i < N; i++) {
+      const [a, b] = f(((i + 0.5) / N - 0.5) * SIZE_M, z);
+      data[(j * N + i) * 2] = THREE.DataUtils.toHalfFloat(a);
+      data[(j * N + i) * 2 + 1] = THREE.DataUtils.toHalfFloat(b);
+    }
+  }
+  const tex = new THREE.DataTexture(data, N, N, THREE.RGFormat, THREE.HalfFloatType);
+  tex.magFilter = tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function groundTexture(groundY: (x: number, z: number) => number) {
   const N = 192;
   const data = new Uint16Array(N * N);
@@ -160,10 +182,12 @@ export function createStreetWater(
   sky: THREE.Color,
   fog: { near: number; far: number },
   groundY: (x: number, z: number) => number,
+  handScale: (x: number, z: number) => [number, number],
 ) {
   const geometry = new THREE.PlaneGeometry(SIZE_M, SIZE_M, SEGMENTS, SEGMENTS).rotateX(-Math.PI / 2);
   const foamTex = wallFoamTexture(houses);
   const groundTex = groundTexture(groundY);
+  const handTex = fieldTexture(handScale);
   const material = new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
@@ -171,8 +195,9 @@ export function createStreetWater(
     uniforms: {
       uTime: { value: 0 },
       uCalm: { value: 0 },
-      uLevel: { value: 0 },
+      uStage: { value: 0 },
       uGround: { value: groundTex },
+      uHand: { value: handTex },
       uDeep: { value: THEME.flood },
       uShallow: { value: THEME.floodLight },
       uSky: { value: sky },
@@ -187,14 +212,16 @@ export function createStreetWater(
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 2;
+  // The textures it samples are exposed so the underwater tint uses the very same water.
+  const textures = { ground: groundTex, hand: handTex };
   mesh.frustumCulled = false;
 
   return {
     mesh,
-    /** `level` = water surface (local metres); `depthAtHome` scales wave height. */
-    update(level: number, depthAtHome: number, timeS: number) {
-      mesh.position.y = level;
-      material.uniforms.uLevel.value = level;
+    textures,
+    /** `stageM` = main-river rise; `depthAtHome` scales wave height. */
+    update(stageM: number, depthAtHome: number, timeS: number) {
+      material.uniforms.uStage.value = stageM;
       material.uniforms.uTime.value = timeS;
       // Flowing floodwater always has some chop; deeper water gets the full waves.
       material.uniforms.uCalm.value = 0.45 * (1 - THREE.MathUtils.smoothstep(depthAtHome, 0.3, 2));
@@ -204,6 +231,7 @@ export function createStreetWater(
       material.dispose();
       foamTex.dispose();
       groundTex.dispose();
+      handTex.dispose();
     },
   };
 }
