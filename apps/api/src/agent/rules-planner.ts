@@ -23,7 +23,8 @@ import { suggestPickups } from "./vulnerable";
 
 export const RULES = {
   maxRouteKm: 40,
-  maxGroups: 4,
+  /** Centres one village may be split across (Gemini is shown 12). */
+  maxGroups: 8,
   /** Centre status (B's proxy until C's lands, see centreStatus). */
   centreNearFloodKm: 0.5,
   centreFloodKm: 0.2,
@@ -31,7 +32,10 @@ export const RULES = {
 };
 
 export type GeminiReason = "no_route" | "no_centre_with_space" | "conflicting_signals" | "check_failed";
-export type FallbackReason = "off_network" | "no_population";
+export type FallbackReason = "off_network" | "no_population" | "not_enough_space";
+
+/** Centres a Gemini subagent is shown (list_evac_centres / the draft prompt): the nearest N. */
+export const GEMINI_CENTRES_SHOWN = 12;
 
 export type RulesResult =
   | { ok: true; risk: VillageRisk; claim: AtRiskVillage; built: BuiltVillage; alloc: Map<string, number>; boatGroups: number }
@@ -66,14 +70,16 @@ export class CapacityLedger {
 }
 
 /**
- * B-side centre status until C's lands (VERIFY against C's centre status when on main):
+ * Centre status: C's getCentreStatuses when loaded; otherwise this B-side stand-in:
  *   "at_risk" — within centreRunoutKm of a landslide runout, or a flooded road within
  *   centreNearFloodKm whose flooding gauge's water level (m) reaches the centre's elevation
  *   (C's flood model floods ground below its gauge's water surface — same idea, approximate);
  *   if that gauge is unknown, a flooded road within centreFloodKm. Else "usable". Reaching the
  *   centre through water is the router's job (dry roads only), not this status.
  */
-export function centreStatus(s: Situation): Map<string, "usable" | "at_risk"> {
+export function centreStatus(s: Situation): Map<string, "usable" | "at_risk" | "unknown"> {
+  // C's status when loaded (situation-db): the source of truth. Missing centre → "unknown" (never usable by default).
+  if (s.centreStatusById) return new Map(s.centres.map((c) => [c._id, s.centreStatusById!.get(c._id) ?? "unknown"]));
   const blocked = new Set(s.hazards.blockedRoadIds);
   const floodedRoads = s.roads.filter((r) => blocked.has(String(r.id)));
   const flooded = LineIndex.of(floodedRoads.length
@@ -164,18 +170,18 @@ export function templateMessages(args: {
   const make = (lang: "ms" | "en", withRoads: boolean) => {
     const L = LEVEL_TEXT[lang][claim.level as AlertLevel], H = HAZARD_TEXT[lang][claim.hazard];
     if (boat) {
-      const flooded = route.crossesFlood;
+      // No boat route or distance is claimed (GUIDELINES §6.6: no navigable-water data); rescuers choose the way.
       return lang === "ms"
         ? [
             `${L} ${H} untuk ${village.name}.`,
-            `${split ? `${people} penduduk: bot` : "Bot"} akan membawa anda ke ${centre.name} (${km} km${flooded ? " melalui jalan yang dinaiki air" : " dengan bot"}).`,
+            `${split ? `${people} penduduk: bot` : "Bot"} penyelamat akan membawa anda ke ${centre.name}; pasukan penyelamat menentukan laluan.`,
             "Tunggu di tempat tinggi yang selamat; jangan berjalan atau memandu dalam air banjir.",
             first ? `${CATEGORY_TEXT.ms[first.category][0]!.toUpperCase()}${CATEGORY_TEXT.ms[first.category].slice(1)} dijemput dahulu.` : "",
             "Ikut arahan pihak berkuasa.",
           ].filter(Boolean).join(" ")
         : [
             `${L}: ${H} risk for ${village.name}.`,
-            `${split ? `${people} residents: boats` : "Boats"} will take you to ${centre.name} (${km} km${flooded ? " over flooded roads" : " by boat"}).`,
+            `${split ? `${people} residents: rescue boats` : "Rescue boats"} will take you to ${centre.name}; the rescue team chooses the way.`,
             "Wait at the highest safe point; do not walk or drive through floodwater.",
             first ? `${CATEGORY_TEXT.en[first.category][0]!.toUpperCase()}${CATEGORY_TEXT.en[first.category].slice(1)} residents are picked up first.` : "",
             "Follow official instructions.",
@@ -249,7 +255,7 @@ export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: 
       maxKm: RULES.maxRouteKm,
       maxSnapKm: MAX_SNAP_KM.car,
       excludeHighways: EXCLUDE.car,
-      enough: (r) => r.length >= RULES.maxGroups * 2 || r.reduce((n, x) => n + ledger.free(byId.get(x.id)!), 0) >= v.population,
+      enough: (r) => r.reduce((n, x) => n + ledger.free(byId.get(x.id)!), 0) >= v.population, // keep looking (≤ maxRouteKm) until everyone fits
     });
   if (startSnapKm === null || startSnapKm > MAX_SNAP_KM.car) {
     return no("fallback", "off_network", `${v.name}: ${startSnapKm === null ? "no road data" : `${startSnapKm} km from the nearest mapped road`}`);
@@ -278,11 +284,22 @@ export function planVillageByRules(ctx: RulesContext, risk: VillageRisk, claim: 
       maxKm: RULES.maxRouteKm,
       maxSnapKm: MAX_SNAP_KM.boat,
       mode: "boat",
-      enough: (r) => r.length >= RULES.maxGroups * 2 || r.reduce((n, x) => n + ledger.free(byId.get(x.id)!), 0) >= left,
+      enough: (r) => r.reduce((n, x) => n + ledger.free(byId.get(x.id)!), 0) >= left,
     });
     take(boat.reached);
   }
   if (left > 0) {
+    // More people than free places at what Gemini could use (the GEMINI_CENTRES_SHOWN nearest centres it is shown) →
+    // no Gemini attempt can pass the capacity check: area-wide warning straight away.
+    const ceiling = s.centres
+      .filter((c) => s.centreStatusById?.get(c._id) !== "at_risk") // same list Gemini gets (centresFor)
+      .map((c) => ({ c, km: haversineKm(v.location.coordinates, c.location.coordinates) }))
+      .sort((a, b) => a.km - b.km)
+      .slice(0, GEMINI_CENTRES_SHOWN)
+      .reduce((n, x) => n + Math.max(0, ledger.free(x.c)), 0);
+    if (v.population > ceiling) {
+      return no("fallback", "not_enough_space", `${v.name}: ${v.population.toLocaleString()} people but only ${ceiling.toLocaleString()} free places at the ${GEMINI_CENTRES_SHOWN} nearest centres — area-wide warning (no plan could fit)`);
+    }
     if (groups.length === 0) {
       const anyNear = candidates.some((c) => haversineKm(v.location.coordinates, c.location.coordinates) <= RULES.maxRouteKm);
       return anyNear
@@ -327,5 +344,6 @@ export function planAllByRules(ctx: Omit<RulesContext, "usable" | "blocked" | "l
     blocked: new Set(ctx.situation.hazards.blockedRoadIds),
   };
   const results = atRisk.map((r) => planVillageByRules(full, r, claims.get(r.village._id)));
-  return { results, ledger: full.ledger, centresAtRisk: [...status.values()].filter((st) => st === "at_risk").length };
+  const count = (st: string) => [...status.values()].filter((x) => x === st).length;
+  return { results, ledger: full.ledger, centresAtRisk: count("at_risk"), centresUnknown: count("unknown"), centreStatusSource: ctx.situation.centreStatusById ? "C's flood model" : "B stand-in" };
 }

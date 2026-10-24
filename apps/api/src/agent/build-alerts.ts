@@ -82,6 +82,10 @@ export function buildAndVerifyVillage(args: {
     if (!route.found) {
       perAlert.push({ check: "route", passed: false, detail: `${centre.name}: ${route.note}` });
     }
+    // Never send people into a centre C's flood model marks at risk at this time.
+    if (s.centreStatusById?.get(centre._id) === "at_risk") {
+      perAlert.push({ check: "capacity", passed: false, detail: `${centre.name} is at risk of flooding at this time (flood model) — choose another centre` });
+    }
     alert.verification = perAlert;
     alerts.push(alert);
     results.push(...perAlert.map((r) => ({ ...r, detail: `[${centre.name}] ${r.detail}` })));

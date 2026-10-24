@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { EvacCentre, LngLat, Pickup, Region, RoadFeature, StationWithLatest, Village } from "@monsoonwatch/shared";
 import { buildRoadGraph, nearestNode, type RoadGraph } from "./route";
-import { CapacityLedger, centreStatus, conflictingSignals, planAllByRules, splitPickups, templateMessages } from "./rules-planner";
+import { buildAndVerifyVillage } from "./build-alerts";
+import { CapacityLedger, centreStatus, claimFromScreen, conflictingSignals, planAllByRules, splitPickups, templateMessages } from "./rules-planner";
 import type { RiskSignal, VillageRisk } from "./shortlist";
 import type { Situation } from "./situation";
 
@@ -79,8 +80,9 @@ test("cut off by water: planned by BOAT along the flooded road, all pickups by b
   assert.equal(a.status, "verified");
   assert.ok(a.verification.find((x) => x.check === "route")!.passed);
   assert.deepEqual(a.pickups!.map((p) => [p.category, p.vehicle]), [["bedridden", "boat"], ["elderly", "boat"]]);
-  assert.match(a.messages.find((m) => m.lang === "en")!.text, /^WARNING: flood risk for Kampung cut\. Boats will take you to Centre C1 \(2\.2 km over flooded roads\)\. Wait at the highest safe point/);
-  assert.match(a.messages.find((m) => m.lang === "ms")!.text, /Bot akan membawa anda ke Centre C1 \(2\.2 km melalui jalan yang dinaiki air\)/);
+  assert.match(a.messages.find((m) => m.lang === "en")!.text, /^WARNING: flood risk for Kampung cut\. Rescue boats will take you to Centre C1; the rescue team chooses the way\. Wait at the highest safe point/);
+  assert.match(a.messages.find((m) => m.lang === "ms")!.text, /Bot penyelamat akan membawa anda ke Centre C1; pasukan penyelamat menentukan laluan/);
+  assert.ok(a.messages.every((m) => !/km/.test(m.text)), "no boat distance or route is claimed");
 });
 
 test("road first, boat for the rest: 30 by dry road, 70 by boat; then every pickup goes by boat", () => {
@@ -98,20 +100,27 @@ test("why code can't plan: no road or boat route / no space → Gemini; conflict
   const island = road(9); // a road piece connected to nothing
   island.geometry.coordinates = [[102.2, 5.1], [102.21, 5.1]];
   island.properties = { ...island.properties, from: "i0", to: "i1" };
-  const s = situation({ roads: [...ROADS, island], centres: [centre("C1", 2, 80)], hazards: FLOODED_R0 });
+  const island2 = road(8); // another unconnected piece, with a 300-place centre on it
+  island2.geometry.coordinates = [[102.3, 5.3], [102.31, 5.3]];
+  island2.properties = { ...island2.properties, from: "j0", to: "j1" };
+  const far2: EvacCentre = { ...centre("C2", 0, 300), location: { type: "Point", coordinates: [102.31, 5.3] } };
+  const s = situation({ roads: [...ROADS, island, island2], centres: [centre("C1", 2, 80), far2], hazards: FLOODED_R0 });
   const isolated = village("isolated", [102.2, 5.1], 50); // C1 is 23 km away but not connected
-  const big = village("big", node(1), 300); // road to C1, but 80 places
+  const big = village("big", node(1), 300); // road to C1 (80 places); C2's 300 places exist but can't be reached by code
+  const huge = village("huge", node(1), 5000); // more than all 12 nearest centres together (380)
   const conflict = village("conflict", node(1), 10);
   const far = village("far", [102.0, 5.2], 10); // 22 km from any road
   const empty = village("empty", node(1), 0);
   const { results } = plan(s, [
-    risk(isolated), risk(big),
+    risk(isolated), risk(big), risk(huge),
     risk(conflict, [{ kind: "flooded_road", level: null, km: 0.1, text: "flooded road" }]),
     risk(far), risk(empty),
   ]);
   assert.deepEqual(results.map((r) => (r.ok ? "ok" : `${r.to}:${r.reason}`)), [
-    "gemini:no_route", "gemini:no_centre_with_space", "gemini:conflicting_signals", "fallback:off_network", "fallback:no_population",
+    "gemini:no_route", "gemini:no_centre_with_space", "fallback:not_enough_space", "gemini:conflicting_signals", "fallback:off_network", "fallback:no_population",
   ]);
+  const tooBig = results[2]!;
+  assert.ok(!tooBig.ok && /5,000 people but only 380 free places at the 12 nearest centres/.test(tooBig.detail), !tooBig.ok ? tooBig.detail : "");
 });
 
 test("conflict only when a gauge and a river event about the SAME station disagree", () => {
@@ -127,6 +136,25 @@ test("centre status: flooded road nearby only puts a centre at risk if its gauge
     floodGaugeByRoadId: new Map([["r0", "g"]]), // gauge g at 12.5 m
   });
   assert.deepEqual([...centreStatus(s)], [["high", "usable"], ["low", "at_risk"], ["far", "usable"]]);
+});
+
+test("C's centre status wins: rules never send people to an 'at_risk' or 'unknown' centre, and the checks reject at-risk ones", () => {
+  const v = village("v", node(0), 50);
+  const s = situation({
+    centres: [centre("near-risky", 1, 100), centre("near-unknown", 2, 100), centre("far-ok", 4, 100)],
+    centreStatusById: new Map([["near-risky", "at_risk"], ["near-unknown", "unknown"], ["far-ok", "usable"]] as const),
+  });
+  assert.deepEqual([...centreStatus(s)], [["near-risky", "at_risk"], ["near-unknown", "unknown"], ["far-ok", "usable"]]);
+  const [r] = plan(s, [risk(v)]).results;
+  assert.ok(r!.ok);
+  assert.deepEqual(r.built.alerts.map((a) => a.evacCentreId), ["far-ok"]);
+  // A plan (e.g. Gemini's) that uses the at-risk centre fails the capacity check.
+  const built = buildAndVerifyVillage({
+    runId: "r", situation: s, graph: buildRoadGraph(s.roads), village: v, atRisk: claimFromScreen(risk(v), s),
+    plan: { reasoning: "x", groups: [{ evacCentreId: "near-risky", people: 50, routeMode: "road", pickups: [], messages: [{ lang: "ms", text: "AMARAN banjir" }, { lang: "en", text: "WARNING: flood" }] }] },
+  });
+  assert.equal(built.passed, false);
+  assert.ok(built.results.some((x) => x.check === "capacity" && !x.passed && /at risk of flooding/.test(x.detail)));
 });
 
 test("ledger: bookings reduce free places; a village's own booking can be given back", () => {

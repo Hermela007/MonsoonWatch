@@ -1,7 +1,7 @@
 // Everything the agent knows about a region at one moment. Loaded from MongoDB (situation-db.ts)
 // or from the labelled TEST scenario (sample/kelantan-test.ts).
 
-import type { EvacCentre, Hazards, KnowledgeChunk, LngLat, Reading, Region, RiskEvent, RoadFeature, StationWithLatest, Village } from "@monsoonwatch/shared";
+import type { EvacCentre, Hazards, KnowledgeChunk, LngLat, Reading, Region, RiskEvent, RoadFeature, RoadHazardStatus, StationWithLatest, Village } from "@monsoonwatch/shared";
 import { SHORTLIST, shortlistForArgon, type Shortlist } from "./shortlist";
 
 export interface Situation {
@@ -21,6 +21,10 @@ export interface Situation {
   assessedRoadIds?: ReadonlySet<string>;
   /** Flooded/assessed road segment id → the gauge C's flood model uses for it (hazard.gaugeId). Not sent to Gemini. */
   floodGaugeByRoadId?: ReadonlyMap<string, string>;
+  /** C's per-segment status at this time (getRoadStatus): flooded / clear / outside_floodplain / unknown. Not sent to Gemini. */
+  roadStatusOf?: (segmentId: string) => RoadHazardStatus;
+  /** C's centre status at this time (getCentreStatuses). Rules never send people to "at_risk" (or "unknown") centres. */
+  centreStatusById?: ReadonlyMap<string, "usable" | "at_risk" | "unknown">;
   /** Caveats from the hazard models (approximate flood model, screening landslide model). */
   hazardNotes?: string[];
   /** True for the sample scenario: shown in HUD summaries so test output is never mistaken for real. */

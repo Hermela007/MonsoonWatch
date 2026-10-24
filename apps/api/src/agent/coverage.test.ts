@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Village } from "@monsoonwatch/shared";
-import { buildAreaWarnings, coverageSummary, rulesSummary, selectForGemini } from "./coverage";
+import { accountabilitySummary, buildAdvisories, buildAreaWarnings, coverageSummary, rulesSummary, selectForGemini, type AreaWarning } from "./coverage";
+import { LEVEL_WORDS } from "./verify";
 import type { RulesResult } from "./rules-planner";
 import type { AtRiskVillage } from "./schemas";
 import type { AlertLevel, VillageRisk } from "./shortlist";
@@ -24,11 +25,19 @@ test("Gemini gets every fix first (urgency order), then the top tailored village
   assert.deepEqual(overCap, []);
 });
 
-test("over the cap: fixes beyond it go to the fallback; tailoring is dropped first", () => {
-  const results = [gem(0), gem(1), gem(2), ok(3)];
-  const { picks, overCap } = selectForGemini(results, { cap: 2, tailorTop: 5 });
-  assert.deepEqual(picks.map((p) => p.risk.village._id), ["v0", "v1"]);
-  assert.deepEqual(overCap.map((p) => p.risk.village._id), ["v2"]);
+test("over the cap: half the slots stay reserved for tailoring; fixes beyond the rest go to the fallback", () => {
+  const results = [gem(0), gem(1), gem(2), gem(3), ok(4), ok(5), ok(6)];
+  const { picks, overCap } = selectForGemini(results, { cap: 4, tailorTop: 5, preferred: ["v6", "v3"] });
+  // Argon's order first in both lists: fixes v3 then v0; tailored v6 then v4.
+  assert.deepEqual(picks.map((p) => [p.risk.village._id, p.why]), [["v3", "fix"], ["v0", "fix"], ["v6", "tailor"], ["v4", "tailor"]]);
+  assert.deepEqual(overCap.map((p) => p.risk.village._id), ["v1", "v2"]);
+});
+
+test("unused tailoring slots go to fixes, and unused fix slots to tailoring", () => {
+  const fixesOnly = selectForGemini([gem(0), gem(1), gem(2)], { cap: 2, tailorTop: 5 });
+  assert.deepEqual(fixesOnly.picks.map((p) => p.risk.village._id), ["v0", "v1"]);
+  const fewFixes = selectForGemini([gem(0), ok(1), ok(2), ok(3), ok(4)], { cap: 4, tailorTop: 5 });
+  assert.deepEqual(fewFixes.picks.map((p) => p.why), ["fix", "tailor", "tailor", "tailor"]);
 });
 
 test("summaries count rules, Gemini reasons and fallback; coverage flags anything missing", () => {
@@ -51,4 +60,36 @@ test("area-wide warnings: one per district and hazard, highest level, ms + en te
   assert.match(kk.messages[1]!.text, /^DANGER: flood risk in Kuala Krai district for Kampung 1, Kampung 2, Kampung 3 and 1 other villages\./);
   assert.ok(kk.messages.every((m) => m.text.length <= 500));
   assert.match(ws[1]!.messages[0]!.text, /^WASPADA tanah runtuh/);
+  assert.equal(kk.kind, "evacuate");
+  assert.match(kk.messages[1]!.text, /Move now to higher ground/); // at risk: not just "be ready"
+  assert.match(kk.messages[1]!.text, /bedridden, disabled and elderly people who need to be collected/);
+  assert.deepEqual(kk.vulnerableByCategory, { bedridden: 0, disabled: 0, elderly: 0, noTransport: 0 }); // fixtures have no counts
+});
+
+test("advisories: watch villages (river at alert+ nearby) and unknown villages each get a district advisory", () => {
+  const v = (i: number, district: string, vulnerable?: Village["vulnerable"]) =>
+    ({ _id: `w${i}`, regionId: "t", name: `Kampung W${i}`, altNames: [], location: { type: "Point", coordinates: [102, 5] }, population: 200, district, ...(vulnerable && { vulnerable }) }) as Village;
+  const ws = buildAdvisories({
+    watch: [{ village: v(1, "Bachok", { bedridden: 1, disabled: 2, elderly: 3, noTransport: 4, source: "t", estimated: true }), level: "danger" }, { village: v(2, "Bachok"), level: "warning" }],
+    unknown: [{ village: v(3, "Jeli"), reason: "nearest road's flood status is unknown (no river gauge in range)" }],
+  }, { regionId: "kelantan", runId: "r1", languages: ["ms", "en"] });
+  assert.deepEqual(ws.map((w) => [w.kind, w.district, w.level, w.villageIds.length]), [["advisory", "Bachok", "danger", 2], ["advisory", "Jeli", "alert", 1]]);
+  const [bachok, jeli] = ws as [AreaWarning, AreaWarning];
+  assert.equal(bachok.status, "needs_approval");
+  assert.deepEqual(bachok.vulnerableByCategory, { bedridden: 1, disabled: 2, elderly: 3, noTransport: 4 });
+  assert.match(bachok.messages[1]!.text, /^DANGER: the river near Kampung W1, Kampung W2 \(Bachok district\) is at DANGER level\. Flooding is not yet shown at your village, but be ready to move/);
+  assert.match(jeli.messages[1]!.text, /^ALERT: flood status is unknown for Kampung W3 \(Jeli district\) because no river gauge is in range/);
+  assert.match(jeli.messages[0]!.text, /^WASPADA: status banjir tidak diketahui/);
+  for (const w of ws) for (const m of w.messages) {
+    assert.ok(m.text.length <= 500);
+    assert.ok(m.text.toUpperCase().startsWith(LEVEL_WORDS[m.lang]![w.level]), "starts with the level word, like every alert");
+  }
+});
+
+test("accountability: every village is at risk, advised or has an assessed road — none unaccounted", () => {
+  const vil = (id: string) => ({ _id: id, district: "d" }) as Village;
+  const screen = { atRisk: [risk(1)], watch: [{ village: vil("w"), level: "danger" as const }], unknown: [{ village: vil("u"), reason: "x" }], noSignal: [vil("n")] };
+  const adv = buildAdvisories(screen, { regionId: "t", runId: "r", languages: ["en"] });
+  assert.equal(accountabilitySummary(screen, adv, 4), "Every village accounted for: 1 at risk (alert or evacuate warning) + 2 advised (1 river at alert+ nearby, 1 flood model can't judge) in 2 advisories + 1 no risk signal (nearest road assessed, no message)");
+  assert.match(accountabilitySummary(screen, adv, 5), /1 UNACCOUNTED/);
 });

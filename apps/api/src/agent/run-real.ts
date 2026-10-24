@@ -8,7 +8,8 @@
 
 import { closeDb } from "../db/client";
 import { env } from "../env";
-import { GEMINI_DEFAULTS, buildAreaWarnings, countBy, rulesSummary, selectForGemini } from "./coverage";
+import { GEMINI_DEFAULTS, accountabilitySummary, buildAdvisories, buildAreaWarnings, countBy, rulesSummary, selectForGemini, type AreaWarning } from "./coverage";
+import { LEVEL_WORDS } from "./verify";
 import { MAX_ATTEMPTS, MAX_VILLAGES_PER_RUN, runAgent } from "./orchestrator";
 import { buildRoadGraph } from "./route";
 import { planAllByRules, type FallbackReason, type GeminiReason } from "./rules-planner";
@@ -50,9 +51,9 @@ try {
     const t0 = Date.now();
     const graph = buildRoadGraph(situation.roads);
     const tGraph = Date.now() - t0;
-    const { results, centresAtRisk } = planAllByRules({ runId: "dry-run", situation, graph }, screen.atRisk);
+    const { results, centresAtRisk, centresUnknown, centreStatusSource } = planAllByRules({ runId: "dry-run", situation, graph }, screen.atRisk);
     console.log(`\n${rulesSummary(results)}`);
-    console.log(`  (road graph ${tGraph} ms, planning ${Date.now() - t0 - tGraph} ms; ${centresAtRisk} of ${situation.centres.length} centres treated as at risk — next to a flooded road or runout)`);
+    console.log(`  (road graph ${tGraph} ms, planning ${Date.now() - t0 - tGraph} ms; centres not used by the rules: ${centresAtRisk} at risk + ${centresUnknown} unknown of ${situation.centres.length} (status: ${centreStatusSource}))`);
     const ok = results.filter((r) => r.ok);
     const alerts = ok.flatMap((r) => r.built.alerts);
     const split = ok.filter((r) => r.built.alerts.length > 1).length;
@@ -75,10 +76,19 @@ try {
     console.log(`\nFallback (area-wide warning): ${fallback.length} — ${fallbackByRules.length} code+Gemini can't plan`, countBy<FallbackReason>(fallbackByRules.map((r) => r.reason)),
       `+ ${overCap.length} Gemini fixes over the cap; plus any Gemini fix that still fails its checks in the real run`);
     const warnings = buildAreaWarnings(fallback, { regionId: situation.region._id, runId: "dry-run", languages: situation.region.languages });
-    if (warnings.length) console.table(warnings.map((w) => ({ district: w.district, hazard: w.hazard, level: w.level, villages: w.villageIds.length, people: w.people })));
+    const row = (w: AreaWarning) => ({ kind: w.kind, district: w.district, level: w.level, villages: w.villageIds.length, people: w.people, vulnerable: w.vulnerable, bedridden: w.vulnerableByCategory.bedridden });
+    if (warnings.length) console.table(warnings.map(row));
 
     const check = ok.length + picks.filter((p) => p.why === "fix").length + fallback.length;
     console.log(`\nCoverage: ${screen.atRisk.length} at risk = ${ok.length} rules (${picks.length - fixes.length} of them also tailored by Gemini) + ${fixes.length} Gemini fixes + ${fallback.length} fallback → ${check === screen.atRisk.length ? "every village covered" : `MISMATCH (${check})`}`);
+
+    const advisories = buildAdvisories(screen, { regionId: situation.region._id, runId: "dry-run", languages: situation.region.languages });
+    console.log(`\nAdvisories (template, no AI, need approval): ${advisories.length} for ${screen.watch.length} watch + ${screen.unknown.length} unknown villages`);
+    if (advisories.length) console.table(advisories.map(row));
+    console.log(accountabilitySummary(screen, advisories, situation.villages.length));
+    const levelOk = [...alerts, ...warnings, ...advisories].every((a) => a.messages.every((m) => !LEVEL_WORDS[m.lang] || m.text.trimStart().toUpperCase().startsWith(LEVEL_WORDS[m.lang]![a.level as "alert"])));
+    console.log(`Every rules alert / warning / advisory starts with its level word: ${levelOk ? "yes" : "NO"}`);
+    if (advisories[0]) console.log(`Example advisory:\n  ${advisories[0].messages.map((m) => `[${m.lang}] ${m.text}`).join("\n  ")}`);
     for (const sample of [alerts.find((a) => !boatVillages.some((r) => r.built.alerts.includes(a))), boatVillages[0]?.built.alerts.find((a) => a.pickups?.length)]) {
       if (!sample) continue;
       console.log(`\nExample rules alert (${sample._id}; pickups: ${(sample.pickups ?? []).map((p) => `${p.order}.${p.category}×${p.people} ${p.vehicle}`).join(", ") || "none"}):`);

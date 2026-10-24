@@ -14,7 +14,7 @@ import {
 import { getDb } from "../db/client";
 import { toReading, type ReadingDoc } from "../db/readings";
 import { serialize } from "../events/change-streams";
-import { getHazards } from "../hazards";
+import { getCentreStatuses, getHazards, getRoadStatus } from "../hazards";
 import { landslideEventsForVillages } from "./landslide";
 import { computeLandslideDetailed, registerLandslideProvider } from "./landslide-provider";
 import type { Situation } from "./situation";
@@ -96,6 +96,12 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
   }));
 
   const detail = await computeLandslideDetailed(regionId, at, mode).catch(() => null);
+  // C's road + centre status for the same scenario time. Unavailable → undefined (screen/rules fall back,
+  // and nothing is ever treated as safe because of it).
+  const [roadStatus, centreStatuses] = await Promise.all([
+    getRoadStatus(regionId, at, mode).catch(() => null),
+    getCentreStatuses(regionId, at, mode).catch(() => null),
+  ]);
   const landslideEvents = detail ? landslideEventsForVillages(regionId, at.toISOString(), villages, detail.landslide, detail.sources) : [];
 
   return {
@@ -118,6 +124,8 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
     ],
     assessedRoadIds,
     floodGaugeByRoadId,
+    ...(roadStatus && { roadStatusOf: roadStatus.status }),
+    ...(centreStatuses && { centreStatusById: new Map(centreStatuses.map((c) => [c._id, c.status])) }),
     knowledge: knowledge.map((k) => serialize<KnowledgeChunk>(k)),
     glofas: cells.map((c) => ({ id: c.id, label: c.label, lngLat: c.lngLat, latest: byId.get(c.id) ?? null })),
     isTestData: false,

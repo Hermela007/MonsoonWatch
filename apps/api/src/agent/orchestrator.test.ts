@@ -25,7 +25,7 @@ const naive: VillagePlan = {
       { category: "elderly", people: 40, vehicle: "bus", order: 2 },
       { category: "noTransport", people: 25, vehicle: "bus", order: 3 },
     ],
-    messages: msg("Amaran banjir. Pergi ke SK Manik Urai.", "Flood warning. Go to SK Manik Urai."),
+    messages: msg("BAHAYA banjir. Pergi ke SK Manik Urai.", "DANGER: flood. Go to SK Manik Urai."),
   }],
 };
 
@@ -40,12 +40,12 @@ const fixed: VillagePlan = {
         { category: "disabled", people: 8, vehicle: "boat", order: 2 },
         { category: "elderly", people: 40, vehicle: "boat", order: 3 },
       ],
-      messages: msg("Amaran banjir. Bot ke SMK Kuala Krai.", "Flood warning. Boats to SMK Kuala Krai."),
+      messages: msg("BAHAYA banjir. Bot ke SMK Kuala Krai.", "DANGER: flood. Boats to SMK Kuala Krai."),
     },
     {
       evacCentreId: "test-sk-manik-urai", people: 50, routeMode: "road",
       pickups: [{ category: "noTransport", people: 25, vehicle: "bus", order: 4 }],
-      messages: msg("Amaran banjir. Bas ke SK Manik Urai.", "Flood warning. Bus to SK Manik Urai."),
+      messages: msg("BAHAYA banjir. Bas ke SK Manik Urai.", "DANGER: flood. Bus to SK Manik Urai."),
     },
   ],
 };
@@ -60,7 +60,7 @@ const tualang: VillagePlan = {
       { category: "elderly", people: 20, vehicle: "bus", order: 3 },
       { category: "noTransport", people: 10, vehicle: "bus", order: 4 },
     ],
-    messages: msg("Amaran banjir. Pergi ke Dewan Tualang.", "Flood warning. Go to Dewan Tualang."),
+    messages: msg("AMARAN banjir. Pergi ke Dewan Tualang.", "WARNING: flood. Go to Dewan Tualang."),
   }],
 };
 
@@ -172,7 +172,7 @@ test("rules plan both sample villages with no Gemini: Tualang by dry road, Manik
   const manik = res.rulesAlerts.filter((a) => a.villageId === "test-kg-manik-urai");
   assert.deepEqual(manik.map((a) => [a.evacCentreId, a.people]), [["test-sk-manik-urai", 50], ["test-smk-kuala-krai", 250]]);
   assert.ok(manik.flatMap((a) => a.pickups ?? []).every((p) => p.vehicle === "boat"));
-  assert.match(manik[1]!.messages.find((m) => m.lang === "en")!.text, /250 residents: boats will take you to SMK Kuala Krai \(test\)/);
+  assert.match(manik[1]!.messages.find((m) => m.lang === "en")!.text, /250 residents: rescue boats will take you to SMK Kuala Krai \(test\)/);
   assert.ok(getMemorySteps("t-rules-1").some((s) => s.actor === "Rules planner" && /2\/2 at-risk villages planned \+ verified; 0 need Gemini/.test(s.summary)));
   assertEveryVillageHasAlert(res, situation);
 });
@@ -187,7 +187,7 @@ test("tailored villages keep their rules alerts when Gemini's plans fail", async
   assert.ok(res.outcomes.every((o) => !o.passed)); // …both failed
   assert.equal(res.plannedBy.get("test-kg-tualang"), "rules");
   assert.equal(res.plannedBy.get("test-kg-manik-urai"), "rules");
-  assert.deepEqual(res.areaWarnings, []);
+  assert.deepEqual(res.areaWarnings.filter((w) => w.kind === "evacuate"), []); // only advisories (if any)
   assertEveryVillageHasAlert(res, situation);
 });
 

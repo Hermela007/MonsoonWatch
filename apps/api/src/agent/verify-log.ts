@@ -22,11 +22,13 @@ export async function logVerification(
   }
   const failed = results.filter((r) => !r.passed).length;
   if (failed > 0) {
+    // A finished event (not "running"): nothing would ever close it, and the HUD would spin forever.
+    // The next attempt's own steps show the replanning itself.
     await emitStep({
       runId,
       actor: "Verification",
       kind: "replan",
-      status: "running",
+      status: "ok",
       summary: `${villageName}: ${failed} check(s) failed → replanning`,
     });
   }
