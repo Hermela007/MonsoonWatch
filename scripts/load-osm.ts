@@ -6,12 +6,16 @@
 //           Segments with any point outside the region bbox are dropped.
 //   rivers: waterway=river, one feature per OSM way, id = "river:<osmWayId>".
 //   buildings: not loaded — Kelantan has too many; /geo returns an empty collection.
-// Safe to re-run (replaces the region's geo docs). Offline: pnpm load:osm --from-cache
+//           Travel restrictions copied from the way's tags (optional RoadProps): oneway, bridge, access,
+//           maxweightT, surface — see restrictions() below.
+// Safe to re-run (replaces the region's geo docs, so re-run `pnpm prep:hazards` after it).
+// Offline: pnpm load:osm --from-cache
 import { fileURLToPath } from "node:url";
 import { COLLECTIONS, type LineStringGeom, type LngLat, type Region, type RiverFeature, type RoadProps } from "@monsoonwatch/shared";
 import { closeDb, getDb } from "@monsoonwatch/api/db";
 import { env } from "@monsoonwatch/api/env";
 import { overpass, type OsmElement } from "./lib/osm";
+import { restrictions } from "./lib/road-restrictions";
 
 const dataDir = fileURLToPath(new URL("./data/osm/", import.meta.url));
 const fromCache = process.argv.includes("--from-cache");
@@ -132,6 +136,7 @@ out skel qt;`;
         ...(w.tags?.name ? { name: w.tags.name } : {}),
         highway: w.tags!.highway!,
         lengthM: Math.round(lengthM * 10) / 10,
+        ...restrictions(w.tags),
       };
       roads.push(props);
       docs.push({ _id: id, regionId: env.regionId, layer: "road", geometry: { type: "LineString", coordinates: compact(full) }, properties: props });
@@ -162,6 +167,8 @@ out skel qt;`;
   const byClass = roads.reduce<Record<string, number>>((acc, r) => ((acc[r.highway] = (acc[r.highway] ?? 0) + 1), acc), {});
   console.log(`✅ ${roads.length} road segments from ${roadWays.length} ways, ${usedJunctions} junctions`);
   console.log(`   by class: ${Object.entries(byClass).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ")}`);
+  const tagged = (k: keyof RoadProps) => roads.filter((r) => r[k] !== undefined).length;
+  console.log(`   restrictions: oneway ${tagged("oneway")} (forward ${roads.filter((r) => r.oneway === "forward").length}, reverse ${roads.filter((r) => r.oneway === "reverse").length}, no ${roads.filter((r) => r.oneway === "no").length}), bridge ${tagged("bridge")}, access ${tagged("access")}, maxweightT ${tagged("maxweightT")}, surface ${tagged("surface")}`);
   console.log(`   dropped: ${droppedOutside} outside bbox, ${droppedNoCoords} missing node coords, ${droppedZeroLength} zero-length`);
   console.log(`   largest connected component: ${(largestComponentShare(roads) * 100).toFixed(1)}% of segments`);
   console.log(`✅ ${rivers} rivers`);

@@ -196,6 +196,12 @@ export interface RoadProps {
   name?: string;
   highway: string; // OSM highway tag: "primary", "residential", ...
   lengthM: number;
+  // Travel restrictions copied from OSM tags (absent = not tagged, NOT "no restriction"):
+  oneway?: "forward" | "reverse" | "no"; // forward = direction from → to; roundabouts are forward
+  bridge?: boolean; // OSM bridge=* (≠ "no")
+  access?: string; // OSM access tag as-is: "no", "private", "destination", "permissive", "yes", ...
+  maxweightT?: number; // OSM maxweight, tonnes
+  surface?: string; // OSM surface tag as-is: "asphalt", "unpaved", "gravel", ...
 }
 export type RoadFeature = Feature<LineStringGeom, RoadProps>;
 export type RiverFeature = Feature<LineStringGeom, { id: string; name?: string; waterway: string }>;
