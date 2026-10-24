@@ -1,3 +1,4 @@
+import { createAlertAudio } from './alertAudio';
 import { createSaintUi } from './saint';
 import type { ConnectionMode } from '../api/stream';
 import type { AgentStep, Alert, RiskEvent, SaintTask } from '@monsoonwatch/shared';
@@ -24,6 +25,8 @@ export function createControlUi(h: {
   onDecide: (id: string, d: 'approve' | 'reject') => void;
   onSelectAlert: (a: Alert) => void;
 }) {
+  const audio = createAlertAudio($('alert-audio'));
+  let scripted = false;
   const steps = new Map<string, HTMLElement>();
   const saint = createSaintUi($('saint-box'));
   const list = $('hud-list');
@@ -54,6 +57,7 @@ export function createControlUi(h: {
     const a = current;
     $('alert-box').hidden = !a;
     $('control-idle').hidden = !!a;
+    audio.set(a && !scripted && ['approved', 'sent'].includes(a.status) ? { id: a._id, languages: a.messages.map(m => m.lang) } : null);
     if (!a) return;
     $('alert-box').dataset.alertId = a._id;
     const picker = $<HTMLSelectElement>('alert-picker');
@@ -103,6 +107,7 @@ export function createControlUi(h: {
       renderAlert();
     },
     setMode(mode: ConnectionMode) {
+      scripted = mode === 'mock';
       saint.setMode(mode);
       connected = mode === 'live' || mode === 'mock';
       updateActions();

@@ -1,3 +1,4 @@
+import { createAlertAudio } from './alertAudio';
 import type { Town } from '../geo/region';
 import { searchPlaces } from '../api/client';
 import type { HomeRisk } from '../terrain/homeRisk';
@@ -101,6 +102,8 @@ export function leaveBy(v: ResultView): string | null {
 
 /** An approved alert as the resident sees it: who approved it, where to go, what it says. */
 export interface OfficialAlertView {
+  id: string;
+  languages: string[];
   approvedAt: string | null;
   approvedBy: string | null;
   centre: string;
@@ -202,6 +205,7 @@ export function createResidentUi(
   $('btn-street').addEventListener('click', h.onStreet);
   $('btn-route-back').addEventListener('click', h.onRouteBack);
 
+  const officialAudio = createAlertAudio($('official-audio'));
   const stopSpeaking = () => {
     window.speechSynthesis?.cancel();
     speaking = false;
@@ -303,6 +307,7 @@ export function createResidentUi(
     setOfficial(a: OfficialAlertView | null) {
       const box = $('official');
       box.hidden = !a;
+      officialAudio.set(a?.languages.length ? { id: a.id, languages: a.languages } : null);
       if (!a) return;
       const when = a.approvedAt
         ? // Wall-clock time of the decision, as the control room shows it.

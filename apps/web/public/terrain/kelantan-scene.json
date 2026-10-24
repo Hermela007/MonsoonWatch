@@ -1,0 +1,12 @@
+{
+  "bbox": [
+    101.3,
+    4.53,
+    102.7,
+    6.27
+  ],
+  "cols": 600,
+  "rows": 744,
+  "url": "/terrain/kelantan-scene.png",
+  "source": "AWS Terrarium z10; bilinear samples at grid nodes; row 0 north"
+}

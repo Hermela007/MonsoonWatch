@@ -331,3 +331,24 @@ body.route-2d[data-view='route'] #legend, body.route-2d[data-view='route'] #sour
 .m2d-dest-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--ink); border: 3px solid var(--card); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
 .maplibregl-ctrl-attrib { font-size: 10px; }
 .suggestion.address small { color: var(--muted); }
+
+/* Scenario inspection and official recordings. */
+#control details { margin: 10px 0; }
+#control summary { cursor: pointer; font-size: 12px; }
+#hazard-time { width: 100%; }
+#hazard-follow { width: auto; }
+#knowledge-search form { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-top: 8px; }
+#knowledge-search input { grid-column: 1 / -1; min-width: 0; }
+.knowledge-results { padding-left: 20px; font-size: 12px; max-height: 260px; overflow: auto; }
+.knowledge-results li { margin: 12px 0; }
+.knowledge-results p { white-space: pre-wrap; }
+.knowledge-results a, .knowledge-results button { margin: 0 8px; }
+.alert-audio audio { width: 100%; height: 34px; margin-top: 8px; }
+.alert-audio select { max-width: 160px; }
+body.recording #hud { font-size: 13px; }
+body.recording .note { font-size: 12px; }
+@media (max-width: 767px) { #control { max-height: 52dvh; overflow-y: auto; } #hud { max-height: 24dvh; } }
+#render-performance { display: none; margin: 4px 16px; }
+body.recording #render-performance { display: block; }
+
+#control .hazard-follow-row { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
