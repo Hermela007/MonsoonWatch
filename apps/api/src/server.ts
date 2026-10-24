@@ -13,6 +13,7 @@ import { hazardsRoutes } from "./routes/hazards";
 import { healthRoutes } from "./routes/health";
 import { regionRoutes } from "./routes/regions";
 import { replayRoutes } from "./routes/replay";
+import { saintRoutes } from "./routes/saint";
 import { stationRoutes } from "./routes/stations";
 import { streamRoutes } from "./routes/stream";
 
@@ -53,6 +54,7 @@ export function buildServer(opts: { webRoot?: string; serveWeb?: boolean; public
       await api.register(hazardsRoutes);
       await api.register(stationRoutes);
       await api.register(replayRoutes);
+      await api.register(saintRoutes);
       // C: regions, stations, readings, hazards, search, reports, replay, saint routes go here.
       // B: agent, alerts, voice routes go here.
       await api.register(agentRoutes);

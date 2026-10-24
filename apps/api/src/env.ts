@@ -15,6 +15,8 @@ export const env = {
   mongodbDb: process.env.MONGODB_DB || "monsoonwatch",
   // Atlas Stream Processing workspace (no credentials in it: `pnpm db:stream` reuses MONGODB_URI's user).
   streamProcessingUri: process.env.STREAM_PROCESSING_URI || "",
+  // Saint (Thea) WhatsApp number, digits only with country code — used for the click-to-chat handoff link.
+  saintWhatsapp: (process.env.SAINT_WHATSAPP || "").replace(/[^\d]/g, ""),
   geminiApiKey: process.env.GEMINI_API_KEY || "",
   voyageApiKey: process.env.VOYAGE_API_KEY || "",
 };
