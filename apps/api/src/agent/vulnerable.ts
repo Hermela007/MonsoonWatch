@@ -62,8 +62,9 @@ export function suggestPickups(village: Village, routeCrossesFlood: boolean): Pi
  *  3. each pickup's vehicle suits its category (boat if the route crosses floodwater).
  */
 export function checkVulnerable(
-  alerts: Pick<Alert, "villageId" | "pickups">[],
+  alerts: (Pick<Alert, "villageId" | "pickups"> & { routeCrossesFlood?: boolean })[],
   village: Village,
+  /** Default for alerts that don't say; a split village can have one boat group and one road group. */
   opts: { routeCrossesFlood: boolean },
 ): VerificationResult {
   const v = village.vulnerable;
@@ -71,7 +72,9 @@ export function checkVulnerable(
     return pass(`${village.name}: no vulnerable residents recorded`);
   }
   const est = v.estimated ? " (estimated)" : "";
-  const pickups = alerts.filter((a) => a.villageId === village._id).flatMap((a) => a.pickups ?? []);
+  const pickups = alerts
+    .filter((a) => a.villageId === village._id)
+    .flatMap((a) => (a.pickups ?? []).map((p) => ({ ...p, flood: a.routeCrossesFlood ?? opts.routeCrossesFlood })));
 
   // 1. Coverage per category
   for (const c of PRIORITY) {
@@ -96,9 +99,9 @@ export function checkVulnerable(
 
   // 3. Vehicle suitability
   for (const p of sorted) {
-    const ok = allowedVehicles(p.category, opts.routeCrossesFlood);
+    const ok = allowedVehicles(p.category, p.flood);
     if (!ok.includes(p.vehicle)) {
-      const why = opts.routeCrossesFlood ? "route crosses floodwater, boats only" : `${LABEL[p.category]} residents need ${ok.join("/")}`;
+      const why = p.flood ? "route crosses floodwater, boats only" : `${LABEL[p.category]} residents need ${ok.join("/")}`;
       return fail(`${village.name}: pickup ${p.order} uses ${p.vehicle} — ${why}`);
     }
   }

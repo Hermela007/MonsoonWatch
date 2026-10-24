@@ -2,6 +2,8 @@ import compress from "@fastify/compress";
 import Fastify from "fastify";
 import { withDbRetry } from "./db/client";
 import { registerErrorHandlers } from "./errors";
+import { agentRoutes } from "./routes/agent";
+import { alertRoutes } from "./routes/alerts";
 import { geoRoutes } from "./routes/geo";
 import { healthRoutes } from "./routes/health";
 import { regionRoutes } from "./routes/regions";
@@ -37,6 +39,8 @@ export function buildServer() {
       await api.register(stationRoutes);
       // C: regions, stations, readings, hazards, search, reports, replay, saint routes go here.
       // B: agent, alerts, voice routes go here.
+      await api.register(agentRoutes);
+      await api.register(alertRoutes);
     },
     { prefix: "/api" },
   );

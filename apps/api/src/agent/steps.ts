@@ -16,7 +16,7 @@ export type StepSink = (step: AgentStep) => Promise<void> | void;
 
 const memorySteps = new Map<string, AgentStep>();
 
-const memorySink: StepSink = (step) => {
+export const memoryStepSink: StepSink = (step) => {
   memorySteps.set(step._id, step);
 };
 
@@ -28,7 +28,7 @@ let warnedDbFailure = false;
  * A DB failure never breaks an agent run: it is logged once and the in-memory copy is kept.
  */
 export const mongoStepSink: StepSink = async (step) => {
-  memorySink(step);
+  memoryStepSink(step);
   try {
     const db = await getDb();
     await db.collection<AgentStep>(COLLECTIONS.agentSteps).replaceOne({ _id: step._id }, step, { upsert: true });
@@ -41,7 +41,7 @@ export const mongoStepSink: StepSink = async (step) => {
 };
 
 /** MongoDB when MOCK !== "1" and MONGODB_URI is set; otherwise in memory only. */
-let sink: StepSink = !env.mock && env.mongodbUri ? mongoStepSink : memorySink;
+let sink: StepSink = !env.mock && env.mongodbUri ? mongoStepSink : memoryStepSink;
 
 /** Override the sink (tests, or a mock-mode relay). */
 export function setStepSink(next: StepSink): void {
