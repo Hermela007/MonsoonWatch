@@ -21,7 +21,10 @@ import { createResidentUi } from './ui/resident';
 import { createStreet } from './layers/street';
 import { fetchOsmHouses, illustrativeTown, type House, type Lane } from './data/buildings';
 import { t } from './ui/copy';
-import { connectStream } from './api/stream';
+import { createEventHub } from './api/stream';
+import { decideAlert, runAgent, setApiLive } from './api/client';
+import { createMockAgent } from './mock/agentScript';
+import { createControlUi } from './ui/control';
 import { fetchEvacCentres, fetchVillages } from './api/client';
 import type { EvacCentre } from '@monsoonwatch/shared';
 import { NOW_HOUR, REPLAY_HOURS, rainAccumulated, rainIntensity, stageM } from './mock/replay2014';
@@ -34,6 +37,8 @@ const FOCUS_KM = 6;
 // Closer than this the 150 m terrain looks blocky; the street view covers close-ups.
 const VALLEY_MIN_KM = 7;
 const WHATIF_HOURS = 40;
+// Illustrative trigger (rise above normal, m) until C's Stream Processing emits real risk events.
+const AGENT_TRIGGER_STAGE_M = 4;
 
 async function main() {
   const frame = new GeoFrame(KELANTAN.bbox, EXAG);
@@ -75,8 +80,13 @@ async function main() {
     ictx.filter = 'blur(3px)';
     ictx.drawImage(mask, 0, 0, imageryCanvas.width, imageryCanvas.height);
     // Neutral, low-contrast photo: colour is reserved for risk.
-    ictx.filter = 'grayscale(1) contrast(0.75) brightness(1.25)';
-    ictx.drawImage(imageryCanvas, 0, 0);
+    // (copy first: drawing a canvas onto itself with a filter is unreliable)
+    const copy = document.createElement('canvas');
+    copy.width = imageryCanvas.width;
+    copy.height = imageryCanvas.height;
+    copy.getContext('2d')!.drawImage(imageryCanvas, 0, 0);
+    ictx.filter = 'grayscale(1) contrast(0.45) brightness(1.9)';
+    ictx.drawImage(copy, 0, 0);
     ictx.filter = 'none';
     imagery = new THREE.CanvasTexture(imageryCanvas);
     imagery.colorSpace = THREE.SRGBColorSpace;
@@ -134,7 +144,7 @@ async function main() {
   const layoutShift = () => {
     const view = document.body.dataset.view;
     if (isPhone) stage.setShift(0, view === 'result' ? window.innerHeight * 0.22 : window.innerHeight * 0.18);
-    else stage.setShift(view === 'result' ? 210 : 0, 0);
+    else stage.setShift(view === 'control' ? -40 : 210, 0);
   };
   window.addEventListener('resize', layoutShift);
 
@@ -365,12 +375,15 @@ async function main() {
 
   // Tap the map to choose a home.
   const down = new THREE.Vector2();
+  let downAt = 0;
   stage.pointerTarget.addEventListener('pointerdown', (e) => {
     down.set(e.clientX, e.clientY);
+    downAt = performance.now();
     director.cancel();
   });
   stage.pointerTarget.addEventListener('pointerup', (e) => {
-    if (inStreet) return;
+    // Only a quick, deliberate tap on the map picks a place (not drags, not the control room).
+    if (inStreet || document.body.dataset.mode === 'control' || e.target !== stage.pointerTarget || performance.now() - downAt > 450) return;
     if (down.distanceTo(new THREE.Vector2(e.clientX, e.clientY)) > 6) return;
     const rect = stage.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
@@ -383,7 +396,6 @@ async function main() {
   ui.showLanding();
   layoutShift();
   ui.ready();
-  connectStream();
 
   // Places where both hazards meet: the valley floor at the foot of a flagged slope's runout,
   // for the steepest flagged slope near each of these towns.
@@ -408,8 +420,149 @@ async function main() {
 
   // Workstream C's data, when the API is up. Until then: local stand-ins.
   let centres: EvacCentre[] | null = null;
-  void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...allPlaces, ...v]));
-  void fetchEvacCentres(KELANTAN.id).then((c) => (centres = c));
+  const loadApiData = () => {
+    void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...allPlaces, ...v]));
+    void fetchEvacCentres(KELANTAN.id).then((c) => (centres = c));
+  };
+
+  // ---- Control room: live events (or the scripted mock), Tech HUD, human approval ----------
+  const control = createControlUi({
+    onReplay: () => {
+      hour = 0;
+      targetHour = REPLAY_HOURS;
+      agentTriggered = false;
+    },
+    onRun: () => startAgent(),
+    onDecide: (d) => void decide(d),
+  });
+  const hub = createEventHub({
+    forceMock: params.has('mock'),
+    onMode: (m) => {
+      control.setMode(m);
+      setApiLive(m === 'live');
+      if (m === 'live') loadApiData();
+    },
+  });
+  const mockAgent = createMockAgent(hub.emit);
+  let agentTriggered = false;
+  let alertShown = false;
+  let usingMock = false;
+  const AGENT_VILLAGE = 'Kuala Krai';
+  let agentVillageCell = -1;
+
+  hub.on('agent.step', ({ step }) => control.step(step));
+  hub.on('risk.event', ({ riskEvent }) => control.risk(riskEvent));
+  hub.on('saint.task', ({ task }) => control.task(task));
+  hub.on('alert.updated', ({ alert }) => {
+    control.alert(alert);
+    if (document.body.dataset.mode !== 'control') return;
+    // Draw the alert's route and fly to the village the first time we see it.
+    const pts = alert.route.coordinates.map((ll) => frame.lngLatToWorld(ll, sampleElev(ll)).add(new THREE.Vector3(0, 0.05, 0)));
+    if (pts.length >= 1 && !alertShown) {
+      alertShown = true;
+      home.setLabels(alert.villageId, t('higherGround'));
+      home.set(pts[0], pts.length > 1 ? pts : null, 0, timer.getElapsed());
+      focus.centre.copy(pts[0]);
+      focusTarget = 1;
+      const span = Math.max(14, pts[0].distanceTo(pts[pts.length - 1]) * 3);
+      director.flyTo({ target: pts[0].clone(), position: pts[0].clone().add(new THREE.Vector3(0.35, 0.62, 0.7).normalize().multiplyScalar(span)) }, 2600);
+    }
+  });
+
+  const sampleElev = (ll: LngLat) => {
+    const c = nearestCell(hm, ll);
+    return c === null ? 0 : Math.max(hm.elevM[c], 0);
+  };
+
+  const startAgent = async () => {
+    agentTriggered = true;
+    alertShown = false;
+    control.reset();
+    home.set(null, null, 0, timer.getElapsed());
+    const ll = KELANTAN.towns.find((x) => x.name === AGENT_VILLAGE)!.lngLat;
+    agentVillageCell = nearestCell(hm, ll)!;
+    if (hub.mode === 'live' && !usingMock) {
+      try {
+        const r = await runAgent(KELANTAN.id);
+        control.note(`Agent run ${r.runId} started`);
+        return;
+      } catch (err) {
+        control.note(`API: ${err instanceof Error ? err.message : String(err)} — showing the scripted demo run instead`);
+        usingMock = true;
+      }
+    }
+    // Scripted run: route and ETA come from the terrain model so the 3D matches the card.
+    const risk = assessHome(hm, hy, agentVillageCell, []);
+    // Same rule as the resident view: the destination must be outside the village's own area.
+    const avoid = new Uint8Array(hm.cols * hm.rows);
+    for (const i of neighbourhood(hm, agentVillageCell, 2)) avoid[i] = 1;
+    const route = routeToSafeGround(hm, hy, agentVillageCell, avoid);
+    const routeLL = (route?.cells ?? [agentVillageCell]).filter((_, k, a) => k % 2 === 0 || k === a.length - 1).map((c) => {
+      const r = Math.floor(c / hm.cols);
+      return cellLngLat(hm, c - r * hm.cols, r);
+    });
+    mockAgent.start({
+      regionId: KELANTAN.id,
+      village: { id: AGENT_VILLAGE, name: AGENT_VILLAGE },
+      route: routeLL,
+      etaHours: Math.max(1, (risk.floodWetHour ?? hour + 6) - hour),
+    });
+  };
+
+  const decide = async (d: 'approve' | 'reject') => {
+    if (hub.mode === 'live' && !usingMock) {
+      const id = document.getElementById('alert-box')?.dataset.alertId;
+      if (id) {
+        try {
+          control.alert(await decideAlert(id, d, 'Duty officer'));
+          return;
+        } catch (err) {
+          control.note(`API: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+    mockAgent.decide(d, 'Duty officer');
+  };
+
+  // ---- Modes ---------------------------------------------------------------------------
+  const setMode = (m: 'resident' | 'control') => {
+    document.body.dataset.mode = m;
+    document.getElementById('mode-resident')!.classList.toggle('on', m === 'resident');
+    document.getElementById('mode-control')!.classList.toggle('on', m === 'control');
+    if (m === 'control') {
+      leaveStreet();
+      ui!.showLanding();
+      document.body.dataset.view = 'control';
+      controls.autoRotate = false;
+      explodeTarget = 0;
+      focusTarget = 0;
+      home.set(null, null, 0, timer.getElapsed());
+      homePos = null;
+      layoutShift();
+      director.flyTo({ position: new THREE.Vector3(-30, 95, 120), target: new THREE.Vector3(-6, 0, -20) }, 2200);
+    } else {
+      mockAgent.stop();
+      backToLanding();
+    }
+  };
+  document.getElementById('mode-resident')!.addEventListener('click', () => setMode('resident'));
+  document.getElementById('mode-control')!.addEventListener('click', () => setMode('control'));
+
+  // ---- Recording presets (?demo=1, keys 1–6) -------------------------------------------
+  const pick = (name: string) => {
+    const p = allPlaces.find((x) => x.name === name || x.name.includes(name));
+    if (p) selectHome(p.lngLat, p.name);
+  };
+  window.addEventListener('keydown', (e) => {
+    if (!params.has('demo') || e.target instanceof HTMLInputElement) return;
+    const k = e.key;
+    if (k === '1') setMode('resident');
+    if (k === '2') (setMode('resident'), pick('Kuala Krai'));
+    if (k === '3') (setMode('resident'), pick('Kuala Krai'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
+    if (k === '4') (setMode('resident'), pick('hills near Gua Musang'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
+    if (k === '5') (setMode('control'), window.setTimeout(() => void startAgent(), 2400));
+    if (k === '6') void decide('approve');
+  });
   director.flyTo(overview, 4000, () => (controls.autoRotate = !homePos));
 
   // ---- Frame loop --------------------------------------------------------
@@ -425,6 +578,8 @@ async function main() {
     const rate = targetHour > hour ? (inStreet && street?.slideSurging ? 0.15 : 4) : 14;
     hour = targetHour > hour ? Math.min(targetHour, hour + dt * rate) : Math.max(targetHour, hour - dt * rate);
     focus.amount += (focusTarget - focus.amount) * Math.min(1, dt * 2.5);
+    // Control room replay: when the main river passes the Warning rise, Stream Processing → agent.
+    if (document.body.dataset.mode === 'control' && !agentTriggered && hour > 0.5 && stageM(hour) >= AGENT_TRIGGER_STAGE_M) void startAgent();
     explode += (explodeTarget - explode) * Math.min(1, dt * 2.2);
     stack.setExplode(explode);
 

@@ -20,8 +20,47 @@
 
     <header class="topbar ui">
       <div class="brand">Monsoon<span>Watch</span></div>
+      <nav class="modes" aria-label="View">
+        <button id="mode-resident" type="button" class="on">Residents</button>
+        <button id="mode-control" type="button">Control room</button>
+      </nav>
       <div class="clock"><b id="clock-tag">Now</b><span id="clock-time"></span></div>
     </header>
+
+    <section id="control" class="card ui" aria-live="polite">
+      <div class="place-row"><span class="place">Control room · Kelantan</span></div>
+      <div id="control-idle">
+        <div class="risk-level">Dec 2014 replay</div>
+        <p class="sub">When a river crosses a warning level, the agent drafts an alert. It must pass every check, and a person must approve it, before anything is sent.</p>
+        <div class="actions">
+          <button id="btn-replay" class="btn btn-primary" type="button">Play the replay</button>
+          <button id="btn-run" class="btn" type="button">Run the agent now</button>
+        </div>
+      </div>
+      <p id="control-risk" class="control-risk"></p>
+      <div id="alert-box" hidden>
+        <div class="risk-level" id="alert-title"></div>
+        <div class="alert-meta" id="alert-meta"></div>
+        <blockquote id="alert-msg"></blockquote>
+        <h3>Checks</h3>
+        <ul id="alert-checks" class="checks"></ul>
+        <p id="alert-status" class="alert-status"></p>
+        <div class="actions two" id="decide-row">
+          <button id="btn-approve" class="btn btn-primary" type="button" disabled>Approve and send</button>
+          <button id="btn-reject" class="btn" type="button" disabled>Reject</button>
+        </div>
+        <div id="saint-box" hidden>
+          <h3>After approval · Saint</h3>
+          <ul id="saint-list" class="tasks"></ul>
+        </div>
+      </div>
+    </section>
+
+    <aside id="hud" class="ui" aria-label="Under the hood">
+      <div class="hud-head"><b>Under the hood</b><span id="hud-mode" class="hud-mode">Connecting…</span></div>
+      <p id="hud-empty" class="hud-empty">Every step the system takes appears here: MongoDB, Gemini, verification, Saint.</p>
+      <ol id="hud-list"></ol>
+    </aside>
 
     <section id="landing" class="card ui" aria-labelledby="ask-title">
       <h1 id="ask-title" data-copy="askTitle"></h1>
