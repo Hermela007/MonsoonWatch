@@ -130,6 +130,7 @@ interface RegionModel {
   segments: ModelSegment[];
   allRoadIds: string[]; // includes segments without hazard data
   version: string;
+  replayRainLabel: string; // from the stored replay rain docs (calibrationLabel), see load-replay-2014.ts
 }
 const models = new Map<string, Promise<RegionModel>>();
 
@@ -181,7 +182,14 @@ async function loadModel(regionId: string): Promise<RegionModel> {
     .update(JSON.stringify([docs.length, segments.length, gauges.map((g) => [g.id, g.calibration?.peakM ?? null])]))
     .digest("hex")
     .slice(0, 8);
-  return { region, gauges, segments, allRoadIds: docs.map((d) => d._id), version };
+  // Replay rain provenance: calibrated docs carry calibrationLabel; docs loaded before calibration don't.
+  const rainDoc = await db
+    .collection<{ calibrationLabel?: string }>(COLLECTIONS.rawReadings)
+    .findOne({ "meta.kind": "rain", "meta.mode": "replay", calibrated: true }, { projection: { calibrationLabel: 1 } });
+  const replayRainLabel = rainDoc?.calibrationLabel
+    ? `${rainDoc.calibrationLabel.toLowerCase()} (ERA5 via Open-Meteo, scaled per district to published JPS station totals for 20–25 Dec 2014; not observed station data)`
+    : "reanalysis (ERA5 via Open-Meteo), not calibrated";
+  return { region, gauges, segments, allRoadIds: docs.map((d) => d._id), version, replayRainLabel };
 }
 
 async function cellPeaksDec2014(region: Region): Promise<Map<string, number>> {
@@ -384,6 +392,7 @@ export async function getHazards(regionId: string, ts: Date = new Date(), mode: 
       ? `JPS Public Infobanjir river levels (publicinfobanjir.water.gov.my)${latestLive ? `, latest reading ${latestLive}` : ""}`
       : "GloFAS river discharge (reanalysis) via Open-Meteo Flood API (flood-api.open-meteo.com), Dec 2014 — RECONSTRUCTED",
     ...(mode === "replay" ? [`Official Dec 2014 peak levels: JPS "Laporan Catatan Aras Air Tertinggi" (${CALIBRATION_2014.source.url})`] : []),
+    ...(mode === "replay" ? [`Dec 2014 rainfall (landslide screening): ${model.replayRainLabel}`] : []),
     "Elevation: AWS Terrain Tiles (Terrarium, SRTM-derived), z11",
     "JPS gauge thresholds (normal/alert/warning/danger) from publicinfobanjir.water.gov.my",
     ...(s.landslide.cells.length || s.landslide.runouts.length ? ["Landslide screening: MonsoonWatch model (B) on Deep Research option A rain thresholds"] : []),

@@ -103,7 +103,7 @@ Routes: [`routes/saint.ts`](apps/api/src/routes/saint.ts). Brief and log: [`docs
 |---|---|---|
 | River levels and rainfall (live) | JPS Malaysia, [publicinfobanjir.water.gov.my](https://publicinfobanjir.water.gov.my) | Loader: [`ingest-jps.ts`](scripts/ingest-jps.ts) |
 | River discharge, Dec 2014 | GloFAS via the [Open-Meteo Flood API](https://open-meteo.com/en/docs/flood-api) | Converted to river levels with a curve calibrated to JPS's published 2014 peaks ([source](https://cgss.usm.my/images/Air_-_Prof._Ir._Mohd_Nordin_Adlan.pdf)) |
-| Rainfall, Dec 2014 | ERA5 via the [Open-Meteo Archive API](https://open-meteo.com/en/docs/historical-weather-api) | Loader: [`load-replay-2014.ts`](scripts/load-replay-2014.ts) |
+| Rainfall, Dec 2014 | ERA5 via the [Open-Meteo Archive API](https://open-meteo.com/en/docs/historical-weather-api), scaled per district to published JPS station totals for 20–25 Dec ([source](https://cgss.usm.my/images/Air_-_Prof._Ir._Mohd_Nordin_Adlan.pdf)) | Calibrated reanalysis, approximate. Loader: [`load-replay-2014.ts`](scripts/load-replay-2014.ts), factors: [`rain-calibration-2014.json`](scripts/data/replay-2014/rain-calibration-2014.json) |
 | Villages, roads, schools, relief centres | [OpenStreetMap](https://www.openstreetmap.org/copyright) via Overpass | © OpenStreetMap contributors, ODbL |
 | Terrain | [Terrarium elevation tiles](https://registry.opendata.aws/terrain-tiles/), [Open-Meteo Elevation API](https://open-meteo.com/en/docs/elevation-api) | 3D scene and road heights |
 | Vulnerable-resident rates | DOSM and JKM figures ([`rates.json`](scripts/data/vulnerable/rates.json)) | See [VULNERABLE.md](docs/VULNERABLE.md) |
@@ -114,6 +114,7 @@ Routes: [`routes/saint.ts`](apps/api/src/routes/saint.ts). Brief and log: [`docs
 - **This is a prototype, not an operational warning system.** Real warnings in Malaysia come from JPS, MetMalaysia and NADMA.
 - **The demo runs on the 2014 replay, not live data.** The JPS site's TLS certificate had expired, and on 24 Oct 2026 the site moved its pages and changed its station IDs. The live loader is kept in the repo but was not running for the demo.
 - **The 2014 river levels are estimates.** They are reconstructed from GloFAS model discharge, and the UI labels the replay "Reconstructed 2014 replay".
+- **The 2014 rainfall is calibrated reanalysis, approximate.** It is ERA5 model rain scaled per district so its 20–25 Dec total matches published JPS rain-station totals. It is a scaling to published totals, not observed station data: the day-to-day pattern is still ERA5's, and Machang, Tumpat and Bachok (no published station) are not scaled.
 - **The flood extent and road status are approximations** from terrain height and the estimated river level ([HAZARDS.md](docs/HAZARDS.md)). Roads outside the modelled floodplain show as "unknown", not "clear".
 - **The landslide layer is a screening tool.** It flags slopes worth checking from rainfall thresholds and slope; it does not predict slides.
 - **Vulnerable-resident counts are estimates** from district rates, except two demo villages with scripted values ([VULNERABLE.md](docs/VULNERABLE.md)).

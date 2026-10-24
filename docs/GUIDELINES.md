@@ -35,7 +35,7 @@ Judges score from: the demo video(s), the project brief/submission text, and thi
 - **All code written during the hackathon** (from Fri 23 Oct 2026, 17:00). Libraries and starter templates are fine. Do **not** copy code from earlier projects.
 - **No secrets in the repo.** All keys go in `.env` (git-ignored). Commit `.env.example` with empty values.
 - **No external action without human approval.** Any message, alert, or purchase goes through an approval step in the UI and is logged.
-- **Be honest in the UI.** Label reconstructed data as "Reconstructed (GloFAS / reanalysis)". Label the landslide model as a **screening tool**, not a geotechnical survey. Show uncertainty (likely vs worst case).
+- **Be honest in the UI.** Label reconstructed data as "Reconstructed (GloFAS / calibrated reanalysis, approximate)" — replay rain is ERA5 scaled to published 2014 station totals, not observed data. Label the landslide model as a **screening tool**, not a geotechnical survey. Show uncertainty (likely vs worst case).
 - **Privacy:** no resident photo/video uploads (dropped, see IMPLEMENTATION §1.7). Vulnerable-people data is **counts per village only** — never names or addresses — and labelled "Estimated" when it is.
 - **Not a chat wrapper.** The DeepMind brief disqualifies basic chatbots / single-PDF Q&A. Every Gemini call must sit inside a workflow with tools and verification.
 
