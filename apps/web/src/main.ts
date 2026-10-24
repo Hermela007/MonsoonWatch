@@ -114,6 +114,19 @@ async function main() {
 
   const timer = new THREE.Timer();
 
+  /** Flagged slopes around a home: close detailed search + wider one + state-wide hotspots nearby. One
+   *  function so the place list, the card and the street always agree. */
+  const slopesNear = (cell: number): SlideSource[] => {
+    const close = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 0.8, max: 6, near: { cell, radiusKm: 2.5 } });
+    const wide = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 1.2, max: 8, near: { cell, radiusKm: FOCUS_KM } });
+    const out = [...close];
+    for (const s of [...wide, ...hotspotSources]) {
+      if (out.some((o) => o.cell === s.cell)) continue;
+      if (s.path.some((c) => cellWorld(c).distanceTo(cellWorld(cell)) < FOCUS_KM)) out.push(s);
+    }
+    return out;
+  };
+
   // ---- State -------------------------------------------------------------
   let hour = NOW_HOUR;
   let targetHour = NOW_HOUR;
@@ -128,6 +141,12 @@ async function main() {
   let inStreet = false;
   let valleyCam: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
   let streetShot: Shot | null = null;
+  let shakeUntil = 0;
+  let followSlide = true;
+  const followTarget = new THREE.Vector3();
+  const followDir = new THREE.Vector3();
+  const followPos = new THREE.Vector3();
+  const shakeOff = new THREE.Vector3();
   let wasLanding = true;
   let lastBuried = 0;
   let lastWet = 0;
@@ -185,12 +204,7 @@ async function main() {
     // Start fetching houses now so "See my street" opens fast.
     // Real buildings and roads for this place (pre-extracted; see apps/web/scripts/fetch-areas.py).
     housesFor = loadAreaFor(lngLat).catch(() => null);
-    const local: SlideSource[] = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 1.2, max: 8, near: { cell, radiusKm: FOCUS_KM } });
-    // Valley hotspots whose runout passes near the home count too.
-    for (const h of hotspotSources) {
-      if (local.includes(h)) continue;
-      if (h.path.some((c) => cellWorld(c).distanceTo(cellWorld(cell)) < FOCUS_KM)) local.push(h);
-    }
+    const local = slopesNear(cell);
     localSlides = local;
     const risk = assessHome(hm, hy, cell, local);
     const avoid = new Uint8Array(hm.cols * hm.rows);
@@ -264,7 +278,7 @@ async function main() {
         area,
         slides: localSlides,
         homeLabel: t('yourHome'),
-        slideLabels: { warn: t('slopeWarn'), active: t('slopeActive') },
+        slideLabels: { watch: t('slopeWatch'), warn: t('slopeWarn'), active: t('slopeActive') },
       });
       streetRain = createRain();
       street.scene.add(streetRain.object);
@@ -278,7 +292,7 @@ async function main() {
     camera.far = 6000;
     camera.updateProjectionMatrix();
     controls.minDistance = 12;
-    controls.maxDistance = 700;
+    controls.maxDistance = 1100;
     const f = street.homeFocus;
     // Frame the home; if a landslide threatens it, put the hillside behind the home in view.
     let target = f.clone();
@@ -289,8 +303,10 @@ async function main() {
     if (street.slideMid) {
       // Stand behind the home, looking up the hillside: houses in front, the slope above them.
       const toSlide = street.slideMid.clone().sub(f).setY(0).normalize();
-      target = f.clone().lerp(street.slideMid, 0.55);
-      pos = f.clone().addScaledVector(toSlide, -110).add(new THREE.Vector3(toSlide.z * 30, 55, -toSlide.x * 30));
+      // From the valley floor looking up the hillside: the slope fills the frame, the houses below it.
+      target = street.slideMid.clone().lerp(f, 0.3);
+      const span = Math.max(260, street.slideMid.clone().setY(0).distanceTo(f.clone().setY(0)) * 0.9);
+      pos = target.clone().addScaledVector(toSlide, -span).add(new THREE.Vector3(toSlide.z * span * 0.35, span * 0.55, -toSlide.x * span * 0.35));
     }
     streetShot = { target: target.clone(), position: pos.clone() };
     controls.target.copy(target);
@@ -387,6 +403,7 @@ async function main() {
   const down = new THREE.Vector2();
   let downAt = 0;
   stage.pointerTarget.addEventListener('pointerdown', (e) => {
+    followSlide = false;
     down.set(e.clientX, e.clientY);
     downAt = performance.now();
     director.cancel();
@@ -416,20 +433,26 @@ async function main() {
       if (v.kind === 'city') continue;
       const cell = nearestCell(hm, v.lngLat);
       if (cell === null || hy.seaMask[cell] || hy.slopeDeg[cell] > 25) continue;
-      const local = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 0.8, max: 6, near: { cell, radiusKm: 2.5 } });
-      if (!local.length) continue;
+      // Quick pre-check (close search only), then the shared search used by the card.
+      const quick = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 0.8, max: 6, near: { cell, radiusKm: 2.5 } });
+      if (!quick.length || assessHome(hm, hy, cell, quick).slideLevel !== 'high') continue;
+      const local = slopesNear(cell);
       const r = assessHome(hm, hy, cell, local);
       if (r.slideLevel !== 'high' || !r.slide) continue;
-      scored.push({ town: { name: v.name, lngLat: v.lngLat, note: r.floodLevel !== 'low' ? 'landslide + flood' : 'below steep slopes' }, score: r.slide.slopeDeg + (r.floodLevel !== 'low' ? 15 : 0) });
+      const both = r.floodLevel !== 'low';
+      scored.push({ town: { name: v.name, lngLat: v.lngLat, note: both ? 'landslide + flood' : 'landslide' }, score: r.slide.slopeDeg + (both ? 100 : 0) });
     }
-    scored.sort((a, b) => b.score - a.score);
-    for (const s of scored) if (hillPlaces.length < 3 && !hillPlaces.some((p) => p.name === s.town.name)) hillPlaces.push(s.town);
+    // One landslide-only village (the clearest demo of a slope failing), then the steepest
+    // landslide + flood village (the cascade), then the next landslide-only one.
+    const slideOnly = scored.filter((s) => s.score < 100).sort((a, b) => b.score - a.score);
+    const both = scored.filter((s) => s.score >= 100).sort((a, b) => b.score - a.score);
+    for (const s of [slideOnly[0], both[0], slideOnly[1], both[1]]) if (s && hillPlaces.length < 3 && !hillPlaces.some((p) => p.name === s.town.name)) hillPlaces.push(s.town);
   }
   // Lead with one flood place and one landslide place; everything else is searchable.
-  const ordered = [realByName('Kuala Krai'), ...hillPlaces.slice(0, 1), realByName('Dabong'), realByName('Tanah Merah'), realByName('Kota Bharu')].filter(
+  const ordered = [realByName('Kuala Krai'), ...hillPlaces.slice(0, 2), realByName('Dabong'), realByName('Kota Bharu')].filter(
     (x): x is Town => !!x,
   );
-  const allPlaces = [...ordered, ...hillPlaces.slice(1), ...realTowns.filter((t) => !ordered.some((o) => o.name === t.name))];
+  const allPlaces = [...ordered, ...hillPlaces.slice(2), ...realTowns.filter((t) => !ordered.some((o) => o.name === t.name))];
   ui.setPlaces(allPlaces);
 
   // Workstream C's data, when the API is up. Until then: local stand-ins.
@@ -648,8 +671,22 @@ async function main() {
         lastWet = stats.wet;
         lastTotal = stats.total;
       }
+      if (street.slideFailedNow()) shakeUntil = time + 1.6;
+      // Follow the landslide while it plays: cracks at the head, then the moving front.
+      if (whatIf && followSlide && !director.busy && street.slideFocus(followTarget, followDir)) {
+        const side = new THREE.Vector3(-followDir.z, 0, followDir.x);
+        followPos.copy(followTarget).addScaledVector(side, 150).addScaledVector(followDir, -60);
+        followPos.y = followTarget.y + 110;
+        const k = Math.min(1, dt * 1.4);
+        controls.target.lerp(followTarget, k);
+        camera.position.lerp(followPos, k);
+      }
+      if (time < shakeUntil) {
+        const k = (shakeUntil - time) / 1.6;
+        shakeOff.set(Math.sin(time * 61) * 0.9 * k, Math.sin(time * 47) * 0.6 * k, Math.cos(time * 53) * 0.9 * k);
+      } else shakeOff.set(0, 0, 0);
       // Keep the camera in the neighbourhood and out of hillsides.
-      if (!director.busy && streetShot && camera.position.distanceTo(street.homeFocus) > 650) {
+      if (!director.busy && streetShot && camera.position.distanceTo(street.homeFocus) > 1800) {
         camera.position.copy(streetShot.position);
         controls.target.copy(streetShot.target);
       }
@@ -667,7 +704,9 @@ async function main() {
     }
     if (landing) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
     else ui!.setClock(hour, NOW_HOUR);
+    camera.position.add(shakeOff);
     stage.render();
+    camera.position.sub(shakeOff);
   });
 
   // Dev handle for quick checks in the console.

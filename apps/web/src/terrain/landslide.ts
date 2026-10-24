@@ -15,11 +15,13 @@ export interface SlideSource {
 }
 
 /**
- * Screening threshold (mm of accumulated rain since 17 Dec) at which a slope is flagged.
- * Steeper slopes need less rain. Illustrative values, applied to REAL 2014 rainfall.
+ * Screening threshold (mm of basin-average rain accumulated since 15 Dec) at which a slope fails.
+ * Steeper slopes need less rain: ≥38° ≈ 190 mm (≈20 Dec 2014), 30° ≈ 270 mm (≈22 Dec),
+ * gentler ≈ 310 mm (≈23 Dec) — i.e. during the real heavy-rain days, before the 24 Dec river peak.
+ * Illustrative values applied to REAL 2014 rainfall.
  */
 export function triggerRainMm(slopeDeg: number): number {
-  return Math.min(560, Math.max(260, 620 - (slopeDeg - 26) * 14));
+  return Math.min(310, Math.max(180, 330 - (slopeDeg - 24) * 10));
 }
 
 /** The same threshold as a fraction of the replay window's total rain. */

@@ -88,5 +88,25 @@
   ],
   "buildings": 102,
   "roads": 8
+ },
+ {
+  "name": "Kampung Bukit Yong",
+  "slug": "kampung-bukit-yong",
+  "center": [
+   102.434209,
+   5.74794
+  ],
+  "buildings": 394,
+  "roads": 23
+ },
+ {
+  "name": "Kampung Pendok",
+  "slug": "kampung-pendok",
+  "center": [
+   101.710065,
+   5.684863
+  ],
+  "buildings": 261,
+  "roads": 20
  }
 ]

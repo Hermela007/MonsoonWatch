@@ -5,7 +5,7 @@ import type { LngLat } from '../geo/region';
 import { cellLngLat, gridCoords, sampleField, type Heightmap } from '../terrain/heightmap';
 import { NO_DRAIN_M, type Hydrology } from '../terrain/hydrology';
 import { neighbourhood } from '../terrain/homeRisk';
-import type { SlideSource } from '../terrain/landslide';
+import { triggerRainMm, type SlideSource } from '../terrain/landslide';
 import { localFrame, type House, type Lane } from '../data/buildings';
 import type { AreaData } from '../data/areas';
 import { staffGaugeTexture } from '../data/textures';
@@ -16,9 +16,9 @@ import { createStreetSlide } from './streetSlide';
 import { addUnderwater, waterUniforms } from './underwater';
 import { THEME } from '../theme';
 
-const GROUND_M = 1400;
-const SLIDE_MAX_M = 900; // show a landslide in the street if its path passes this close to home
-const SLIDE_CLIP_M = 650; // ...drawing the part of it within this distance
+const GROUND_M = 2200;
+const SLIDE_MAX_M = 1000; // show a landslide in the street if its path passes this close to home
+const SLIDE_CLIP_M = 1000; // ...drawing the part of it within this distance
 
 // Roof tint = water at the house (m).
 export const DEPTH_BANDS = [
@@ -146,13 +146,13 @@ export function createStreet(opts: {
   area: AreaData | null;
   slides: SlideSource[];
   homeLabel: string;
-  slideLabels: { warn: string; active: string };
+  slideLabels: { watch: string; warn: string; active: string };
 }) {
   const { hm, hy, home, homeCell } = opts;
   const scene = new THREE.Scene();
   const sky = new THREE.Color(0xf4f2ee);
   scene.background = sky;
-  scene.fog = new THREE.Fog(sky, 220, 900);
+  scene.fog = new THREE.Fog(sky, 700, 2400);
   const dome = createSkyDome(sky);
   scene.add(dome.mesh);
   const pmrem = new THREE.PMREMGenerator(opts.renderer);
@@ -182,7 +182,9 @@ export function createStreet(opts: {
     return Number.isNaN(e) ? 0 : Math.max(e, 0);
   };
   const ground0 = groundAbs(0, 0);
-  const groundY = (x: number, z: number) => groundAbs(x, z) - ground0;
+  // Relief drawn 2.5× so slopes read as slopes (as on the map); depths and building heights stay true.
+  const STREET_EXAG = 2.5;
+  const groundY = (x: number, z: number) => (groundAbs(x, z) - ground0) * STREET_EXAG;
 
   // ---- Real buildings and roads -------------------------------------------------------
   const CLIP_M = 680;
@@ -284,16 +286,18 @@ export function createStreet(opts: {
       const r = Math.floor(cell / hm.cols);
       return toLocal(cellLngLat(hm, cell - r * hm.cols, r));
     });
-    const d = Math.min(...pts.map((p) => Math.hypot(p.x, p.z)));
+    if (pts.length < 2) continue;
+    // Densify (terrain cells are ~250 m apart) so the drawn stretch follows the runout smoothly.
+    const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, 0, p.z)), false, 'centripetal');
+    const dense = curve.getSpacedPoints(Math.max(8, Math.round(curve.getLength() / 25))).map((v) => ({ x: v.x, z: v.z }));
+    const d = Math.min(...dense.map((p) => Math.hypot(p.x, p.z)));
     // Only the stretch of the runout that comes down into the neighbourhood.
-    const first = pts.findIndex((p) => Math.hypot(p.x, p.z) <= SLIDE_CLIP_M);
-    const near = first < 0 ? [] : pts.slice(first).filter((p) => Math.hypot(p.x, p.z) <= SLIDE_CLIP_M + 50);
-    if (d < SLIDE_MAX_M && near.length >= 3 && (!best || d < best.d)) best = { s, d, pts: near };
+    const first = dense.findIndex((p) => Math.hypot(p.x, p.z) <= SLIDE_CLIP_M);
+    const near = first < 0 ? [] : dense.slice(first).filter((p) => Math.hypot(p.x, p.z) <= SLIDE_CLIP_M + 50);
+    if (d < SLIDE_MAX_M && near.length >= 6 && (!best || d < best.d)) best = { s, d, pts: near };
   }
   if (best && best.pts.length >= 3) {
-    let triggerHour = Infinity;
-    for (let h = 0; h <= REPLAY_HOURS; h += 0.25) if (rainAccumulated(h) >= best.s.triggerRainAcc) { triggerHour = h; break; }
-    slide = createStreetSlide({ path: best.pts, groundY, triggerHour, sky, labels: opts.slideLabels });
+    slide = createStreetSlide({ path: best.pts, groundY, triggerMm: triggerRainMm(best.s.slopeDeg), sky, risk: THEME.slide, labels: opts.slideLabels });
     scene.add(slide.group);
     disposables.push(slide);
   }
@@ -340,8 +344,18 @@ export function createStreet(opts: {
     get slideSurging() {
       return slide?.surging ?? false;
     },
+    /** Landslide focus for the follow camera; false when nothing is happening yet. */
+    slideFocus(out: THREE.Vector3, dir: THREE.Vector3) {
+      return slide ? slide.focus(out, dir) : false;
+    },
+    /** True once when the slope fails (camera shake). */
+    slideFailedNow() {
+      return slide?.consumeFailure() ?? false;
+    },
     /** Landslide path midpoint (local m) if one is shown, for camera framing. */
     slideMid: slide?.mid ?? null,
+    slideHead: slide?.head ?? null,
+    slideToe: slide?.toe ?? null,
     homeFocus: new THREE.Vector3(homeHouse.x, groundY(homeHouse.x, homeHouse.z) + 3, homeHouse.z),
     /** Unit vector from the home towards its street frontage. */
     homeFront: new THREE.Vector3(Math.sin(homeHouse.angle), 0, Math.cos(homeHouse.angle)),
