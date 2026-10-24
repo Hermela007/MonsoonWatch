@@ -82,11 +82,14 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
     db.collection<Village>(COLLECTIONS.villages).find({ regionId }).toArray(),
     db.collection<EvacCentre>(COLLECTIONS.evacCentres).find({ regionId }).toArray(),
     db.collection<KnowledgeChunk>(COLLECTIONS.knowledge).find({ regionId }).limit(MAX_KNOWLEDGE).toArray(),
-    db.collection<{ _id: string; geometry: LineStringGeom; properties: RoadProps }>(COLLECTIONS.geo)
-      .find({ regionId, layer: "road" }, { projection: { geometry: 1, properties: 1 } })
+    db.collection<{ _id: string; geometry: LineStringGeom; properties: RoadProps; hazard?: unknown }>(COLLECTIONS.geo)
+      .find({ regionId, layer: "road" }, { projection: { geometry: 1, properties: 1, hazard: 1 } })
       .toArray(),
   ]);
   const roads: RoadFeature[] = roadDocs.map((d) => ({ type: "Feature", id: d._id, geometry: d.geometry, properties: d.properties }));
+  // C's prep:hazards writes a `hazard` field on every road segment its flood model assessed; the
+  // rest are UNKNOWN (not safe) for routing.
+  const assessedRoadIds = new Set(roadDocs.filter((d) => d.hazard).map((d) => d._id));
 
   const detail = await computeLandslideDetailed(regionId, at, mode).catch(() => null);
   const landslideEvents = detail ? landslideEventsForVillages(regionId, at.toISOString(), villages, detail.landslide, detail.sources) : [];
@@ -109,6 +112,7 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
       ...hazards.notes,
       ...(detail ? [`Landslide SCREENING (not a site survey): thresholds from ${detail.configSource}; ${detail.landslide.runouts.length} runouts.`] : []),
     ],
+    assessedRoadIds,
     knowledge: knowledge.map((k) => serialize<KnowledgeChunk>(k)),
     glofas: cells.map((c) => ({ id: c.id, label: c.label, lngLat: c.lngLat, latest: byId.get(c.id) ?? null })),
     isTestData: false,

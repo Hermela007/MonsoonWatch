@@ -22,6 +22,16 @@ export interface RouteResult {
   lengthKm: number;
   crossesFlood: boolean;
   note: string;
+  /** How far the start / end points are from the road node they were snapped to (km). */
+  startSnapKm?: number;
+  endSnapKm?: number;
+  /** The road segments used, in order (for directions and hazard coverage). */
+  segments?: { id: string; name?: string; highway: string; lengthM: number; coords: LngLat[] }[];
+}
+
+export interface RouteOptions {
+  /** OSM highway values this travel mode may not use (e.g. footways for cars). */
+  excludeHighways?: ReadonlySet<string>;
 }
 
 interface Edge { to: string; seg: RoadFeature; forward: boolean }
@@ -85,7 +95,7 @@ class MinHeap {
   }
 }
 
-function dijkstra(graph: RoadGraph, start: string, goal: string, skip: Set<string>): Edge[] | null {
+function dijkstra(graph: RoadGraph, start: string, goal: string, skip: Set<string>, excludeHighways?: ReadonlySet<string>): Edge[] | null {
   const dist = new Map<string, number>([[start, 0]]);
   const prev = new Map<string, { node: string; edge: Edge }>();
   const heap = new MinHeap();
@@ -96,6 +106,7 @@ function dijkstra(graph: RoadGraph, start: string, goal: string, skip: Set<strin
     if (k > (dist.get(id) ?? Infinity)) continue;
     for (const e of graph.adj.get(id) ?? []) {
       if (skip.has(e.seg.properties.id)) continue;
+      if (excludeHighways?.has(e.seg.properties.highway)) continue;
       const nd = k + e.seg.properties.lengthM;
       if (nd < (dist.get(e.to) ?? Infinity)) {
         dist.set(e.to, nd);
@@ -123,8 +134,15 @@ function toResult(from: LngLat, to: LngLat, path: Edge[], mode: RouteMode, found
   coordinates.push(to);
   const lengthM = path.reduce((s, e) => s + e.seg.properties.lengthM, 0);
   const segmentIds = path.map((e) => e.seg.properties.id);
+  const segments = path.map((e) => ({
+    id: e.seg.properties.id,
+    ...(e.seg.properties.name ? { name: e.seg.properties.name } : {}),
+    highway: e.seg.properties.highway,
+    lengthM: e.seg.properties.lengthM,
+    coords: e.forward ? e.seg.geometry.coordinates : [...e.seg.geometry.coordinates].reverse(),
+  }));
   return {
-    found, mode, coordinates, segmentIds,
+    found, mode, coordinates, segmentIds, segments,
     lengthKm: Math.round(lengthM / 100) / 10,
     crossesFlood: segmentIds.some((id) => blocked.has(id)),
     note,
@@ -137,22 +155,26 @@ export function planRoute(
   from: LngLat,
   to: LngLat,
   mode: RouteMode,
+  opts: RouteOptions = {},
 ): RouteResult {
   const blocked = new Set(blockedRoadIds);
   const a = nearestNode(graph, from);
   const b = nearestNode(graph, to);
   if (!a || !b) return { found: false, mode, coordinates: [from, to], segmentIds: [], lengthKm: 0, crossesFlood: false, note: "No road data for this region" };
+  const snap = { startSnapKm: Math.round(a.km * 100) / 100, endSnapKm: Math.round(b.km * 100) / 100 };
+  const ex = opts.excludeHighways;
+  const done = (res: RouteResult): RouteResult => ({ ...res, ...snap });
 
   if (mode === "road") {
-    const dry = dijkstra(graph, a.id, b.id, blocked);
-    if (dry) return toResult(from, to, dry, mode, true, blocked, "Dry road route");
-    const any = dijkstra(graph, a.id, b.id, new Set());
-    if (any) return toResult(from, to, any, mode, false, blocked, "No dry road route — every road path crosses a flooded segment; use a boat or another centre");
-    return { found: false, mode, coordinates: [from, to], segmentIds: [], lengthKm: 0, crossesFlood: false, note: "No road connection to this centre" };
+    const dry = dijkstra(graph, a.id, b.id, blocked, ex);
+    if (dry) return done(toResult(from, to, dry, mode, true, blocked, "Dry road route"));
+    const any = dijkstra(graph, a.id, b.id, new Set(), ex);
+    if (any) return done(toResult(from, to, any, mode, false, blocked, "No dry road route — every road path crosses a flooded segment; use a boat or another centre"));
+    return done({ found: false, mode, coordinates: [from, to], segmentIds: [], lengthKm: 0, crossesFlood: false, note: "No road connection to this centre" });
   }
 
-  const path = dijkstra(graph, a.id, b.id, new Set());
-  if (!path) return { found: false, mode, coordinates: [from, to], segmentIds: [], lengthKm: 0, crossesFlood: false, note: "No connection to this centre" };
+  const path = dijkstra(graph, a.id, b.id, new Set(), ex);
+  if (!path) return done({ found: false, mode, coordinates: [from, to], segmentIds: [], lengthKm: 0, crossesFlood: false, note: "No connection to this centre" });
   const r = toResult(from, to, path, mode, true, blocked, "Boat route");
-  return { ...r, note: r.crossesFlood ? "Boat route across flooded road segments" : "Boat route (roads also dry)" };
+  return done({ ...r, note: r.crossesFlood ? "Boat route across flooded road segments" : "Boat route (roads also dry)" });
 }
