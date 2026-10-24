@@ -27,6 +27,7 @@
   },
   "exports": {
     "./db": "./src/db/client.ts",
-    "./env": "./src/env.ts"
+    "./env": "./src/env.ts",
+    "./terrain": "./src/hazards/terrain.ts"
   }
 }

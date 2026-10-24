@@ -20,7 +20,9 @@
     "geocode": "pnpm --filter @monsoonwatch/scripts run geocode",
     "seed:region": "pnpm --filter @monsoonwatch/scripts run seed:region",
     "load:places": "pnpm --filter @monsoonwatch/scripts run load:places",
-    "load:osm": "pnpm --filter @monsoonwatch/scripts run load:osm"
+    "load:osm": "pnpm --filter @monsoonwatch/scripts run load:osm",
+    "build:terrain": "pnpm --filter @monsoonwatch/scripts run build:terrain",
+    "prep:hazards": "pnpm --filter @monsoonwatch/scripts run prep:hazards"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",

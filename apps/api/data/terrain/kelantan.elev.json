@@ -1,0 +1,19 @@
+{
+  "regionId": "kelantan",
+  "bbox": [
+    101.6,
+    4.6,
+    102.65,
+    6.3
+  ],
+  "width": 1551,
+  "height": 2523,
+  "dLon": 0.0006769825918762162,
+  "dLat": 0.0006738010305192232,
+  "metresPerPx": 75,
+  "scale": 1,
+  "nodata": -32768,
+  "minElev": -26,
+  "maxElev": 2176,
+  "source": "AWS Terrain Tiles (Terrarium) z11, resampled to a 75 m lon/lat grid"
+}
