@@ -1,0 +1,75 @@
+{
+  "status": "no_route",
+  "reason": "all_routes_flooded",
+  "message": "[TEST DATA] Every car route to the 3 nearest centres with space crosses a flooded road.",
+  "query": {
+    "regionId": "kelantan",
+    "travel": "car",
+    "mode": "replay",
+    "ts": "2014-12-24T04:00:00.000Z",
+    "centreId": "test-smk-kuala-krai",
+    "people": 4
+  },
+  "generatedAt": "2026-10-24T15:00:00.000Z",
+  "version": "kelantan:replay:2014-12-24T04:00:00.000Z:roads-84596",
+  "origin": {
+    "requested": [
+      102.2003,
+      5.3004
+    ],
+    "snapped": [
+      102.2,
+      5.3
+    ],
+    "snapDistanceM": 55
+  },
+  "centre": null,
+  "geometry": null,
+  "distanceM": null,
+  "durationSeconds": null,
+  "durationBasis": null,
+  "steps": [],
+  "hazards": {
+    "status": "assessed",
+    "assessedAt": "2014-12-24T04:00:00.000Z",
+    "source": "MonsoonWatch flood model (JPS gauges + DEM, GloFAS-reconstructed in replay) — approximate",
+    "confirmedClosures": {
+      "available": false,
+      "source": null
+    },
+    "crossesFlood": null,
+    "segments": {
+      "flooded": 0,
+      "clear": 0,
+      "outsideFloodplain": 0,
+      "unknown": 0
+    },
+    "floodedSegmentsAvoided": null,
+    "detourM": null,
+    "landslideRunoutsCrossed": null,
+    "notes": []
+  },
+  "alternatives": [
+    {
+      "centreId": "test-sk-manik-urai",
+      "name": "SK Manik Urai (test)",
+      "status": "ok",
+      "reason": null,
+      "distanceM": 2400,
+      "freePlaces": 50,
+      "centreStatus": "usable"
+    }
+  ],
+  "sources": [
+    "OpenStreetMap roads (ODbL)",
+    "JPS river gauges + thresholds",
+    "GloFAS discharge (reconstructed, replay only)",
+    "AWS Terrain Tiles DEM",
+    "MonsoonWatch landslide screening (not a site survey)"
+  ],
+  "limitations": [
+    "Travel time assumes an average 30 km/h by car; real conditions may be slower.",
+    "Road network from OpenStreetMap; one-way and access restrictions are not in the road data yet.",
+    "Flood model is approximate (DEM vertical error several metres); no official road-closure data."
+  ]
+}
