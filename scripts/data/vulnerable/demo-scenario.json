@@ -1,0 +1,5 @@
+{
+  "_comment": "DEMO SCENARIO values (illustrative, NOT real data). Shown in the UI as a demo scenario. Agreed with B for the vulnerable-people beat; change freely.",
+  "osm-node-254073882": { "name": "Manek Urai", "bedridden": 3 },
+  "osm-node-13249720116": { "name": "Kuala Gris", "bedridden": 2 }
+}

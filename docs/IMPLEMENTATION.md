@@ -359,7 +359,8 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 - `scripts/ingest-jps.ts`: fetch both JPS tables (URLs in GUIDELINES §4), parse with `cheerio`, upsert `stations` (with thresholds) and insert new readings into `raw_readings` **and** `reading_events` (the watchable live copy, see C5). `-9999` → skip. Generate stable IDs for blank station IDs (hash of name). Station coordinates: JPS tables have none — **geocode once** (OSM Nominatim by station/village name, then hand-fix the 10 that matter for the demo) and store in `stations`.
 - Run every 15 min (`setInterval` in API, or cron).
 - `scripts/load-replay-2014.ts`: GloFAS discharge for chosen main-channel cells + Open-Meteo archive rainfall for rain stations' locations, 10 Dec 2014 – 10 Jan 2015 → `raw_readings` with `mode: "replay"`.
-- `scripts/build-terrain.ts`: stitch Terrarium tiles for `Region.bbox` → heightmap PNG/binary in `apps/web/public/terrain/`.
+- `scripts/build-terrain.ts` (`pnpm build:terrain`) — **built**: AWS Terrarium tiles at z11 for `Region.bbox`, resampled to a regular lon/lat grid → `apps/web/public/terrain/kelantan.png` (776×1262 px heightmap, ~150 m/px, Terrarium RGB encoding `elevation_m = R·256 + G + B/256 − 32768`, 2.0 MB) and `apps/api/data/terrain/kelantan.elev.{json,i16.gz}` (75 m Int16 grid, 4.1 MB) for the hazards model; fills `Region.terrain`. Details: [`docs/HAZARDS.md`](HAZARDS.md).
+- `scripts/prep-hazards.ts` (`pnpm prep:hazards`) — **built**: per road segment `hazard` { groundM, riverDistM, riverName, gaugeId, gaugeDistM, cellId, bridge } on the geo docs, `hazardGauge` on river stations, and the JPS datum check. Re-run after `load:osm`.
 - `scripts/load-osm.ts`: Overpass query for roads/rivers/buildings/villages in bbox → `geo` + `villages`. Evac centres: NADMA list + teammate knowledge → `evac_centres` (manual JSON is fine).
 - **Done when:** Compass shows live JPS readings arriving and the 2014 replay series loaded.
 
@@ -401,7 +402,12 @@ Two real Atlas Stream Processing processors, defined in **`apps/api/src/db/strea
   Readings come from `reading_events`, not `raw_readings`: time series collections don't support change streams, so every writer of live readings (ingest, later replay) inserts into both. Dates are sent as ISO strings. Each stream keeps its resume token and reopens with `resumeAfter` (backoff 1 s → 30 s); a failing stream never crashes the API. No `report.new` (dropped, §1.7). `hazards.update` and `replay.tick` come later (C6, C3).
 
 ### C6. Hazards endpoint (Sat AM–PM)
-- `/regions/:id/hazards?ts`: water level per GloFAS cell / station (documented discharge → level mapping calibrated to JPS thresholds; label "approximation"), likely vs worst (± uncertainty band), blocked roads = road segments below water level (geospatial), landslide from B's `computeLandslide`.
+**Built** — `GET /api/regions/:id/hazards?ts=<ISO>&mode=live|replay` (defaults now / live; a date-only `ts` = end of that day MYT; 404 unknown region, 400 bad params) and `getHazards(regionId, ts, mode)` from `apps/api/src/hazards/index.ts` for in-process use. Returns `Hazards` plus extra fields `approximate: true`, `notes[]`, `gauges[]`, `worst.blockedRoadIds`. Full model and every assumption: **[`docs/HAZARDS.md`](HAZARDS.md)**. In short:
+- JPS levels verified as metres above MSL (valley-floor check); 18 usable gauges (mis-geocoded / district-located ones excluded).
+- Live: latest JPS level per gauge. Replay: **APPROXIMATE** GloFAS discharge → level curve per gauge (500 → normal, 1,500 → alert, 4,500 m³/s → danger, linear, extrapolated). Under-floods Kuala Krai town at the 2014 peak (26.2 m vs ~34 m recorded).
+- Flooded segment = within 3 km of a river, within 20 km of its gauge, gauge ≥ alert, lowest ground < water level. worst = likely + 0.5 m (live) / 2.0 m (replay). Segments cached in memory: ~15 ms per request after a ~2 s warm-up.
+- Replay 24 Dec 2014: 11,946 blocked segments (12 Dec: 0); live now: 0. Fail → replan case: Manek Urai → SMK Manek Urai (cut on 24 Dec).
+- Landslide: hook `setLandslideProvider(fn)` for B's `computeLandslide`; empty until registered.
 
 ### C7. Search features (Sat PM) — each needs a UI moment with A
 | Feature | Implementation |

@@ -7,6 +7,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AgentRunDetail, AgentRunStarted } from "@monsoonwatch/shared";
 import { startAutoTrigger } from "../agent/auto-trigger";
+import { registerLandslideProvider } from "../agent/landslide-provider";
 import { startAgentRun } from "../agent/orchestrator";
 import { makeSampleSituation } from "../agent/sample/kelantan-test";
 import { loadSituationFromDb } from "../agent/situation-db";
@@ -19,6 +20,8 @@ interface RunBody { regionId?: string; riskEventId?: string; source?: "sample" |
 export async function agentRoutes(app: FastifyInstance) {
   // Real mode: start runs automatically from Stream Processing risk events (AGENT_AUTO_RUN=0 to disable).
   if (!env.mock && !env.publicDemo) startAutoTrigger();
+  // Our landslide screening feeds C's /hazards and the agent's situation.
+  registerLandslideProvider();
 
   app.post<{ Body: RunBody }>("/agent/run", async (req, reply): Promise<AgentRunStarted> => {
     const regionId = req.body?.regionId ?? env.regionId;

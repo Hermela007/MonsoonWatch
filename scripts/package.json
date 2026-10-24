@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "seed": "tsx seed-region.ts && tsx ingest-jps.ts && tsx geocode-stations.ts && tsx load-places.ts && tsx load-osm.ts && tsx load-replay-2014.ts",
+    "seed": "tsx seed-region.ts && tsx ingest-jps.ts && tsx geocode-stations.ts && tsx load-places.ts && tsx load-vulnerable.ts && tsx load-osm.ts && tsx build-terrain.ts && tsx prep-hazards.ts && tsx load-knowledge.ts && tsx load-replay-2014.ts",
     "typecheck": "tsc --noEmit",
     "jps:snapshot": "tsx jps-snapshot.ts",
     "ingest:jps": "tsx ingest-jps.ts",
@@ -12,16 +12,22 @@
     "seed:region": "tsx seed-region.ts",
     "geocode": "tsx geocode-stations.ts",
     "load:places": "tsx load-places.ts",
-    "load:osm": "tsx load-osm.ts"
+    "load:osm": "tsx load-osm.ts",
+    "build:terrain": "tsx build-terrain.ts",
+    "prep:hazards": "tsx prep-hazards.ts",
+    "load:vulnerable": "tsx load-vulnerable.ts",
+    "load:knowledge": "tsx load-knowledge.ts"
   },
   "dependencies": {
     "@monsoonwatch/api": "workspace:*",
     "@monsoonwatch/shared": "workspace:*",
     "cheerio": "^1.2.0",
-    "mongodb": "^7.7.0"
+    "mongodb": "^7.7.0",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "@types/pngjs": "^6.0.5",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3"
   }

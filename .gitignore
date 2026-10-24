@@ -11,3 +11,9 @@ node_modules/
 dist/
 .vite/
 *.log
+
+# Terrain tile cache (outputs of `pnpm build:terrain` are committed instead)
+scripts/data/terrain/tiles/
+
+# B: generated spoken-alert audio (WAV). Not all of apps/api/data: C commits terrain there.
+apps/api/data/audio/

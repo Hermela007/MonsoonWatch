@@ -9,6 +9,7 @@ import { HttpError, registerErrorHandlers } from "./errors";
 import { agentRoutes } from "./routes/agent";
 import { alertRoutes } from "./routes/alerts";
 import { geoRoutes } from "./routes/geo";
+import { hazardsRoutes } from "./routes/hazards";
 import { healthRoutes } from "./routes/health";
 import { regionRoutes } from "./routes/regions";
 import { replayRoutes } from "./routes/replay";
@@ -49,6 +50,7 @@ export function buildServer(opts: { webRoot?: string; serveWeb?: boolean; public
       await api.register(streamRoutes);
       await api.register(regionRoutes);
       await api.register(geoRoutes);
+      await api.register(hazardsRoutes);
       await api.register(stationRoutes);
       await api.register(replayRoutes);
       // C: regions, stations, readings, hazards, search, reports, replay, saint routes go here.
