@@ -23,7 +23,8 @@
     "load:osm": "pnpm --filter @monsoonwatch/scripts run load:osm",
     "build:terrain": "pnpm --filter @monsoonwatch/scripts run build:terrain",
     "prep:hazards": "pnpm --filter @monsoonwatch/scripts run prep:hazards",
-    "load:vulnerable": "pnpm --filter @monsoonwatch/scripts run load:vulnerable"
+    "load:vulnerable": "pnpm --filter @monsoonwatch/scripts run load:vulnerable",
+    "load:knowledge": "pnpm --filter @monsoonwatch/scripts run load:knowledge"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
