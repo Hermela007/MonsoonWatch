@@ -50,7 +50,22 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
     ])
     .toArray();
   const byId = new Map<string, Reading>(latest.map((l) => [l._id, toReading(l.doc)]));
-  const withLatest: StationWithLatest[] = stations.map((s) => ({ ...s, latest: byId.get(s._id) ?? null }));
+
+  // C6 hazards first: in the 2014 replay JPS river gauges have no readings, so their water level is
+  // RECONSTRUCTED by C's model from GloFAS discharge (approximate curve). Use it as the gauge's
+  // reading, and say so in the station name the HUD and checks print.
+  registerLandslideProvider();
+  const hazards = await getHazards(regionId, at, mode);
+  const reconstructed = new Map(mode === "replay" ? hazards.gauges.filter((g) => g.source === "glofas-curve").map((g) => [g.id, g]) : []);
+  const withLatest: StationWithLatest[] = stations.map((s) => {
+    const g = reconstructed.get(s._id);
+    if (!g || byId.has(s._id)) return { ...s, latest: byId.get(s._id) ?? null };
+    return {
+      ...s,
+      name: `${s.name} [level reconstructed from GloFAS, approximate]`,
+      latest: { ts: g.readingTs ?? at.toISOString(), value: Math.round(g.levelM * 100) / 100, meta: { stationId: s._id, kind: "river", source: "glofas", mode } },
+    };
+  });
 
   const since = new Date(at.getTime() - RISK_WINDOW_MS);
   // `mode` is an extra field C's stream processor writes on risk events; older docs may lack it (= live).
@@ -73,8 +88,6 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
   ]);
   const roads: RoadFeature[] = roadDocs.map((d) => ({ type: "Feature", id: d._id, geometry: d.geometry, properties: d.properties }));
 
-  registerLandslideProvider();
-  const hazards = await getHazards(regionId, at, mode);
   const detail = await computeLandslideDetailed(regionId, at, mode).catch(() => null);
   const landslideEvents = detail ? landslideEventsForVillages(regionId, at.toISOString(), villages, detail.landslide, detail.sources) : [];
 

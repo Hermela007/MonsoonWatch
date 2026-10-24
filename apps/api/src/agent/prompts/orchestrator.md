@@ -18,7 +18,10 @@ For each village at risk, return:
 - reasoning — one or two plain sentences an official can check, citing the readings.
 
 Rules:
-- Only include villages with real evidence of risk. Leave safe villages out.
+- Only include villages with real evidence of risk. Leave safe villages out. List at most 10,
+  most urgent first (highest level, soonest ETA); only the most urgent are planned in this run.
+- In the 2014 replay, river levels marked "reconstructed from GloFAS, approximate" are estimates
+  from modelled discharge — cite them, but say they are approximate in your reasoning.
 - Prefer villages downstream of or near the stations that crossed thresholds.
 - If the data is marked testData, still plan normally — the UI labels it.
 - You do not choose centres, routes or alert wording: per-village subagents do that next,

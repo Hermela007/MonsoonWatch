@@ -140,3 +140,22 @@ test("if the draft call itself fails, Flash plans from scratch", async () => {
   assert.ok(outcomes.every((o) => o.passed));
   assert.ok(getMemorySteps("t-run-4").some((st) => st.actor === "Gemini 3.5 Flash-Lite" && st.status === "fail"));
 });
+
+test("at most MAX_VILLAGES_PER_RUN villages are planned, most urgent first", async () => {
+  const base = makeSampleSituation();
+  const extra = Array.from({ length: 8 }, (_, i) => ({ ...base.villages[2]!, _id: `test-extra-${i}`, name: `Extra ${i}` }));
+  const situation = { ...base, villages: [...base.villages, ...extra] };
+  const ai = scriptedAI();
+  ai.planSituation = async () => ({
+    summary: "many",
+    villages: [
+      ...extra.map((v) => ({ villageId: v._id, hazard: "flood" as const, level: "alert" as const, etaHours: 10, stationId: "test-lebir-tualang", riskEventIds: [], reasoning: "x" })),
+      { villageId: "test-kg-manik-urai", hazard: "flood" as const, level: "danger" as const, etaHours: 6, stationId: "test-galas-dabong", riskEventIds: ["test-re-galas"], reasoning: "x" },
+    ],
+  });
+  ai.draftVillage = async (task) => (task.village._id === "test-kg-manik-urai" ? fixed : tualang);
+  const { outcomes } = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-cap" });
+  assert.equal(outcomes.length, 6);
+  assert.equal(outcomes[0]!.villageId, "test-kg-manik-urai"); // danger first
+  assert.ok(getMemorySteps("t-run-cap").some((st) => /flagged 9 villages; planning the 6 most urgent/.test(st.summary)));
+});

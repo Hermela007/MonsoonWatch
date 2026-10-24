@@ -194,7 +194,7 @@ export function landslideEventsForVillages(
   villages: Village[],
   landslide: Hazards["landslide"],
   sources: RunoutSource[],
-  nearKm = 0.5,
+  nearKm = 1.0,
 ): RiskEvent[] {
   const out: RiskEvent[] = [];
   for (const v of villages) {
