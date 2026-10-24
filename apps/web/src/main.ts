@@ -176,9 +176,14 @@ async function main() {
     const u = new URL(location.href);
     u.searchParams.delete('place');
     u.searchParams.delete('at');
+    u.searchParams.delete('label');
     u.searchParams.delete('view');
     if (home && home.named) u.searchParams.set('place', home.place);
-    else if (home) u.searchParams.set('at', `${home.lngLat[0].toFixed(5)},${home.lngLat[1].toFixed(5)}`);
+    else if (home) {
+      u.searchParams.set('at', `${home.lngLat[0].toFixed(5)},${home.lngLat[1].toFixed(5)}`);
+      // Keep a readable name (e.g. the address picked) so a shared link shows it, not just "Near …".
+      if (home.place) u.searchParams.set('label', home.place);
+    }
     u.hash = document.body.dataset.mode === 'control' ? 'control' : '';
     history.replaceState(null, '', u);
   };
@@ -255,6 +260,7 @@ async function main() {
     if (res.kind === 'invalid') console.warn('evacuation-route: response does not match the shared contract —', res.error);
     if (res.kind !== 'route') {
       journey = null;
+      ui!.setOrigin(null);
       ui!.setJourneyStatus('Road routing is unavailable. Any terrain estimate below is not a verified road route. Try again when connected.');
       return ui!.setJourney(null);
     }
@@ -266,6 +272,11 @@ async function main() {
     const turnPts = route.status === 'ok' && route.geometry ? route.steps.map((st) => lift(route.geometry!.coordinates[Math.min(st.startIndex, route.geometry!.coordinates.length - 1)])) : [];
     journey = { route, view, pts, turnPts };
     ui!.setJourney(view);
+    const snapM = route.origin.snapDistanceM;
+    ui!.setOrigin({
+      ...originLine(),
+      snap: snapM !== null && snapM > 300 ? t('originSnap', { d: snapM < 1000 ? `${Math.round(snapM / 10) * 10} m` : `${(snapM / 1000).toFixed(1)} km` }) : null,
+    });
     // The road route replaces the terrain estimate on the map; with no route, no line is drawn.
     if (pts.length > 1 && route.centre) {
       home.setLabels(t('yourHome'), route.centre.name);
@@ -321,8 +332,18 @@ async function main() {
     if (!m || !journey || !homeLngLat || !routeOpen) return !!m;
     using2d = true;
     document.body.classList.add('route-2d');
-    m.show(journey.route, homeLngLat, routePadding(), selectTurn);
+    m.show(journey.route, homeLngLat, routePadding(), selectTurn, moveStart);
     return true;
+  };
+
+  /** The start dot was dragged on the route map: route again from there. */
+  const moveStart = (lngLat: LngLat) => {
+    if (nearestCell(hm, lngLat) === null || !boundary.inside(lngLat)) return;
+    homeLngLat = lngLat;
+    homePrecision = 'tap';
+    homePos = frame.lngLatToWorld(lngLat, elevAt(lngLat));
+    syncUrl({ place: homePlace, lngLat, named: false });
+    void requestJourney();
   };
 
   const openRoute = () => {
@@ -377,73 +398,25 @@ async function main() {
     director.flyTo({ target: p.clone(), position: p.clone().add(new THREE.Vector3(0.02, 0.96, 0.28).normalize().multiplyScalar(ROUTE_MIN_KM + 0.4)) }, 1200);
   };
 
-  type OriginCandidate = { lngLat: LngLat; label: string; broad: boolean };
-  let pendingOrigin: OriginCandidate | null = null;
-  type OriginMap = Awaited<ReturnType<typeof import('./maps/originMap2d').createOriginMap>>;
-  let originMap: OriginMap = null;
-  let originMapPromise: Promise<OriginMap> | null = null;
-  let originRevision = 0;
-  const originCard = document.getElementById('origin-confirm')!;
-  const originStatus = document.getElementById('origin-confirm-status')!;
-  const originConfirmButton = document.getElementById('origin-use') as HTMLButtonElement;
-  const updateOrigin = (point: LngLat, adjusted = true) => {
-    if (!pendingOrigin) return;
-    pendingOrigin.lngLat = point;
-    if (adjusted) {
-      pendingOrigin.broad = false;
-      document.getElementById('origin-precision')!.textContent = 'Pin adjusted · check the building or street you are leaving from.';
+  // How exact the starting point is — said plainly on the card and route screen instead of a confirm step.
+  type OriginPrecision = 'address' | 'street' | 'place' | 'gps' | 'tap';
+  let homePrecision: OriginPrecision = 'place';
+  let locateRevision = 0;
+  const choose = (lngLat: LngLat, label: string, precision: OriginPrecision, named = false) => {
+    if (nearestCell(hm, lngLat) === null || !boundary.inside(lngLat)) return ui!.note(t('outside'));
+    homePrecision = precision;
+    selectHome(lngLat, label, named);
+  };
+  /** The "From …" line: where the route starts, and how to make it exact if it isn't. */
+  const originLine = () => {
+    switch (homePrecision) {
+      case 'address': return { text: `From ${homePlace}`, hint: null };
+      case 'street': return { text: `From ${homePlace} (street)`, hint: t('originStreetHint') };
+      case 'gps': return { text: t('originGps'), hint: null };
+      case 'tap': return { text: t('originTap'), hint: null };
+      default: return { text: `From the centre of ${homePlace}`, hint: t('originPlaceHint') };
     }
-    const valid = nearestCell(hm, point) !== null && boundary.inside(point);
-    originConfirmButton.disabled = !valid;
-    originStatus.textContent = valid ? '' : t('outside');
-    document.getElementById('origin-coordinates')!.textContent = `${point[1].toFixed(5)}° N, ${point[0].toFixed(5)}° E`;
-    const c = nearestCell(hm, point);
-    if (c !== null) home.set(frame.lngLatToWorld(point, hm.elevM[c]), null, 0, timer.getElapsed());
   };
-  const hideOrigin = () => {
-    pendingOrigin = null; originRevision++;
-    originCard.hidden = true;
-    document.body.classList.remove('confirming-origin', 'origin-map-ready');
-    controls.minDistance = VALLEY_MIN_KM;
-  };
-  const beginOrigin = async (lngLat: LngLat, label: string, broad = false, precisionHint?: string) => {
-    if (nearestCell(hm, lngLat) === null || !boundary.inside(lngLat)) { ui!.note(t('outside')); return; }
-    ui!.suspendSearch();
-    leaveStreet(); closeRoute(false); journeySeq++;
-    const mine = ++originRevision;
-    pendingOrigin = { lngLat: [...lngLat], label, broad };
-    document.body.dataset.view = 'confirm';
-    document.body.classList.add('confirming-origin');
-    originCard.hidden = false;
-    document.getElementById('origin-label')!.textContent = label;
-    document.getElementById('origin-precision')!.textContent = precisionHint ?? (broad ? 'Village / town centre · this is not an exact address. Move the pin to your starting building or street.' : 'Address and GPS positions can be approximate. Check the pin before continuing.');
-    home.setLabels('Starting point', '');
-    updateOrigin(lngLat, false);
-    controls.autoRotate = false;
-    controls.minDistance = ROUTE_MIN_KM;
-    const c = nearestCell(hm, lngLat)!;
-    const target = frame.lngLatToWorld(lngLat, hm.elevM[c]);
-    director.flyTo({ target, position: target.clone().add(new THREE.Vector3(0, 3, 2)) }, 1400);
-    stage.setShift(isPhone ? 0 : 210, isPhone ? innerHeight * .2 : 0);
-    originStatus.textContent = 'Loading the street map…';
-    originMapPromise ??= import('./maps/originMap2d').then(({ createOriginMap }) => createOriginMap(document.getElementById('origin-map')!, point => updateOrigin(point))).catch(() => null);
-    originMap = await originMapPromise;
-    if (mine !== originRevision || !pendingOrigin) return;
-    if (originMap) {
-      document.body.classList.add('origin-map-ready');
-      originMap.show(pendingOrigin.lngLat, pendingOrigin.broad);
-      originStatus.textContent = '';
-    } else originStatus.textContent = 'Street tiles are unavailable. Tap the terrain map to adjust the pin, or change the address.';
-  };
-  document.getElementById('origin-cancel')!.addEventListener('click', () => { hideOrigin(); backToLanding(); });
-  originConfirmButton.addEventListener('click', () => {
-    if (!pendingOrigin || originConfirmButton.disabled) return;
-    const candidate = pendingOrigin;
-    journeyTravel = document.querySelector<HTMLInputElement>('input[name="origin-travel"]:checked')?.value === 'walk' ? 'walk' : 'car';
-    hideOrigin();
-    selectHome(candidate.lngLat, candidate.label, false);
-  });
-  window.addEventListener('resize', () => { if (pendingOrigin && originMap) originMap.show(pendingOrigin.lngLat, pendingOrigin.broad); });
 
   const selectHome = (lngLat: LngLat, place: string, namedPlace = true) => {
     const cell = nearestCell(hm, lngLat);
@@ -609,7 +582,6 @@ async function main() {
   };
 
   const backToLanding = () => {
-    hideOrigin();
     leaveStreet();
     disposeStreet();
     homeLngLat = null;
@@ -638,23 +610,22 @@ async function main() {
   };
 
   ui = createResidentUi(realTowns.slice(0, 20), {
-    onPick: (town) => void beginOrigin(town.lngLat, town.name, true),
-    onAddress: ({ lngLat, label, precision }) => void beginOrigin(lngLat, label, precision === 'place', precision === 'street' ? 'Street location · move the pin to the building or entrance you are leaving from.' : precision === 'place' ? 'Place centre · this may not be your exact starting point. Check and adjust the pin.' : undefined),
-    onPickMap: () => void beginOrigin(realByName('Kuala Krai')!.lngLat, 'Choose your starting point', true),
+    onPick: (town) => choose(town.lngLat, town.name, 'place', true),
+    onAddress: ({ lngLat, label, precision }) => choose(lngLat, label, precision === 'address' ? 'address' : precision === 'street' ? 'street' : 'place'),
     searchAddresses: (q) => searchAddresses(q, KELANTAN.bbox),
     onLocate: () => {
-      const locateRevision = ++originRevision;
+      const mine = ++locateRevision;
       if (!navigator.geolocation) return ui!.note(t('noLocation'));
       ui!.note(t('locating'));
       navigator.geolocation.getCurrentPosition(
         (p) => {
-          if (locateRevision !== originRevision) return;
+          if (mine !== locateRevision) return;
           const lngLat: LngLat = [p.coords.longitude, p.coords.latitude];
           const [minLon, minLat, maxLon, maxLat] = KELANTAN.bbox;
           if (lngLat[0] < minLon || lngLat[0] > maxLon || lngLat[1] < minLat || lngLat[1] > maxLat) ui!.note(t('outside'));
-          else void beginOrigin(lngLat, t('myLocation'));
+          else choose(lngLat, t('myLocation'), 'gps');
         },
-        () => { if (locateRevision === originRevision) ui!.note(t('noLocation')); },
+        () => { if (mine === locateRevision) ui!.note(t('noLocation')); },
         { timeout: 10000 },
       );
     },
@@ -703,8 +674,7 @@ async function main() {
     const hit = pickTerrain(ndc, camera, hm, frame);
     if (!hit) return;
     const lngLat = frame.worldToLngLat(hit);
-    if (pendingOrigin) updateOrigin(lngLat);
-    else void beginOrigin(lngLat, nearestTownName(lngLat));
+    choose(lngLat, nearestTownName(lngLat), 'tap');
   });
 
   ui.showLanding();
@@ -1046,7 +1016,6 @@ async function main() {
 
   // ---- Modes ---------------------------------------------------------------------------
   const setMode = (m: 'resident' | 'control') => {
-    hideOrigin();
     document.body.dataset.mode = m;
     document.getElementById('mode-resident')!.classList.toggle('on', m === 'resident');
     document.getElementById('mode-control')!.classList.toggle('on', m === 'control');
@@ -1102,10 +1071,11 @@ async function main() {
     if (location.hash === '#control') setMode('control');
     else if (linked) {
       const p = allPlaces.find((x) => x.name.toLowerCase() === linked.toLowerCase()) ?? matchPlaces(linked, allPlaces)[0];
-      if (p) (selectHome(p.lngLat, p.name), openStreet());
+      if (p) ((homePrecision = 'place'), selectHome(p.lngLat, p.name), openStreet());
     } else if (at && at.length === 2 && at.every(Number.isFinite)) {
       const lngLat: LngLat = [at[0], at[1]];
-      (selectHome(lngLat, nearestTownName(lngLat), false), openStreet());
+      homePrecision = params.get('label') ? 'address' : 'tap';
+      (selectHome(lngLat, params.get('label') || nearestTownName(lngLat), false), openStreet());
     }
   }
 

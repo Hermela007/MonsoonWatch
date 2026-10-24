@@ -361,27 +361,11 @@ body.recording #render-performance { display: block; }
 #landing .fact { font-size: 11px; }
 .suggestion.address { font-weight: 500; }
 .suggestion small { flex-shrink: 0; max-width: 42%; text-align: right; }
-#origin-map { position: fixed; inset: 0; z-index: 2; opacity: 0; pointer-events: none; }
-body.origin-map-ready #origin-map { opacity: 1; pointer-events: auto; }
-#origin-confirm { left: 24px; top: 64px; width: 400px; max-height: calc(100dvh - 88px); overflow-y: auto; }
-#origin-confirm h1 { font-size: 24px; }
-#origin-label { font-size: 15px; line-height: 1.5; font-weight: 500; }
-.origin-coordinates { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-.origin-travel { display: flex; gap: 18px; padding: 12px 0; margin: 12px 0; border: 0; border-top: 1px solid var(--rule); }
-.origin-travel legend { font-size: 13px; font-weight: 600; }
-.origin-travel label { font-size: 14px; cursor: pointer; }
-body[data-view='confirm'] #landing, body[data-view='confirm'] #result, body[data-view='confirm'] #route-view { opacity: 0; pointer-events: none; }
-body[data-mode='control'] #origin-confirm { display: none; }
 @media (max-width: 767px) {
   #landing { max-height: calc(100dvh - 140px); }
   #landing .fact, #landing .footer { display: none; }
-  #origin-confirm { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 48dvh; padding: 18px; border-radius: 0; }
 }
-.origin-pin { width: 32px; height: 40px; cursor: grab; }
-.origin-pin::before { content: ''; position: absolute; left: 4px; bottom: 6px; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; background: var(--ink); border: 3px solid white; box-shadow: 0 2px 8px #0005; transform: rotate(-45deg); }
 
-body.confirming-origin #legend { opacity: 0; pointer-events: none; }
-#origin-map .maplibregl-ctrl-top-right { top: 64px; }
 
 /* Control room as four steps: the current one is highlighted, finished ones ticked, later ones dimmed. */
 #control .ctl-steps { list-style: none; margin: 4px 0 18px; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--rule); }
@@ -415,3 +399,10 @@ body.confirming-origin #legend { opacity: 0; pointer-events: none; }
 #control .alert-title { line-height: 1.3; margin: 0 0 6px; }
 #control .alert-meta { margin: 0 0 12px; }
 #control:focus { outline: none; }
+
+/* Where the route starts: one plain line (plus a hint when it isn't exact) instead of a confirm-the-pin step. */
+.origin-line { margin: -6px 0 14px; padding-left: 14px; }
+#route-view .origin-line { padding-left: 0; margin: 0 0 12px; }
+.origin-main { font-size: 13px; color: var(--ink); }
+.origin-hint { font-size: 12px; line-height: 1.45; color: var(--muted); margin-top: 2px; }
+.m2d-home { cursor: grab; }

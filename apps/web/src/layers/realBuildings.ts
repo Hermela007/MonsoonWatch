@@ -36,13 +36,20 @@ export function createRealBuildings(footprints: Footprint[]) {
     ranges.push({ start: offset, count: n });
     offset += n;
   }
-  const merged = geos.length ? mergeGeometries(geos, false)! : new THREE.BufferGeometry();
+  // No mapped buildings nearby (many rural places): an empty but valid geometry, so the street still opens.
+  const empty = () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(0), 3));
+    return g;
+  };
+  const merged = (geos.length ? mergeGeometries(geos, false) : null) ?? empty();
   geos.forEach((g) => g.dispose());
-  merged.computeVertexNormals();
+  if (merged.attributes.position.count) merged.computeVertexNormals();
   const mat = addUnderwater(new THREE.MeshStandardMaterial({ color: 0xf3f1ec, vertexColors: true, roughness: 0.9 }));
   const mesh = new THREE.Mesh(merged, mat);
   mesh.castShadow = mesh.receiveShadow = true;
-  const edges = new THREE.EdgesGeometry(merged, 30);
+  const edges = merged.attributes.position.count ? new THREE.EdgesGeometry(merged, 30) : empty();
   const edgeMat = new THREE.LineBasicMaterial({ color: 0x9d978e, transparent: true, opacity: 0.6 });
   const group = new THREE.Group();
   group.add(mesh, new THREE.LineSegments(edges, edgeMat));
