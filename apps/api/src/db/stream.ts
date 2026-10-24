@@ -33,8 +33,9 @@ async function loadDefs(): Promise<ProcessorDef[]> {
   const dir = fileURLToPath(new URL("./stream-processors/", import.meta.url));
   const defs: ProcessorDef[] = [];
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".js")).sort()) {
-    const mod = (await import(pathToFileURL(dir + file).href)) as { default: ProcessorDef[] };
+    const mod = (await import(pathToFileURL(dir + file).href)) as { default: ProcessorDef[]; SUMMARY?: string[] };
     defs.push(...mod.default);
+    for (const line of mod.SUMMARY ?? []) console.log(line);
   }
   return defs;
 }

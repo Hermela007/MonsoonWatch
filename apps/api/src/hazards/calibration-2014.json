@@ -1,0 +1,73 @@
+{
+  "description": "Official recorded peak water levels, Dec 2014 flood, used as the top anchor of the APPROXIMATE replay discharge→level curve (apps/api/src/hazards/water.ts). Levels in metres (JPS datum). Thresholds are as printed in the source table; our station thresholds (current JPS) differ for some gauges — see mappingNote.",
+  "source": {
+    "title": "JPS 'Laporan Catatan Aras Air Tertinggi' (1 Dec 2014 – 10 Feb 2015), reproduced in Prof. Ir. Mohd Nordin Adlan, 'Air' (CGSS, USM)",
+    "url": "https://cgss.usm.my/images/Air_-_Prof._Ir._Mohd_Nordin_Adlan.pdf"
+  },
+  "gauges": [
+    {
+      "official": "Sg. Galas, Dabong",
+      "stationId": "gen-WL-54255735a9",
+      "peakM": 46.47,
+      "peakAt": "2014-12-24T16:00:00+08:00",
+      "officialThresholds": { "normal": 28, "alert": 32, "warning": 35, "danger": 38 },
+      "mappingNote": "Only Dabong station (Sg. Galas di Dabong). Normal and danger match; our alert/warning are 35/37 (source 32/35) — current JPS thresholds differ from the 2014 table."
+    },
+    {
+      "official": "Sg. Lebir, Tualang",
+      "stationId": "0730971WL",
+      "peakM": 42.17,
+      "peakAt": "2014-12-24T06:00:00+08:00",
+      "officialThresholds": { "normal": 23, "alert": 27, "warning": 31, "danger": 35 },
+      "mappingNote": "Only Tualang station (Sg. Lebir di Kg. Tualang). Normal and danger match; our alert/warning are 30/34 (source 27/31). Excluded from the hazards model (hazardGauge.usable = false: live level +20 m off the valley floor, i.e. mis-geocoded; see docs/HAZARDS.md), so this calibration has no effect until its location is fixed."
+    },
+    {
+      "official": "Sg. Kelantan, Tangga Krai (Kuala Krai)",
+      "stationId": "gen-WL-a1dafac05a",
+      "peakM": 34.17,
+      "peakAt": "2014-12-25T15:00:00+08:00",
+      "officialThresholds": { "normal": 17, "alert": 20, "warning": 22.5, "danger": 25 },
+      "mappingNote": "Sg. Kelantan di Kuala Krai; all four thresholds match."
+    },
+    {
+      "official": "Sg. Kelantan, Jambatan Guillemard",
+      "stationId": null,
+      "peakM": 22.74,
+      "peakAt": "2014-12-26T00:00:00+08:00",
+      "officialThresholds": { "normal": 10, "alert": 12, "warning": 14, "danger": 16 },
+      "mappingNote": "NOT MAPPED: two candidates with identical thresholds 7/12/14/16 (source 10/12/14/16): 0731371WL 'Sg. Kelantan di Kusial' and gen-WL-cf8c18d849 'Sg. Kelantan di Kusial Baru'. Can't tell which is the Guillemard Bridge gauge; both are excluded from the hazards model anyway (hazardGauge.usable = false)."
+    },
+    {
+      "official": "Sg. Kelantan, Tambatan DiRaja",
+      "stationId": "0730671WL",
+      "peakM": 6.89,
+      "peakAt": "2014-12-26T00:00:00+08:00",
+      "officialThresholds": { "normal": 1, "alert": 3, "warning": 4, "danger": 5 },
+      "mappingNote": "Sg. Kelantan di Tambatan D'Raja; all four thresholds match."
+    },
+    {
+      "official": "Sg. Golok, Rantau Panjang",
+      "stationId": "0740121WL",
+      "peakM": 10.84,
+      "peakAt": "2014-12-18T11:00:00+08:00",
+      "officialThresholds": { "normal": 5, "alert": 7, "warning": 8, "danger": 9 },
+      "mappingNote": "Sg. Golok di Rantau Panjang; all four thresholds match."
+    },
+    {
+      "official": "Sg. Golok, Jenob",
+      "stationId": "0740261WL",
+      "peakM": 24.93,
+      "peakAt": null,
+      "officialThresholds": { "normal": 19, "alert": 21.5, "warning": 22.5, "danger": 23.5 },
+      "mappingNote": "Sg. Golok di Kg. Jenob; all four thresholds match. Peak date is garbled in the source. Excluded from the hazards model (hazardGauge.usable = false), so no effect."
+    },
+    {
+      "official": "Sg. Semerak, Pasir Puteh",
+      "stationId": "0731001WL",
+      "peakM": 2.67,
+      "peakAt": "2014-12-18T07:00:00+08:00",
+      "officialThresholds": { "normal": 0.4, "alert": 2, "warning": 2.3, "danger": 3 },
+      "mappingNote": "Only Pasir Puteh station (Sg. Semerak di Pasir Puteh). ALL thresholds differ: ours 2/2.5/3/3.2 (source 0.4/2/2.3/3). The 2014 peak (2.67 m) is below our danger level, so the curve drops the danger anchor for this gauge."
+    }
+  ]
+}
