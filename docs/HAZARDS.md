@@ -109,6 +109,27 @@ Fail → replan cases for the agent (replay), all dry on 12 Dec:
 - **Kampung Wakaf Bata → SMK Dato' Mahmud Paduka Raja (2)** (Tanah Merah, 4.2 km): cut on 24 Dec (`421609682:0`), **dry detour
   10.3 km (+6.1 km)** — the fail → replan → pass case.
 
+## Road status, centre status, scenario time
+Rules in [`apps/api/src/hazards/status.ts`](../apps/api/src/hazards/status.ts) (tested in `status.test.ts`); contract in
+[`CONTRACT-ROUTING.md`](CONTRACT-ROUTING.md). Statuses are routing.ts's (`RoadHazardStatus`, `CentreStatus`).
+- **flooded** = in `blockedRoadIds`; **clear** = assessed and above water; **outside_floodplain** = > 3 km from a mapped river
+  (surface flooding not modelled); **unknown** = in the floodplain without a usable fresh gauge within 20 km, or no ground.
+- **Fresh:** live JPS reading ≤ 2 h old at `ts`; replay GloFAS value within 36 h. Only fresh levels can flood anything, so an
+  unknown segment is never flooded or clear.
+- **Replay interpolation:** daily discharge per cell linear between the two end-of-day (MYT) values around `ts`.
+- **Centres** (`prep:hazards` stores the same `hazard` fields on `evac_centres`): at_risk below the likely level (`statusBasis:
+  "likely"`) or only within the uncertainty margin (`"uncertainty_margin"`), unknown without a fresh usable gauge, else usable.
+- **Landslide roads:** segments crossing a runout line → `landslideRoadIds`.
+
+| Scenario (24 Oct 2026) | flooded | clear | outside_floodplain | unknown |
+|---|---|---|---|---|
+| Live, 15:11Z (all JPS readings ~3 h old: ingest stopped at 12:10Z) | 0 | 0 | 1,839 | 82,757 (78,025 stale gauge, 4,732 no gauge in range) |
+| Replay 12 Dec 2014 | 0 | 78,025 | 1,839 | 4,732 |
+| Replay 24 Dec 12:00 (interpolated) | 11,131 | 66,894 | 1,839 | 4,732 |
+| Replay 24 Dec 23:59 | 14,172 | 63,853 | 1,839 | 4,732 |
+
+Centres, replay 24 Dec: 233 usable, 81 at_risk (46 likely, 35 margin only), 20 unknown (12 Dec: 299 / 15 / 20).
+
 ## Landslide
 Owned by B (B5 `computeLandslide`, registered with `setLandslideProvider(fn)` from `apps/api/src/hazards`). Every response has the
 extra field **`landslideLabel`: "Screening tool. Shows where to check first. Does not replace an on-site engineer."**; the same
