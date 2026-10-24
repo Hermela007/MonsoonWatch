@@ -31,6 +31,8 @@ export interface Situation {
   isTestData: boolean;
 }
 
+const vulnerableTotal = (v: Village) => (v.vulnerable ? v.vulnerable.bedridden + v.vulnerable.disabled + v.vulnerable.elderly + v.vulnerable.noTransport : 0);
+
 const round = (c: LngLat, dp: number): LngLat => {
   const f = 10 ** dp;
   return [Math.round(c[0] * f) / f, Math.round(c[1] * f) / f];
@@ -56,8 +58,14 @@ export function situationForPrompt(s: Situation, opts: { full?: boolean; shortli
       shortlist:
         `Villages listed: the ${sl.villages.length} most at risk by a deterministic screen (flooded road near the village, landslide runout, ` +
         `or a warning gauge where the flood model has no data), most at risk first. The others are summarised per district in notSentByDistrict ` +
-        `(not checked as safe): at-risk villages over the cap get a deterministic area-wide warning; "watch" = gauge at alert+ nearby but no flooding or runout at the village.`,
+        `(not checked as safe): at-risk villages over the cap get a deterministic area-wide warning; "watch" = gauge at alert+ nearby but no flooding or runout at the village. ` +
+        `undecidedVillages lists every watch / unknown village (advisory only): you may escalate them.`,
       notSentByDistrict: sl.notSent,
+      // Villages the screen could not decide on (advisory only): Argon may escalate them (escalation.ts).
+      undecidedVillages: [
+        ...sl.screen.watch.map((w) => ({ id: w.village._id, name: w.village.name, district: w.village.district, lngLat: round(w.village.location.coordinates, dp), population: w.village.population, vulnerable: vulnerableTotal(w.village), screen: "watch", gaugeLevel: w.level })),
+        ...sl.screen.unknown.map((u) => ({ id: u.village._id, name: u.village.name, district: u.village.district, lngLat: round(u.village.location.coordinates, dp), population: u.village.population, vulnerable: vulnerableTotal(u.village), screen: "unknown", why: u.reason })),
+      ],
     }),
     stations: stations.map((st) => ({
       id: st._id, name: st.name, kind: st.kind, district: st.district, basin: st.basin,
