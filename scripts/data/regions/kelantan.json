@@ -6,11 +6,12 @@
   "timezone": "Asia/Kuala_Lumpur",
   "terrain": {
     "heightmapUrl": "/terrain/kelantan.png",
-    "widthPx": 0,
-    "heightPx": 0,
-    "metresPerPx": 0,
-    "minElev": 0,
-    "maxElev": 0
+    "widthPx": 776,
+    "heightPx": 1262,
+    "metresPerPx": 150,
+    "minElev": -26,
+    "maxElev": 2176,
+    "encoding": "terrarium: elevation_m = R*256 + G + B/256 - 32768; regular lon/lat grid over bbox, row 0 = north, pixel centres"
   },
   "glofasCells": [
     { "id": "glofas-5.775-102.125", "lngLat": [102.125, 5.775], "label": "Main channel near Kuala Krai" },
