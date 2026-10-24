@@ -57,6 +57,7 @@ const COPY = {
   slopeActive: 'Landslide',
   now: 'Now',
   later: '+{h} h',
+  laterDays: '+{d} days',
   yourHome: 'Your home',
   higherGround: 'Higher ground',
   near: 'Near {place}',

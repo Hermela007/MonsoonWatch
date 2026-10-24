@@ -13,10 +13,13 @@ export interface RealSeries {
   discharge: { start: string; cells: { lngLat: LngLat; dailyM3s: number[] }[] };
 }
 
-export const REPLAY_START_MS = Date.UTC(2014, 11, 16, 16); // 17 Dec 2014 00:00 MYT
-export const REPLAY_HOURS = 14 * 24; // to 31 Dec 2014
-/** Demo "now": 21 Dec 2014 08:00 MYT — heavy rain under way, river rising, three days before the peak. */
-export const NOW_HOUR = 4 * 24 + 8;
+export const REPLAY_START_MS = Date.UTC(2014, 11, 14, 16); // 15 Dec 2014 00:00 MYT
+export const REPLAY_HOURS = 16 * 24; // to 31 Dec 2014
+/**
+ * Demo "now": 16 Dec 2014 08:00 MYT — before the flood. The river is still below its normal flow and
+ * the rain is starting: the moment an early warning is useful. The flood arrives over the next days.
+ */
+export const NOW_HOUR = 1 * 24 + 8;
 /** Assumed river rise at the GloFAS peak (m). VERIFY against JPS Kuala Krai records. */
 export const PEAK_STAGE_M = 18;
 /** Water this deep (m) counts as "reached" — about knee height. */

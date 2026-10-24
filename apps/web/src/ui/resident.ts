@@ -207,7 +207,7 @@ export function createResidentUi(
     },
     setClock(hour: number, nowHour: number) {
       const ahead = Math.round(hour - nowHour);
-      $('clock-tag').textContent = ahead > 0 ? t('later', { h: ahead }) : t('now');
+      $('clock-tag').textContent = ahead > 48 ? t('laterDays', { d: Math.round(ahead / 24) }) : ahead > 0 ? t('later', { h: ahead }) : t('now');
       $('clock-time').textContent = fmtTime(hour);
       document.body.classList.toggle('future', ahead > 0);
     },

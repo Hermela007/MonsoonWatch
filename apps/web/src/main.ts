@@ -39,7 +39,6 @@ const COLS = Number(params.get('res')) || 600;
 const FOCUS_KM = 6;
 // Closer than this the 150 m terrain looks blocky; the street view covers close-ups.
 const VALLEY_MIN_KM = 7;
-const WHATIF_HOURS = 72;
 // Illustrative trigger (rise above normal, m) until C's Stream Processing emits real risk events.
 const AGENT_TRIGGER_STAGE_M = PEAK_STAGE_M * 0.45;
 
@@ -299,18 +298,10 @@ async function main() {
     stage.setScene(street.scene);
     director.flyTo({ target, position: pos }, 2400);
     ui!.setStreet('on');
-    playStreet();
-  };
-
-  /** Street playback: start a few hours before water first reaches these buildings, play to the peak. */
-  const playStreet = () => {
-    if (!street) return;
-    const fw = street.firstWetHour();
-    const start = fw === null ? NOW_HOUR : Math.max(0, fw - 8);
-    hour = start;
-    targetHour = Math.min(REPLAY_HOURS, Math.max(peakHour() + 12, (fw ?? start) + 24));
-    whatIf = true;
-    ui!.setWhatIf(true);
+    // The street opens at "now" — before the water — and waits for "See what could happen".
+    hour = targetHour = NOW_HOUR;
+    whatIf = false;
+    ui!.setWhatIf(false);
   };
 
   const leaveStreet = () => {
@@ -383,9 +374,9 @@ async function main() {
       director.tour(shots, 7000, () => viewShot && director.flyTo(viewShot, 2000));
     },
     onWhatIf: () => {
-      if (inStreet && !whatIf) return playStreet();
-      whatIf = !whatIf;
-      targetHour = whatIf ? Math.min(REPLAY_HOURS, NOW_HOUR + WHATIF_HOURS) : NOW_HOUR;
+        whatIf = !whatIf;
+      // Play the future from "now" to just after the real peak.
+      targetHour = whatIf ? Math.min(REPLAY_HOURS, peakHour() + 12) : NOW_HOUR;
       ui!.setWhatIf(whatIf);
     },
     onChange: backToLanding,
@@ -626,7 +617,7 @@ async function main() {
     wasLanding = landing;
     // Replay time eases towards its target: forward slowly, back quickly.
     // Slow the replay right down while a landslide surges, so it can be seen.
-    const rate = targetHour > hour ? (inStreet ? (street?.slideSurging ? 0.15 : 2.5) : 10) : 40;
+    const rate = targetHour > hour ? (inStreet ? (street?.slideSurging ? 0.15 : 6) : 10) : 40;
     hour = targetHour > hour ? Math.min(targetHour, hour + dt * rate) : Math.max(targetHour, hour - dt * rate);
     focus.amount += (focusTarget - focus.amount) * Math.min(1, dt * 2.5);
     // Control room replay: when the main river passes the Warning rise, Stream Processing → agent.
@@ -674,7 +665,7 @@ async function main() {
       if (stats) ui!.setStreet('on', { ...stats, buried: street.buried, ...street.counts });
       streetRain?.update(controls.target, camDist, Math.min(1, rainIntensity(hour) * 1.8 + 0.25), time);
     }
-    if (landing || inStreet) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
+    if (landing) ui!.setReplayClock(Math.min(hour, REPLAY_HOURS));
     else ui!.setClock(hour, NOW_HOUR);
     stage.render();
   });
