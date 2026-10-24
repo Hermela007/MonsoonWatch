@@ -38,6 +38,13 @@ export function createControlUi(h: {
   let readOnly = false;
   let runBusy = false;
   let replayBusy = false;
+  // Which step of the flow we're on (1 replay → 2 agent → 3 approve → 4 after approval): drives the panel's
+  // highlighting, so an operator always sees where things are and what comes next.
+  let stage = 1;
+  const setStage = (n: number) => {
+    stage = Math.max(stage, n);
+    $('control').dataset.stage = String(stage);
+  };
   const updateActions = () => {
     $<HTMLButtonElement>('btn-run').disabled = !connected || readOnly || runBusy;
     $<HTMLButtonElement>('btn-replay').disabled = !connected || readOnly || replayBusy;
@@ -117,6 +124,7 @@ export function createControlUi(h: {
       chip.dataset.mode = mode;
     },
     step(s: AgentStep) {
+      if (s.actor !== 'MonsoonWatch') setStage(2);
       if (!t0) t0 = Date.parse(s.ts) || Date.now();
       let row = steps.get(s._id);
       if (!row) {
@@ -136,6 +144,7 @@ export function createControlUi(h: {
       $('hud-empty').hidden = true;
     },
     alert(a: Alert) {
+      setStage(a.status === 'approved' || a.status === 'sent' ? 4 : 3);
       alerts.set(a._id, a);
       if (!current || current._id === a._id) current = a;
       renderAlert();
@@ -150,9 +159,13 @@ export function createControlUi(h: {
       updateActions();
     },
     risk(e: RiskEvent) {
-      $('control-risk').textContent = e.message;
+      setStage(2);
+      $('control-risk').textContent = `Detected: ${e.message}`;
     },
-    task(t: SaintTask) { saint.task(t); },
+    task(t: SaintTask) {
+      setStage(4);
+      saint.task(t);
+    },
     evac(c: import('@monsoonwatch/shared').EvacCentre) { saint.evac(c); },
     note(text: string) {
       this.step({ _id: `note-${Date.now()}`, runId: '', ts: new Date().toISOString(), actor: 'MonsoonWatch', kind: 'info', summary: text, status: 'ok' });
@@ -169,6 +182,8 @@ export function createControlUi(h: {
       $('control-risk').textContent = '';
       t0 = 0;
       current = null;
+      stage = 1;
+      $('control').dataset.stage = '1';
       renderAlert();
     },
   };

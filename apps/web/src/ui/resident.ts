@@ -115,11 +115,12 @@ export function createResidentUi(
   initialPlaces: Town[],
   h: {
     onPick: (town: Town) => void;
-    /** A street address (OpenStreetMap via Photon), resolved to its exact location. */
-    onAddress: (a: { lngLat: LngLat; label: string }) => void;
+    /** A geocoded starting point; the person confirms its pin before routing. */
+    onAddress: (a: { lngLat: LngLat; label: string; precision?: AddressSuggestion['precision'] }) => void;
     /** Address search (OpenStreetMap via Photon, limited to Kelantan). */
     searchAddresses?: (q: string) => Promise<AddressSuggestion[]>;
     onLocate: () => void;
+    onPickMap: () => void;
     onShowWay: () => void;
     onWhatIf: () => void;
     onChange: () => void;
@@ -137,6 +138,16 @@ export function createResidentUi(
   let remote: Town[] = [];
   let addresses: AddressSuggestion[] = [];
   let searchTimer = 0;
+  let searchRevision = 0;
+  const chooseAddress = async (a: AddressSuggestion) => {
+    const mine = ++searchRevision;
+    note.textContent = t('findingAddress');
+    try {
+      const result = await a.resolve();
+      if (mine !== searchRevision) return;
+      if (result) h.onAddress({ ...result, precision: a.precision }); else note.textContent = t('addressFailed');
+    } catch { if (mine === searchRevision) note.textContent = t('addressFailed'); }
+  };
 
   const renderSuggestions = () => {
     const q = input.value.trim();
@@ -144,39 +155,35 @@ export function createResidentUi(
     const seen = new Set(local.map((p) => p.name.toLowerCase()));
     const matches = [...local, ...remote.filter((p) => !seen.has(p.name.toLowerCase()))].slice(0, addresses.length ? 4 : 10);
     suggestions.innerHTML = '';
-    for (const town of matches) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'suggestion';
-      b.textContent = town.name;
-      if (town.note) {
-        const n = document.createElement('small');
-        n.textContent = town.note;
-        b.appendChild(n);
-      }
-      b.addEventListener('click', () => h.onPick(town));
-      suggestions.appendChild(b);
-    }
-    // Street addresses: the exact location, so directions start at the door.
+    // Address results precede broad place matches; every selection still needs pin confirmation.
     for (const a of addresses.slice(0, 5)) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'suggestion address';
       b.textContent = a.text;
       const n = document.createElement('small');
-      n.textContent = t('addressNote');
+      n.textContent = a.precision === 'place' ? 'Place · confirm pin' : a.precision === 'street' ? 'Street · confirm pin' : t('addressNote');
       b.appendChild(n);
-      b.addEventListener('click', async () => {
-        note.textContent = t('findingAddress');
-        const r = await a.resolve();
-        if (r) h.onAddress(r);
-        else note.textContent = t('addressFailed');
-      });
+      b.addEventListener('click', () => void chooseAddress(a));
+      suggestions.appendChild(b);
+    }
+    for (const town of matches) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'suggestion';
+      b.textContent = town.name;
+      {
+        const n = document.createElement('small');
+        n.textContent = 'Village / town centre';
+        b.appendChild(n);
+      }
+      b.addEventListener('click', () => h.onPick(town));
       suggestions.appendChild(b);
     }
     note.textContent = q && !matches.length && !addresses.length ? t('noMatch') : '';
   };
   input.addEventListener('input', () => {
+    searchRevision++;
     remote = [];
     addresses = [];
     renderSuggestions();
@@ -192,12 +199,19 @@ export function createResidentUi(
       if (hits.length || found.length) renderSuggestions();
     }, 250);
   });
-  $('place-form').addEventListener('submit', (e) => {
+  $('place-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const first = matchPlaces(input.value, places)[0] ?? remote[0];
-    if (first) h.onPick(first);
-    else note.textContent = t('noMatch');
+    clearTimeout(searchTimer);
+    const q = input.value.trim();
+    if (!q) return;
+    const mine = ++searchRevision;
+    note.textContent = 'Finding starting points…';
+    const [hits, found] = await Promise.all([searchPlaces(q), h.searchAddresses?.(q) ?? Promise.resolve([])]);
+    if (mine !== searchRevision) return;
+    remote = hits; addresses = found; renderSuggestions();
+    note.textContent = found.length || matchPlaces(q, places).length || hits.length ? 'Choose a matching address or village below, then confirm its pin.' : t('noMatch');
   });
+  $('btn-pick-map').addEventListener('click', h.onPickMap);
   $('btn-locate').addEventListener('click', h.onLocate);
   $('btn-way').addEventListener('click', h.onShowWay);
   $('btn-whatif').addEventListener('click', h.onWhatIf);
@@ -230,12 +244,14 @@ export function createResidentUi(
   renderSuggestions();
 
   return {
+    suspendSearch() { searchRevision++; clearTimeout(searchTimer); },
     setPlaces(list: Town[]) {
       const seen = new Set<string>();
       places = list.filter((p) => !seen.has(p.name) && seen.add(p.name));
       renderSuggestions();
     },
     showLanding() {
+      searchRevision++; clearTimeout(searchTimer); remote = []; addresses = [];
       stopSpeaking();
       document.body.dataset.view = 'landing';
       input.value = '';
@@ -281,6 +297,7 @@ export function createResidentUi(
      * The road journey from the evacuation-route API, or null to fall back to the terrain estimate
      * (the "Go to higher ground" line) while the endpoint is unavailable.
      */
+    setJourneyStatus(message: string) { $('journey-status').textContent = message; },
     setJourney(v: JourneyView | null) {
       const el = $('journey');
       el.hidden = !v;

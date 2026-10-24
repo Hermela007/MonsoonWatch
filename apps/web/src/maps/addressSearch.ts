@@ -3,6 +3,7 @@ import type { LngLat } from '../geo/region';
 export interface AddressSuggestion {
   /** e.g. "Jalan Pasar, Kuala Krai" */
   text: string;
+  precision?: 'address' | 'street' | 'place';
   /** Resolve to a location. */
   resolve: () => Promise<{ lngLat: LngLat; label: string } | null>;
 }
@@ -52,7 +53,8 @@ export async function searchAddresses(input: string, bbox: [number, number, numb
       const [lng, lat] = f.geometry.coordinates;
       if (!text || seen.has(text) || !Number.isFinite(lng) || !Number.isFinite(lat)) return [];
       seen.add(text);
-      return [{ text, resolve: async () => ({ lngLat: [lng, lat] as LngLat, label: text }) }];
+      const precision = f.properties.housenumber && f.properties.street ? 'address' : f.properties.street || f.properties.osm_value === 'residential' || f.properties.osm_value === 'road' ? 'street' : 'place';
+      return [{ text, precision: precision as AddressSuggestion['precision'], resolve: async () => ({ lngLat: [lng, lat] as LngLat, label: text }) }];
     });
   } catch {
     return [];
