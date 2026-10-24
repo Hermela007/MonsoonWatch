@@ -51,6 +51,8 @@ export interface InteractOptions {
   tools?: FunctionTool[];
   /** Plain JSON Schema for structured output (use interactJson for zod validation). */
   responseJsonSchema?: Record<string, unknown>;
+  /** TTS: return audio (WAV by default) spoken by this prebuilt voice, e.g. "Charon". */
+  audioVoice?: string;
   previousInteractionId?: string;
   /** Required for agents; use for outputs > 65,536 tokens. Polls until done. */
   background?: boolean;
@@ -61,6 +63,8 @@ export interface InteractResult {
   text: string | null;
   functionCalls: FunctionCall[];
   usage: { inputTokens?: number; outputTokens?: number; thoughtTokens?: number; totalTokens?: number };
+  /** Base64 audio when audioVoice was set (unary TTS defaults to audio/wav with a RIFF header). */
+  audio: { data: string; mimeType?: string } | null;
   latencyMs: number;
   raw: GoogleGenAIInteraction;
 }
@@ -102,6 +106,11 @@ function buildParams(opts: InteractOptions): Record<string, unknown> {
   if (opts.background || opts.agent) params.background = true;
 
   if (opts.thinkingLevel) params.generation_config = { thinking_level: opts.thinkingLevel };
+  if (opts.audioVoice) {
+    // Speech generation docs: response_format { type: "audio" } + generation_config.speech_config.
+    params.response_format = { type: "audio" };
+    params.generation_config = { ...((params.generation_config as object) ?? {}), speech_config: [{ voice: opts.audioVoice }] };
+  }
 
   if (opts.responseJsonSchema) {
     params.response_format = { type: "text", mime_type: "application/json", schema: opts.responseJsonSchema };
@@ -170,6 +179,7 @@ export async function interact(opts: InteractOptions): Promise<InteractResult> {
       id: it.id,
       text: it.output_text ?? null,
       functionCalls: extractFunctionCalls(it),
+      audio: it.output_audio?.data ? { data: it.output_audio.data, mimeType: it.output_audio.mime_type } : null,
       usage,
       latencyMs: Date.now() - startedAt,
       raw: it,
