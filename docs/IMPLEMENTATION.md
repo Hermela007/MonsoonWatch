@@ -428,6 +428,8 @@ Two real Atlas Stream Processing processors, defined in **`apps/api/src/db/strea
 - Keep `docs/saint-log.md`: what we asked, tools/accounts used, where it asked for approval (required for submission).
 - **No Saint allocated →** `SaintTask`s render as a human checklist; remove Saint from submission.
 
+> **As built (Sat 24 Oct):** Thea's guest access is WhatsApp-only, so the handoff is human-in-the-loop over WhatsApp: a Saint brief + `wa.me` link per approved alert, and pasted `MW CHECKIN` lines → `POST /api/saint/updates`. See `docs/saint-brief.md`, `docs/saint-log.md`, `apps/api/src/routes/saint.ts`.
+
 ### C9. README, submission, videos (Sun AM, start notes Sat)
 - README per GUIDELINES §10, with **file links** for each sponsor feature (index JSONs, stream processor, prompts, wrapper).
 - Record beats with A's `?demo=1` presets; cut Videos A/B/C (GUIDELINES §9).
