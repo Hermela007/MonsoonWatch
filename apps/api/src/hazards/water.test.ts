@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  dischargeToLevel, floodedSegmentIds, highestRisk, levelName, replayLevels, riskRatio,
+  curveAnchors, dischargeToLevel, floodedSegmentIds, highestRisk, levelName, replayLevels, riskRatio,
   FLOODPLAIN_M, MAX_GAUGE_DIST_M, type Gauge, type Segment, type Thresholds,
 } from "./water";
 
@@ -21,6 +21,39 @@ test("discharge → level clamps at normal and extrapolates above danger", () =>
   assert.equal(dischargeToLevel(100, KK), 15);
   assert.equal(dischargeToLevel(500, KK), 15);
   assert.ok(Math.abs(dischargeToLevel(6000, KK) - 27.5) < 1e-9); // +1,500 m³/s above danger = +2.5 m
+});
+
+test("calibrated: the official 2014 peak is reached at the cell's own Dec 2014 peak discharge", () => {
+  const cal = { peakM: 34.17, cellPeakM3s: 5187 }; // Kuala Krai (Tangga Krai), JPS table
+  assert.ok(Math.abs(dischargeToLevel(5187, KK, cal) - 34.17) < 1e-9);
+  // the lower anchors are unchanged
+  assert.equal(dischargeToLevel(1500, KK, cal), 20);
+  assert.equal(dischargeToLevel(4500, KK, cal), 25);
+  // halfway between danger and the peak anchor
+  assert.ok(Math.abs(dischargeToLevel((4500 + 5187) / 2, KK, cal) - (25 + 34.17) / 2) < 1e-9);
+  // uncalibrated behaviour at the same discharge is far lower (the old gap)
+  assert.ok(dischargeToLevel(5187, KK) < 27);
+});
+
+test("calibrated: anchors at or above the peak are dropped so the curve stays increasing", () => {
+  // Pasir Puteh: our thresholds 2/2.5/3/3.2, official 2014 peak 2.67 m (below our danger level)
+  const pp: Thresholds = { normal: 2, alert: 2.5, warning: 3, danger: 3.2 };
+  const cal = { peakM: 2.67, cellPeakM3s: 5163 };
+  assert.deepEqual(curveAnchors(pp, cal), [[500, 2], [1500, 2.5], [5163, 2.67]]);
+  assert.ok(Math.abs(dischargeToLevel(5163, pp, cal) - 2.67) < 1e-9);
+  let prev = -Infinity;
+  for (let q = 0; q <= 6000; q += 100) {
+    const l = dischargeToLevel(q, pp, cal);
+    assert.ok(l >= prev, `not increasing at ${q}`);
+    prev = l;
+  }
+  // a peak below normal can't be used → uncalibrated curve
+  assert.deepEqual(curveAnchors(KK, { peakM: 10, cellPeakM3s: 5000 }), curveAnchors(KK));
+});
+
+test("replayLevels applies each gauge's calibration", () => {
+  const g: Gauge = { ...gauge("kk", KK, "up"), calibration: { peakM: 34.17, cellPeakM3s: 5187 } };
+  assert.equal(replayLevels([g], new Map([["up", 5187]]))[0]!.levelM, 34.17);
 });
 
 test("level names and risk ratio", () => {

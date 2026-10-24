@@ -14,6 +14,9 @@
 // Syntax checked against the Atlas Stream Processing docs ($source, $tumblingWindow, $hoppingWindow,
 // $lookup, $merge, sp.createStreamProcessor) on 24 Oct 2026. Expression-level details marked VERIFY.
 
+import { existsSync, readFileSync } from "node:fs";
+import { loadLandslideConfig, OPTION_A } from "../../agent/landslide.ts";
+
 const CONNECTION = "monsoonwatch"; // connection registry entry → Cluster0
 const DB = "monsoonwatch";
 const MYT_OFFSET_MS = 8 * 3600 * 1000; // Asia/Kuala_Lumpur, no DST
@@ -36,15 +39,41 @@ const GLOFAS_ALERT_M3S = 1500;
 const GLOFAS_WARNING_M3S = 3000;
 const GLOFAS_DANGER_M3S = 4500;
 
-// Rain: 3-day accumulation = rain since local midnight (`value`) + the last two daily totals in
-// `rain6d` (oldest first, last = yesterday; null = missing → 0). A hopping window takes each station's
-// highest 3-day total over the last 20 s, re-evaluated every 5 s. One event per station,
-// level and local day.
-// PLACEHOLDER thresholds (mm over 3 days) — replace with B's Deep Research values
-// (Region.landslide.rainThresholdsMm) once they exist.
-const RAIN_3D_ALERT_MM = 150;
-const RAIN_3D_WARNING_MM = 250;
-const RAIN_3D_DANGER_MM = 350;
+// Rain (landslide screening thresholds, B's Deep Research): generated at `pnpm db:stream` time from
+// agent/research/output/landslide-thresholds.<region>.json via B's loadLandslideConfig, which falls back to
+// OPTION_A when the file is missing or its check didn't pass — so a re-run of the research flows through on
+// the next `pnpm db:stream`. Each level is checked against ITS OWN window (option A mixes them):
+//   alert 47.66 mm over 3 days · warning 100 mm in 1 day · danger 240 mm in 1 day.
+// rain over N days = `value` (rain since local midnight live; that day's total in replay) + the last N−1
+// daily totals in `rain6d` (oldest first, last = yesterday; null = missing → 0). Same rule as B's
+// rainOverDays/rainLevel in agent/landslide.ts. A hopping window takes each station's highest level
+// (then highest mm) over the last 20 s, re-evaluated every 5 s. One event per station, level and local day.
+const REGION_ID = process.env.REGION_ID || "kelantan";
+const RAIN_CFG = loadLandslideConfig(REGION_ID);
+const RANK = { alert: 1, warning: 2, danger: 3 };
+const RAIN_LEVELS = [...RAIN_CFG.levels].sort((a, b) => RANK[b.level] - RANK[a.level]); // danger first
+/** Short label for messages, e.g. "Deep Research option A". */
+function thresholdLabel() {
+  if (RAIN_CFG === OPTION_A) return "Deep Research option A (built-in defaults)";
+  const file = new URL(`../../agent/research/output/landslide-thresholds.${REGION_ID}.json`, import.meta.url);
+  try {
+    const decision = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).decision : "";
+    const option = /^option\s+(\w+)/i.exec(decision ?? "");
+    return option ? `Deep Research option ${option[1]}` : "Deep Research";
+  } catch {
+    return "Deep Research";
+  }
+}
+export const RAIN_THRESHOLDS = {
+  levels: RAIN_LEVELS.map(({ level, days, mm }) => ({ level, days, mm })),
+  label: thresholdLabel(),
+  source: RAIN_CFG.source,
+};
+/** Printed by `pnpm db:stream`. */
+export const SUMMARY = [
+  `riskRain thresholds (${RAIN_THRESHOLDS.label}; from ${RAIN_THRESHOLDS.source}):`,
+  ...RAIN_THRESHOLDS.levels.map((t) => `  ${t.level.padEnd(7)} ≥ ${t.mm} mm in ${t.days} day${t.days > 1 ? "s" : ""}`),
+];
 const RAIN_WINDOW = { size: 20, unit: "second" };
 const RAIN_HOP = { size: 5, unit: "second" };
 
@@ -206,21 +235,35 @@ const river = [
   sink,
 ];
 
+// Rain over the last `days` days including today (mm).
+const rainOver = (days) => ({
+  $add: [
+    "$value",
+    ...Array.from({ length: days - 1 }, (_, i) => ({ $ifNull: [{ $arrayElemAt: [{ $ifNull: ["$rain6d", []] }, -(i + 1)] }, 0] })),
+  ],
+});
+
 const rain = [
   source,
   { $match: { operationType: "insert", "fullDocument.meta.kind": "rain", "fullDocument.value": { $type: "number" } } },
   { $replaceRoot: { newRoot: "$fullDocument" } },
   {
     $addFields: {
-      acc3dMm: {
-        $add: [
-          "$value",
-          { $ifNull: [{ $arrayElemAt: [{ $ifNull: ["$rain6d", []] }, -1] }, 0] },
-          { $ifNull: [{ $arrayElemAt: [{ $ifNull: ["$rain6d", []] }, -2] }, 0] },
-        ],
+      rain1dMm: "$value",
+      rain3dMm: rainOver(3),
+      // Highest level whose own-window rain reaches its threshold (rank 0 = none).
+      hit: {
+        $switch: {
+          branches: RAIN_LEVELS.map((t) => ({
+            case: { $gte: [rainOver(t.days), t.mm] },
+            then: { rank: RANK[t.level], mm: rainOver(t.days), level: t.level, threshold: t.mm, days: t.days },
+          })),
+          default: { rank: 0 },
+        },
       },
     },
   },
+  { $match: { "hit.rank": { $gt: 0 } } },
   {
     $hoppingWindow: {
       interval: RAIN_WINDOW,
@@ -230,7 +273,13 @@ const rain = [
         {
           $group: {
             _id: "$meta.stationId",
-            top: { $max: { acc3dMm: "$acc3dMm", ts: "$ts", value: "$value", mode: "$meta.mode" } }, // VERIFY (see river)
+            // Field order matters: highest level first, then most rain (see $max note in river).
+            top: {
+              $max: {
+                rank: "$hit.rank", mm: "$hit.mm", level: "$hit.level", threshold: "$hit.threshold", days: "$hit.days",
+                ts: "$ts", rain1dMm: "$rain1dMm", rain3dMm: "$rain3dMm", mode: "$meta.mode",
+              },
+            },
             readings: { $sum: 1 },
             windowStart: { $min: { $meta: "stream.window.start" } },
             windowEnd: { $max: { $meta: "stream.window.end" } },
@@ -241,14 +290,11 @@ const rain = [
   },
   lookupStation,
   { $unwind: "$station" },
-  { $addFields: { level: levelOf("$top.acc3dMm", RAIN_3D_ALERT_MM, RAIN_3D_WARNING_MM, RAIN_3D_DANGER_MM) } },
-  { $match: { level: { $ne: "none" } } },
-  { $addFields: { threshold: thresholdFor(RAIN_3D_ALERT_MM, RAIN_3D_WARNING_MM, RAIN_3D_DANGER_MM) } },
   {
     $project: {
       _id: {
         $concat: [
-          "$station._id", ":rain_accumulation:", "$level", ":",
+          "$station._id", ":rain_accumulation:", "$top.level", ":",
           { $dateToString: { format: "%Y-%m-%d", date: { $add: ["$top.ts", MYT_OFFSET_MS] } } }, // local (MYT) day
         ],
       },
@@ -256,13 +302,18 @@ const rain = [
       ts: "$top.ts",
       type: { $literal: "rain_accumulation" },
       stationId: "$station._id",
-      level: 1,
-      value: round2("$top.acc3dMm"),
-      threshold: 1,
+      level: "$top.level",
+      value: round2("$top.mm"), // rain over the level's own window
+      threshold: "$top.threshold",
+      windowDays: "$top.days",
+      rain1dMm: round2("$top.rain1dMm"),
+      rain3dMm: round2("$top.rain3dMm"),
+      thresholdSource: { $literal: `${RAIN_THRESHOLDS.label} — ${RAIN_THRESHOLDS.source}` },
       message: {
         $concat: [
-          { $toUpper: "$level" }, " rain: ", "$station.name", " — ", { $toString: round2("$top.acc3dMm") },
-          " mm in 3 days (≥ ", { $toString: "$threshold" }, " mm, placeholder threshold)",
+          { $toUpper: "$top.level" }, " rain: ", "$station.name", " — ", { $toString: round2("$top.mm") },
+          { $cond: [{ $eq: ["$top.days", 1] }, " mm in 1 day", { $concat: [" mm in ", { $toString: "$top.days" }, " days"] }] },
+          " (≥ ", { $toString: "$top.threshold" }, " mm; threshold: ", { $literal: RAIN_THRESHOLDS.label }, ")",
         ],
       },
       source: { $literal: "stream_processing" },

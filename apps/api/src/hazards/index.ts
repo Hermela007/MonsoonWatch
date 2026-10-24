@@ -2,11 +2,12 @@
 //   getHazards(regionId, ts, mode) → shared `Hazards` plus extra fields: approximate, notes, gauges, worst.
 // Call in-process (B's situation) or via GET /api/regions/:id/hazards. Model + assumptions: ./water.ts
 // and docs/HAZARDS.md. Needs `pnpm build:terrain` + `pnpm prep:hazards` to have run.
+import { readFileSync } from "node:fs";
 import { COLLECTIONS, type Hazards, type LngLat, type Region, type Station } from "@monsoonwatch/shared";
 import { getDb } from "../db/client";
 import {
   floodedSegmentIds, highestRisk, levelName, replayLevels, FLOODPLAIN_M, MAX_GAUGE_DIST_M, REPLAY_CURVE_M3S, UNCERTAINTY_M,
-  type Gauge, type GaugeLevel, type Segment,
+  type Gauge, type GaugeLevel, type PeakCalibration, type Segment,
 } from "./water";
 
 export type HazardMode = "live" | "replay";
@@ -14,9 +15,22 @@ export type HazardMode = "live" | "replay";
 export interface HazardsResult extends Hazards {
   approximate: true;
   notes: string[];
-  gauges: (GaugeLevel & { name: string; lngLat: LngLat; level: string; thresholds: Gauge["thresholds"] })[];
+  gauges: (GaugeLevel & { name: string; lngLat: LngLat; level: string; thresholds: Gauge["thresholds"]; calibratedPeakM?: number })[];
   worst: { blockedRoadIds: string[] };
+  /** UI label for the landslide layer (always present; also added to notes when landslide data exists). */
+  landslideLabel: string;
 }
+
+export const LANDSLIDE_LABEL = "Screening tool. Shows where to check first. Does not replace an on-site engineer.";
+
+/** Official Dec 2014 peaks (JPS table, see the file's `source`) — replay curve top anchors. */
+interface CalibrationFile {
+  source: { title: string; url: string };
+  gauges: { official: string; stationId: string | null; peakM: number; peakAt: string | null }[];
+}
+export const CALIBRATION_2014: CalibrationFile = JSON.parse(readFileSync(new URL("./calibration-2014.json", import.meta.url), "utf8"));
+/** GloFAS cells' "own Dec 2014 peak" is taken from replay readings in this window. */
+const DEC_2014 = { from: new Date("2014-12-01T00:00:00+08:00"), to: new Date("2015-01-01T00:00:00+08:00") };
 
 /** Landslide is B's (B5 computeLandslide). Register it with setLandslideProvider; until then it's empty. */
 export type LandslideProvider = (ctx: { regionId: string; ts: Date; mode: HazardMode }) => Promise<Hazards["landslide"]> | Hazards["landslide"];
@@ -60,9 +74,13 @@ async function loadModel(regionId: string): Promise<RegionModel> {
     .collection<Station & { hazardGauge?: { usable: boolean; cellId: string } }>(COLLECTIONS.stations)
     .find({ regionId, kind: "river", "hazardGauge.usable": true }, { projection: { name: 1, location: 1, thresholds: 1, hazardGauge: 1 } })
     .toArray();
+  const cellPeaks = await cellPeaksDec2014(region);
   const gauges: Gauge[] = stations
     .filter((s) => s.thresholds)
-    .map((s) => ({ id: s._id, name: s.name, lngLat: s.location.coordinates, thresholds: s.thresholds!, cellId: s.hazardGauge!.cellId }));
+    .map((s) => {
+      const calibration = calibrationFor(s._id, cellPeaks.get(s.hazardGauge!.cellId));
+      return { id: s._id, name: s.name, lngLat: s.location.coordinates, thresholds: s.thresholds!, cellId: s.hazardGauge!.cellId, ...(calibration ? { calibration } : {}) };
+    });
   type Doc = { _id: string; geometry: { coordinates: LngLat[] }; hazard?: { groundM: number | null; riverDistM: number | null; gaugeId: string | null; gaugeDistM: number | null } };
   const docs = await db
     .collection<Doc>(COLLECTIONS.geo)
@@ -73,6 +91,22 @@ async function loadModel(regionId: string): Promise<RegionModel> {
     .map((d) => ({ id: d._id, coords: d.geometry.coordinates, groundM: d.hazard!.groundM, riverDistM: d.hazard!.riverDistM, gaugeId: d.hazard!.gaugeId, gaugeDistM: d.hazard!.gaugeDistM }));
   if (segments.length === 0) throw new Error(`No road segments with hazard data for "${regionId}" — run \`pnpm prep:hazards\``);
   return { region, gauges, segments };
+}
+
+async function cellPeaksDec2014(region: Region): Promise<Map<string, number>> {
+  const rows = await (await getDb())
+    .collection(COLLECTIONS.rawReadings)
+    .aggregate<{ _id: string; peak: number }>([
+      { $match: { "meta.stationId": { $in: region.glofasCells.map((c) => c.id) }, "meta.mode": "replay", ts: { $gte: DEC_2014.from, $lt: DEC_2014.to } } },
+      { $group: { _id: "$meta.stationId", peak: { $max: "$value" } } },
+    ])
+    .toArray();
+  return new Map(rows.map((r) => [r._id, r.peak]));
+}
+
+function calibrationFor(stationId: string, cellPeakM3s: number | undefined): PeakCalibration | undefined {
+  const g = CALIBRATION_2014.gauges.find((c) => c.stationId === stationId);
+  return g && cellPeakM3s !== undefined ? { peakM: g.peakM, cellPeakM3s } : undefined;
 }
 
 async function liveLevels(gauges: Gauge[], ts: Date): Promise<GaugeLevel[]> {
@@ -120,7 +154,10 @@ export async function getHazards(regionId: string, ts: Date = new Date(), mode: 
   const byGauge = new Map(gauges.map((g) => [g.id, g]));
   const gaugeOut = levels.map((l) => {
     const g = byGauge.get(l.id)!;
-    return { ...l, name: g.name, lngLat: g.lngLat, level: levelName(l.levelM, g.thresholds), thresholds: g.thresholds };
+    return {
+      ...l, name: g.name, lngLat: g.lngLat, level: levelName(l.levelM, g.thresholds), thresholds: g.thresholds,
+      ...(mode === "replay" && g.calibration ? { calibratedPeakM: g.calibration.peakM } : {}),
+    };
   });
 
   const notes = [
@@ -129,10 +166,11 @@ export async function getHazards(regionId: string, ts: Date = new Date(), mode: 
     `DEM: AWS Terrain Tiles (SRTM-derived), 75 m grid, vertical error several metres.`,
     `likelyLevelM/worstLevelM are at the highest-risk gauge (furthest into its alert→danger range); worst = likely + ${margin} m.`,
     mode === "replay"
-      ? `RECONSTRUCTED Dec 2014: levels derived from GloFAS discharge with an approximate curve (${REPLAY_CURVE_M3S.normal} m³/s → normal, ${REPLAY_CURVE_M3S.alert} → alert, ${REPLAY_CURVE_M3S.danger} → danger level of each gauge, linear, extrapolated above).`
+      ? `RECONSTRUCTED Dec 2014: levels derived from GloFAS discharge with an APPROXIMATE curve (${REPLAY_CURVE_M3S.normal} m³/s → normal, ${REPLAY_CURVE_M3S.alert} → alert, ${REPLAY_CURVE_M3S.danger} → danger level of each gauge, linear). Gauges with an official 2014 peak (${CALIBRATION_2014.source.url}) reach it when their GloFAS cell is at its Dec 2014 peak; peak timing is not calibrated (GloFAS peaks on 24 Dec everywhere, the real peaks were 24–26 Dec).`
       : "Live levels: latest JPS reading per gauge in the last 24 h (metres above mean sea level).",
-    "Landslide: provided by the agent's screening model when registered; empty otherwise.",
   ];
+  const landslide = await landslideProvider({ regionId, ts, mode });
+  if (landslide.cells.length > 0 || landslide.runouts.length > 0) notes.push(LANDSLIDE_LABEL);
 
   return {
     regionId,
@@ -143,12 +181,13 @@ export async function getHazards(regionId: string, ts: Date = new Date(), mode: 
       worstLevelM: top ? Math.round((top.level.levelM + margin) * 100) / 100 : 0,
       byCell: levels.map((l) => ({ id: l.id, levelM: l.levelM })),
     },
-    landslide: await landslideProvider({ regionId, ts, mode }),
+    landslide,
     blockedRoads: { type: "MultiLineString", coordinates: blockedSegs.map((s) => s.coords) },
     blockedRoadIds: blockedSegs.map((s) => s.id),
     approximate: true,
     notes,
     gauges: gaugeOut,
     worst: { blockedRoadIds: worstIds },
+    landslideLabel: LANDSLIDE_LABEL,
   };
 }
