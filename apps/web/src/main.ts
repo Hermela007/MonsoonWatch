@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { findSlideShots, visibleBounds, type SlideShot } from './scene/slideShot';
 import { GeoFrame, KELANTAN, type LngLat, type Town } from './geo/region';
 import { loadTerrariumGrid } from './terrain/terrarium';
-import { cellLngLat, nearestCell } from './terrain/heightmap';
+import { cellLngLat, gridCoords, nearestCell, sampleField } from './terrain/heightmap';
 import { analyseHydrology, depthAt } from './terrain/hydrology';
 import { findSlideSources, type SlideSource } from './terrain/landslide';
 import { assessHome, neighbourhood } from './terrain/homeRisk';
@@ -811,6 +811,17 @@ async function main() {
     slides?.update(hour, camDist, time);
     hotspots.update(hour, camDist, time);
     hotspots.setLabelsVisible(explode < 0.3);
+    // Keep the valley camera above the ground: from inside a hill the terrain (drawn from above only)
+    // vanishes and only the model's base and the slide overlays remain.
+    if (!inStreet) {
+      const ll = frame.worldToLngLat(camera.position);
+      const { gx, gy } = gridCoords(hm, ll);
+      const e = sampleField(hm, hm.elevM, gx, gy);
+      if (Number.isFinite(e)) {
+        const minY = frame.lngLatToWorld(ll, Math.max(e, 0)).y + 0.4;
+        if (camera.position.y < minY) camera.position.y = minY;
+      }
+    }
     if (inStreet && street) {
       street.animate(hour, time);
       const stats = street.update(Math.round(hour * 20) / 20) ?? (street.buried !== lastBuried ? { wet: lastWet, total: lastTotal, buried: street.buried } : null);
