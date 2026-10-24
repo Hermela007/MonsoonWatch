@@ -62,9 +62,48 @@ export function buildRoadGraph(roads: RoadFeature[]): RoadGraph {
   return { adj, nodeCoord };
 }
 
-function nearestNode(graph: RoadGraph, p: LngLat): { id: string; km: number } | null {
-  let best: { id: string; km: number } | null = null;
+// Grid of node ids (cell ≈ 1 km), built lazily per graph: nearestNode was a scan of every node,
+// too slow when the rules planner snaps hundreds of villages and centres.
+const GRID_DEG = 0.01;
+const grids = new WeakMap<RoadGraph, Map<string, string[]>>();
+
+function gridOf(graph: RoadGraph): Map<string, string[]> {
+  let grid = grids.get(graph);
+  if (grid) return grid;
+  grid = new Map();
   for (const [id, c] of graph.nodeCoord) {
+    const k = `${Math.floor(c[0] / GRID_DEG)},${Math.floor(c[1] / GRID_DEG)}`;
+    const list = grid.get(k);
+    if (list) list.push(id);
+    else grid.set(k, [id]);
+  }
+  grids.set(graph, grid);
+  return grid;
+}
+
+/** Exact nearest node: scans grid rings outward until no closer node can exist. */
+export function nearestNode(graph: RoadGraph, p: LngLat): { id: string; km: number } | null {
+  if (graph.nodeCoord.size === 0) return null;
+  const grid = gridOf(graph);
+  const cx = Math.floor(p[0] / GRID_DEG), cy = Math.floor(p[1] / GRID_DEG);
+  // Lower bound on the km covered by one cell (longitude shrinks with latitude).
+  const cellKm = GRID_DEG * 110 * Math.cos((Math.min(89, Math.abs(p[1]) + GRID_DEG) * Math.PI) / 180);
+  let best = null as { id: string; km: number } | null; // (cast: TS narrows a null-initialised let to never across these loops)
+  for (let r = 0; r <= 200; r++) {
+    for (let x = cx - r; x <= cx + r; x++) {
+      for (let y = cy - r; y <= cy + r; y++) {
+        if (Math.max(Math.abs(x - cx), Math.abs(y - cy)) !== r) continue; // ring only
+        for (const id of grid.get(`${x},${y}`) ?? []) {
+          const km = haversineKm(p, graph.nodeCoord.get(id)!);
+          if (!best || km < best.km) best = { id, km };
+        }
+      }
+    }
+    // Every node not scanned yet is in ring ≥ r+1, at least r cells away.
+    if (best && best.km <= r * cellKm) return best;
+  }
+  if (best) return best;
+  for (const [id, c] of graph.nodeCoord) { // > 200 cells away: fall back to a full scan
     const km = haversineKm(p, c);
     if (!best || km < best.km) best = { id, km };
   }
@@ -177,4 +216,74 @@ export function planRoute(
   if (!path) return done({ found: false, mode, coordinates: [from, to], segmentIds: [], lengthKm: 0, crossesFlood: false, note: "No connection to this centre" });
   const r = toResult(from, to, path, mode, true, blocked, "Boat route");
   return done({ ...r, note: r.crossesFlood ? "Boat route across flooded road segments" : "Boat route (roads also dry)" });
+}
+
+export interface RouteTarget { id: string; lngLat: LngLat }
+/** Target (centre) snaps reused across calls on the same graph — the rules planner routes hundreds of villages to the same centres. */
+const targetSnaps = new WeakMap<RoadGraph, Map<string, { id: string; km: number } | null>>();
+export interface ReachedTarget { id: string; route: RouteResult }
+
+/**
+ * One dry-road Dijkstra from `from` to the nearest targets, in road-distance order (one search
+ * instead of one per target). Stops when `enough(reached)` says so or beyond `maxKm` of road.
+ * Targets further than `maxSnapKm` from the network are skipped. Routes follow roads only.
+ */
+export function routesToNearestTargets(
+  graph: RoadGraph,
+  blockedRoadIds: ReadonlySet<string>,
+  from: LngLat,
+  targets: RouteTarget[],
+  opts: { maxKm: number; maxSnapKm: number; enough: (reached: ReachedTarget[]) => boolean; excludeHighways?: ReadonlySet<string> },
+): { startSnapKm: number | null; reached: ReachedTarget[] } {
+  const a = nearestNode(graph, from);
+  if (!a) return { startSnapKm: null, reached: [] };
+  const startSnapKm = Math.round(a.km * 100) / 100;
+  const atNode = new Map<string, { t: RouteTarget; snapKm: number }[]>();
+  let snaps = targetSnaps.get(graph);
+  if (!snaps) targetSnaps.set(graph, (snaps = new Map()));
+  for (const t of targets) {
+    const key = `${t.lngLat[0]},${t.lngLat[1]}`;
+    let n = snaps.get(key);
+    if (n === undefined) snaps.set(key, (n = nearestNode(graph, t.lngLat)));
+    if (!n || n.km > opts.maxSnapKm) continue;
+    const list = atNode.get(n.id);
+    const entry = { t, snapKm: Math.round(n.km * 100) / 100 };
+    if (list) list.push(entry);
+    else atNode.set(n.id, [entry]);
+  }
+  const blocked = blockedRoadIds as Set<string>;
+  const dist = new Map<string, number>([[a.id, 0]]);
+  const prev = new Map<string, { node: string; edge: Edge }>();
+  const heap = new MinHeap();
+  const reached: ReachedTarget[] = [];
+  heap.push(0, a.id);
+  while (heap.size) {
+    const { k, id } = heap.pop();
+    if (k > (dist.get(id) ?? Infinity)) continue;
+    if (k > opts.maxKm * 1000) break;
+    const here = atNode.get(id);
+    if (here) {
+      const path: Edge[] = [];
+      for (let n = id; n !== a.id; ) {
+        const p = prev.get(n)!;
+        path.unshift(p.edge);
+        n = p.node;
+      }
+      for (const { t, snapKm } of here) {
+        reached.push({ id: t.id, route: { ...toResult(from, t.lngLat, path, "road", true, blocked, "Dry road route"), startSnapKm, endSnapKm: snapKm } });
+      }
+      if (opts.enough(reached)) break;
+    }
+    for (const e of graph.adj.get(id) ?? []) {
+      if (blocked.has(e.seg.properties.id)) continue;
+      if (opts.excludeHighways?.has(e.seg.properties.highway)) continue;
+      const nd = k + e.seg.properties.lengthM;
+      if (nd < (dist.get(e.to) ?? Infinity)) {
+        dist.set(e.to, nd);
+        prev.set(e.to, { node: id, edge: e });
+        heap.push(nd, e.to);
+      }
+    }
+  }
+  return { startSnapKm, reached };
 }

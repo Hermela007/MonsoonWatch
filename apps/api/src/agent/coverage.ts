@@ -1,21 +1,73 @@
-// Coverage guarantee: every village the deterministic risk screen marks at risk ends up
-//   "planned"   — in this run's first batch (Argon-confirmed, most urgent first)
-//   "queued"    — a later batch of the same run (planned after the first, until done or stopped)
-//   "area-wide" — a deterministic district warning (template text, no Gemini), still needing
-//                 a human approval like every alert.
-// Gemini cost stays bounded: only Argon-confirmed villages get Flash subagents.
+// Coverage guarantee: EVERY at-risk village ends with an alert.
+//   1. "rules"     — the deterministic planner (rules-planner.ts) plans and verifies it, no Gemini
+//   2. "gemini"    — code couldn't (no dry route, no centre with space, conflicting signals, a
+//                    failed check), or it's one of the top few by urgency (tailored message):
+//                    Flash-Lite draft → Flash refine, the same checks. Capped (configurable).
+//   3. "area-wide" — fallback for anything still unplanned: a deterministic district warning
+//                    (template, no Gemini), still needing a human approval.
 //
 // AreaWarning is B-internal for now: the shared Alert needs a village, a centre and a route, which
 // a district warning doesn't have. Proposed to A + C as a shared type; until then area warnings
 // are logged as AgentSteps and returned from the run, not saved.
 
+import type { AtRiskVillage } from "./schemas";
+import type { FallbackReason, GeminiReason, RulesResult } from "./rules-planner";
 import type { AlertLevel, VillageRisk } from "./shortlist";
 
-export interface Coverage {
-  /** Village ids per batch, most urgent first. batches[0] = planned now; the rest = queued. */
-  batches: string[][];
-  /** At-risk villages Argon did not confirm (or not sent to Argon), for area-wide warnings. */
-  areaWide: VillageRisk[];
+export type PlannedBy = "rules" | "gemini" | "area-wide";
+
+export const GEMINI_DEFAULTS = {
+  /** Most villages sent to Gemini per run (fixes first, then tailored). AGENT_GEMINI_MAX_VILLAGES overrides. */
+  cap: Number(process.env.AGENT_GEMINI_MAX_VILLAGES || 10), // empty in .env = default
+  /** Top villages by urgency (Argon's order first) that get a Gemini-tailored message. */
+  tailorTop: 5,
+};
+
+export interface GeminiPick {
+  risk: VillageRisk;
+  claim: AtRiskVillage;
+  why: "fix" | "tailor";
+  reason?: GeminiReason;
+  detail?: string;
+}
+
+/**
+ * Which villages Gemini gets: every rules failure it can fix (urgency order), then the top
+ * `tailorTop` rules-planned villages (Argon's order first), up to `cap`. Fixes over the cap go to
+ * the fallback; tailored villages over the cap simply keep their rules alert. Pure.
+ */
+export function selectForGemini(results: RulesResult[], opts: { cap: number; tailorTop: number; preferred?: string[] }) {
+  const fixes: GeminiPick[] = results.flatMap((r) => (!r.ok && r.to === "gemini" ? [{ risk: r.risk, claim: r.claim, why: "fix" as const, reason: r.reason, detail: r.detail }] : []));
+  const ok = results.filter((r) => r.ok);
+  const rank = new Map((opts.preferred ?? []).map((id, i) => [id, i]));
+  const tailor: GeminiPick[] = [...ok]
+    .sort((a, b) => (rank.get(a.risk.village._id) ?? Infinity) - (rank.get(b.risk.village._id) ?? Infinity)) // stable: screen order otherwise
+    .slice(0, opts.tailorTop)
+    .map((r) => ({ risk: r.risk, claim: r.claim, why: "tailor" as const }));
+  const picks = [...fixes, ...tailor].slice(0, Math.max(0, opts.cap));
+  const picked = new Set(picks.map((p) => p.risk.village._id));
+  return { picks, overCap: fixes.filter((f) => !picked.has(f.risk.village._id)) };
+}
+
+export function countBy<T extends string>(items: T[]): Partial<Record<T, number>> {
+  const out: Partial<Record<T, number>> = {};
+  for (const x of items) out[x] = (out[x] ?? 0) + 1;
+  return out;
+}
+const fmt = (o: Record<string, number | undefined>) => Object.entries(o).map(([k, n]) => `${k.replace(/_/g, " ")} ${n}`).join(", ");
+
+export function rulesSummary(results: RulesResult[]): string {
+  const ok = results.filter((r) => r.ok).length;
+  const gem = results.flatMap((r) => (!r.ok && r.to === "gemini" ? [r.reason] : []));
+  const fb = results.flatMap((r) => (!r.ok && r.to === "fallback" ? [r.reason] : []));
+  return `Rules planner (no AI): ${ok}/${results.length} at-risk villages planned + verified; ${gem.length} need Gemini` +
+    `${gem.length ? ` (${fmt(countBy<GeminiReason>(gem))})` : ""}; ${fb.length} fallback only${fb.length ? ` (${fmt(countBy<FallbackReason>(fb))})` : ""}`;
+}
+
+export function coverageSummary(plannedBy: Map<string, PlannedBy>, atRiskTotal: number): string {
+  const n = countBy([...plannedBy.values()]);
+  return `Coverage: ${atRiskTotal} at-risk villages → ${n.rules ?? 0} rules alerts, ${n.gemini ?? 0} Gemini alerts, ` +
+    `${n["area-wide"] ?? 0} in area-wide fallback warnings${plannedBy.size < atRiskTotal ? ` — ${atRiskTotal - plannedBy.size} MISSING` : ""}`;
 }
 
 export interface AreaWarning {
@@ -37,43 +89,6 @@ export interface AreaWarning {
 }
 
 const LEVEL_RANK: Record<AlertLevel, number> = { alert: 1, warning: 2, danger: 3 };
-
-/**
- * Splits the run's work. `confirmed` = Argon's villages, already in urgency order. Every
- * `atRisk` village lands in exactly one batch or in `areaWide`. Pure.
- */
-export function assignCoverage(atRisk: VillageRisk[], confirmed: string[], batchSize: number): Coverage {
-  const ids = [...new Set(confirmed)];
-  const batches: string[][] = [];
-  for (let i = 0; i < ids.length; i += batchSize) batches.push(ids.slice(i, i + batchSize));
-  const planned = new Set(ids);
-  return { batches, areaWide: atRisk.filter((r) => !planned.has(r.village._id)) };
-}
-
-/** Run stopped before batch `fromBatch`: those villages move to area-wide warnings. */
-export function stopAt(c: Coverage, fromBatch: number, atRisk: VillageRisk[]): Coverage {
-  const dropped = new Set(c.batches.slice(fromBatch).flat());
-  return {
-    batches: c.batches.slice(0, fromBatch),
-    areaWide: [...c.areaWide, ...atRisk.filter((r) => dropped.has(r.village._id))],
-  };
-}
-
-export function coverageCounts(c: Coverage) {
-  return {
-    planned: c.batches[0]?.length ?? 0,
-    queued: c.batches.slice(1).reduce((n, b) => n + b.length, 0),
-    queuedBatches: Math.max(0, c.batches.length - 1),
-    areaWide: c.areaWide.length,
-    districts: new Set(c.areaWide.map((r) => r.village.district)).size,
-  };
-}
-
-export function coverageSummary(c: Coverage, atRiskTotal: number): string {
-  const n = coverageCounts(c);
-  return `Coverage of ${atRiskTotal} at-risk villages: ${n.planned} planned now, ${n.queued} queued in ${n.queuedBatches} later batch(es), ` +
-    `${n.areaWide} in ${n.districts} area-wide warning(s) (template, no AI, need approval)`;
-}
 
 const LEVEL_TEXT: Record<string, Record<AlertLevel, string>> = {
   ms: { alert: "WASPADA", warning: "AMARAN", danger: "BAHAYA" },

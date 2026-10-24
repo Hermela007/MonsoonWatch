@@ -19,6 +19,8 @@ export interface Situation {
   glofas?: { id: string; label: string; lngLat: LngLat; latest: Reading | null }[];
   /** Road segments the flood model assessed (others are unknown, not safe). Not sent to Gemini. */
   assessedRoadIds?: ReadonlySet<string>;
+  /** Flooded/assessed road segment id → the gauge C's flood model uses for it (hazard.gaugeId). Not sent to Gemini. */
+  floodGaugeByRoadId?: ReadonlyMap<string, string>;
   /** Caveats from the hazard models (approximate flood model, screening landslide model). */
   hazardNotes?: string[];
   /** True for the sample scenario: shown in HUD summaries so test output is never mistaken for real. */

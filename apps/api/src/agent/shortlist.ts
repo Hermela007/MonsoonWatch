@@ -40,6 +40,10 @@ export interface RiskSignal {
   kind: "gauge" | "river_event" | "flooded_road" | "landslide_runout" | "flood_model_gap";
   level: AlertLevel | null;
   km: number;
+  /** Station / risk event id behind a gauge or river_event signal (cited by the rules planner). */
+  sourceId?: string;
+  /** Station the signal is about (gauge: itself; river_event: the event's station). */
+  stationId?: string;
   /** Short, checkable text for the prompt and area warnings, e.g. "gauge X DANGER 3.2 km". */
   text: string;
 }
@@ -97,11 +101,11 @@ export interface Shortlist {
 
 // ---- geometry: a coarse grid so 765 villages × 84k road segments stays fast ----
 
-interface Line { coords: LngLat[]; bbox: [number, number, number, number]; level: AlertLevel | null }
+interface Line { coords: LngLat[]; bbox: [number, number, number, number]; level: AlertLevel | null; id?: string }
 
-function lineOf(coords: LngLat[], level: AlertLevel | null): Line {
+function lineOf(coords: LngLat[], level: AlertLevel | null, id?: string): Line {
   const xs = coords.map((c) => c[0]), ys = coords.map((c) => c[1]);
-  return { coords, bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], level };
+  return { coords, bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], level, ...(id !== undefined && { id }) };
 }
 
 export class LineIndex {
@@ -120,16 +124,16 @@ export class LineIndex {
     }
   }
 
-  static of(lines: { coords: LngLat[]; level?: AlertLevel | null }[]): LineIndex {
-    return new LineIndex(lines.filter((l) => l.coords.length > 0).map((l) => lineOf(l.coords, l.level ?? null)));
+  static of(lines: { coords: LngLat[]; level?: AlertLevel | null; id?: string }[]): LineIndex {
+    return new LineIndex(lines.filter((l) => l.coords.length > 0).map((l) => lineOf(l.coords, l.level ?? null, l.id)));
   }
 
   /** Highest-level line within `km`; among equals, the closest. */
-  nearest(p: LngLat, km: number): { level: AlertLevel | null; km: number } | null {
+  nearest(p: LngLat, km: number): { level: AlertLevel | null; km: number; id?: string } | null {
     const r = Math.ceil(km / 111 / this.cellDeg) + 1;
     const cx = Math.floor(p[0] / this.cellDeg), cy = Math.floor(p[1] / this.cellDeg);
     const seen = new Set<Line>();
-    let best: { level: AlertLevel | null; km: number } | null = null;
+    let best: { level: AlertLevel | null; km: number; id?: string } | null = null;
     for (let x = cx - r; x <= cx + r; x++) {
       for (let y = cy - r; y <= cy + r; y++) {
         for (const line of this.cells.get(`${x},${y}`) ?? []) {
@@ -139,7 +143,7 @@ export class LineIndex {
           if (d > km) continue;
           const rank = line.level ? LEVEL_RANK[line.level] : 0;
           const bestRank = best?.level ? LEVEL_RANK[best.level] : 0;
-          if (!best || rank > bestRank || (rank === bestRank && d < best.km)) best = { level: line.level, km: d };
+          if (!best || rank > bestRank || (rank === bestRank && d < best.km)) best = { level: line.level, km: d, ...(line.id !== undefined && { id: line.id }) };
         }
       }
     }
@@ -147,7 +151,7 @@ export class LineIndex {
   }
 }
 
-interface Point { id: string; lngLat: LngLat; level: AlertLevel }
+interface Point { id: string; lngLat: LngLat; level: AlertLevel; stationId?: string }
 
 /** Highest-level point within `km`; among equals, the closest. */
 function strongestPoint(p: LngLat, points: Point[], km: number): { point: Point; km: number } | null {
@@ -195,9 +199,15 @@ export function screenVillages(s: Situation, opts: ShortlistOptions = {}): RiskS
   const riverEvents: Point[] = [];
   for (const e of s.riskEvents) {
     const at = e.type === "river_threshold" && e.stationId ? located.get(e.stationId) : undefined;
-    if (at && atLeastAlert(e.level)) riverEvents.push({ id: e._id, lngLat: at, level: e.level });
+    if (at && atLeastAlert(e.level)) riverEvents.push({ id: e._id, lngLat: at, level: e.level, stationId: e.stationId! });
   }
-  const flooded = LineIndex.of(s.hazards.blockedRoads.coordinates.map((coords) => ({ coords })));
+  // Flooded segments with their ids when the road layer is loaded (to find the gauge that floods them).
+  const blockedIds = new Set(s.hazards.blockedRoadIds);
+  const floodedRoads = s.roads.filter((r) => blockedIds.has(String(r.id)));
+  const flooded = LineIndex.of(floodedRoads.length
+    ? floodedRoads.map((r) => ({ coords: r.geometry.coordinates, id: String(r.id) }))
+    : s.hazards.blockedRoads.coordinates.map((coords) => ({ coords })));
+  const gaugeById = new Map(gauges.map((g) => [g.id, g]));
   const runouts = LineIndex.of(s.hazards.landslide.runouts.map((r) => ({ coords: r.coordinates, level: levelFromRisk(r.risk) })));
   // Unknown ≠ safe: without the assessed set, the flood model covers nothing.
   const assessed = LineIndex.of(s.assessedRoadIds ? s.roads.filter((r) => s.assessedRoadIds!.has(String(r.id))).map((r) => ({ coords: r.geometry.coordinates })) : []);
@@ -206,17 +216,21 @@ export function screenVillages(s: Situation, opts: ShortlistOptions = {}): RiskS
   for (const v of s.villages) {
     const p = v.location.coordinates;
     const signals: RiskSignal[] = [];
-    const g = strongestPoint(p, gauges, o.gaugeNearKm);
-    if (g) signals.push({ kind: "gauge", level: g.point.level, km: g.km, text: `gauge ${g.point.id} ${g.point.level.toUpperCase()} ${km1(g.km)} km` });
-    const e = strongestPoint(p, riverEvents, o.gaugeNearKm);
-    if (e) signals.push({ kind: "river_event", level: e.point.level, km: e.km, text: `river event ${e.point.id} ${e.point.level.toUpperCase()} ${km1(e.km)} km` });
+    const road = flooded.nearest(p, o.floodedNearKm);
+    // C's flood model floods a segment from ONE gauge (its nearest, ≤ 20 km): cite that gauge when known.
+    const floodGauge = road?.id ? gaugeById.get(s.floodGaugeByRoadId?.get(road.id) ?? "") : undefined;
+    const g = floodGauge ? { point: floodGauge, km: haversineKm(p, floodGauge.lngLat) } : strongestPoint(p, gauges, o.gaugeNearKm);
+    if (g) signals.push({ kind: "gauge", level: g.point.level, km: g.km, sourceId: g.point.id, stationId: g.point.id, text: `gauge ${g.point.id} ${g.point.level.toUpperCase()} ${km1(g.km)} km` });
+    // Prefer the event about the cited gauge's own station (so they can be compared), else the strongest nearby.
+    const own = g ? riverEvents.filter((x) => x.stationId === g.point.id) : [];
+    const e = (own.length ? strongestPoint(p, own, Infinity) : null) ?? strongestPoint(p, riverEvents, o.gaugeNearKm);
+    if (e) signals.push({ kind: "river_event", level: e.point.level, km: e.km, sourceId: e.point.id, stationId: e.point.stationId, text: `river event ${e.point.id} ${e.point.level.toUpperCase()} ${km1(e.km)} km` });
     const river = [g, e].filter((x) => x !== null).map((x) => ({ level: x.point.level, km: x.km }));
     const floodLevel = river.reduce<AlertLevel | null>((m, x) => (m ? maxLevel(m, x.level) : x.level), null);
     const high = river.filter((x) => LEVEL_RANK[x.level] >= LEVEL_RANK.warning);
     const gaugeKm = high.length ? Math.min(...high.map((x) => x.km)) : Infinity;
 
-    const road = flooded.nearest(p, o.floodedNearKm);
-    if (road) signals.push({ kind: "flooded_road", level: null, km: road.km, text: `flooded road ${km1(road.km)} km (approximate flood model)` });
+    if (road) signals.push({ kind: "flooded_road", level: null, km: road.km, ...(floodGauge && { sourceId: floodGauge.id }), text: `flooded road ${km1(road.km)} km${floodGauge ? ` (flooded from gauge ${floodGauge.id})` : ""} (approximate flood model)` });
     const ls = runouts.nearest(p, o.runoutNearKm);
     if (ls) signals.push({ kind: "landslide_runout", level: ls.level, km: ls.km, text: `landslide runout ${ls.level!.toUpperCase()} ${km1(ls.km)} km (screening)` });
     const gap = !road && gaugeKm <= o.gapGaugeKm && !assessed.nearest(p, o.coverageKm);

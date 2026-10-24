@@ -43,6 +43,8 @@ const ROADS: RoadFeature[] = [
   road("t5:0", "tualang", "dewanTualang", "Jalan Tepi Sungai", "tertiary"),
 ];
 const FLOODED = ["t2:0", "t3:0", "t5:0"];
+/** The gauge that floods each segment (as C's flood model records it in hazard.gaugeId). */
+const FLOOD_GAUGE = new Map([["t2:0", "test-galas-dabong"], ["t3:0", "test-galas-dabong"], ["t5:0", "test-lebir-tualang"]]);
 
 export function makeSampleSituation(now = new Date()): Situation {
   const minsAgo = (m: number) => new Date(now.getTime() - m * 60_000).toISOString();
@@ -96,7 +98,7 @@ export function makeSampleSituation(now = new Date()): Situation {
   ];
 
   return {
-    region, mode: "live", now, stations, riskEvents, villages, centres, roads: ROADS,
+    region, mode: "live", now, stations, riskEvents, villages, centres, roads: ROADS, floodGaugeByRoadId: FLOOD_GAUGE,
     hazards: {
       blockedRoadIds: FLOODED,
       blockedRoads: { type: "MultiLineString", coordinates: ROADS.filter((r) => FLOODED.includes(r.properties.id)).map((r) => r.geometry.coordinates) },
