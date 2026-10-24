@@ -172,7 +172,7 @@ test("rules plan both sample villages with no Gemini: Tualang by dry road, Manik
   const manik = res.rulesAlerts.filter((a) => a.villageId === "test-kg-manik-urai");
   assert.deepEqual(manik.map((a) => [a.evacCentreId, a.people]), [["test-sk-manik-urai", 50], ["test-smk-kuala-krai", 250]]);
   assert.ok(manik.flatMap((a) => a.pickups ?? []).every((p) => p.vehicle === "boat"));
-  assert.match(manik[1]!.messages.find((m) => m.lang === "en")!.text, /250 residents: boats will take you to SMK Kuala Krai \(test\)/);
+  assert.match(manik[1]!.messages.find((m) => m.lang === "en")!.text, /250 residents: rescue boats will take you to SMK Kuala Krai \(test\)/);
   assert.ok(getMemorySteps("t-rules-1").some((s) => s.actor === "Rules planner" && /2\/2 at-risk villages planned \+ verified; 0 need Gemini/.test(s.summary)));
   assertEveryVillageHasAlert(res, situation);
 });
@@ -187,7 +187,7 @@ test("tailored villages keep their rules alerts when Gemini's plans fail", async
   assert.ok(res.outcomes.every((o) => !o.passed)); // …both failed
   assert.equal(res.plannedBy.get("test-kg-tualang"), "rules");
   assert.equal(res.plannedBy.get("test-kg-manik-urai"), "rules");
-  assert.deepEqual(res.areaWarnings, []);
+  assert.deepEqual(res.areaWarnings.filter((w) => w.kind === "evacuate"), []); // only advisories (if any)
   assertEveryVillageHasAlert(res, situation);
 });
 

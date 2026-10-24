@@ -63,7 +63,23 @@ test("at risk only on concrete evidence; a gauge alone is 'watch'; unknown flood
   ]);
   assert.ok(screen.atRisk[2]!.signals.some((x) => x.kind === "flood_model_gap" && /unknown, not safe/.test(x.text)));
   assert.deepEqual(screen.watch.map((w) => [w.village._id, w.level]), [["watch", "warning"]]);
-  assert.deepEqual(screen.noSignal.map((v) => v._id).sort(), ["quiet", "road-too-far"]);
+  // No flooding signal and no assessed road within 1 km: the model can't judge → "unknown" (advisory), never "no signal".
+  assert.deepEqual(screen.unknown.map((u) => u.village._id).sort(), ["quiet", "road-too-far"]);
+  assert.deepEqual(screen.noSignal, []);
+});
+
+test("with C's road status: an 'unknown' nearest road makes a quiet village 'unknown' (advisory), a 'clear' one 'no signal'; near a warning gauge it's at risk", () => {
+  const status: Record<string, "clear" | "unknown"> = { rc: "clear", ru: "unknown", rg: "unknown" };
+  const s = situation({
+    stations: [gauge("g", [103.0, 6.0], 12.5)], // WARNING
+    roads: [road("rc", [[102.0, 5.0], [102.01, 5.0]]), road("ru", [[104.0, 5.0], [104.01, 5.0]]), road("rg", [[103.0, 6.01], [103.01, 6.01]])],
+    roadStatusOf: (id) => status[id] ?? "unknown",
+    villages: [village("clear", [102.005, 5.001]), village("blind", [104.005, 5.001]), village("near-gauge", [103.005, 6.011]), village("no-road", [105.0, 7.0])],
+  });
+  const sc = screenVillages(s);
+  assert.deepEqual(sc.noSignal.map((v) => v._id), ["clear"]);
+  assert.deepEqual(sc.unknown.map((u) => [u.village._id, /unknown|no mapped road/.test(u.reason)]), [["blind", true], ["no-road", true]]);
+  assert.deepEqual(sc.atRisk.map((r) => [r.village._id, r.signals.at(-1)!.kind]), [["near-gauge", "flood_model_gap"]]);
 });
 
 test("without the flood model's assessed set, a village by a warning gauge is at risk (unknown ≠ safe)", () => {
@@ -117,7 +133,7 @@ test("prompt: shortlisted by default with screen level, signals and notSentByDis
   assert.deepEqual(p.stations[0]!.lngLat, [102.1235, 5.9877]);
   assert.equal(p.villages[0]!.screenLevel, "warning");
   assert.ok(p.villages[0]!.riskSignals?.[0]?.startsWith("gauge g WARNING"));
-  assert.deepEqual(p.notSentByDistrict?.map((d) => [d.district, d.noSignal]), [["Gua Musang", 1]]);
+  assert.deepEqual(p.notSentByDistrict?.map((d) => [d.district, d.unknown]), [["Gua Musang", 1]]);
   assert.match(String(p.shortlist), /not checked as safe/);
 
   const full = situationForPrompt(s, { full: true });
