@@ -175,10 +175,10 @@ export interface Hazards {            // what the 3D scene draws for a given tim
 | `POST /replay/start` `{regionId, secondsPerDay?, from?}` / `POST /replay/stop` / `GET /replay/status` | C | 202 / 202 / `{ running, replayId?, ts?, secondsPerDay?, … }` |
 | `GET /regions/:id/evacuation-route?lng&lat&travel&mode&ts&centreId&people` | B | `EvacuationRoute` (`packages/shared/src/routing.ts`; fixtures `evacuation-route.*.json`). Deterministic, no Gemini; same routing as the agent |
 | `POST /agent/run` `{regionId?, riskEventId?, source?: "sample"\|"db", mode?, at?}` | B | `{runId}` (202; also auto-triggered by Stream Processing risk events; blocked when `PUBLIC_DEMO=1`) |
-| `POST /agent/runs/:id/stop` | B | `{runId}` (202; stops before the next batch) |
-| `GET /agent/runs/:id` | B | steps + alerts |
+| `GET /agent/runs/:id` | B | `AgentRunDetail`: run, steps, alerts, `areaWarnings` |
+| `POST /agent/runs/:id/stop` | B | 202; stops before the next Gemini batch (the rest keep rules alerts or fall back to district warnings) |
 | `POST /alerts/:id/approve` · `/reject` | B (A calls it) | `Alert` |
-| `GET /area-warnings?runId=` · `POST /area-warnings/:id/approve` · `/reject` | B | `AreaWarning[]` (evacuate first) · `AreaWarning`; approve → `SaintTask` with `target: "area_warning"` |
+| `GET /area-warnings?runId=` · `POST /area-warnings/:id/approve` `{approvedBy}` · `/reject` | B (A calls it) | `AreaWarning[]` / `AreaWarning`. Approve → `SaintTask(send_alert, target "area_warning")` + spoken version at `/alerts/:id/audio/:lang` |
 | `GET /alerts/:id/audio/:lang` | B | `audio/wav` spoken alert (Gemini TTS, generated after approval; 404 until ready) |
 | ~~`POST /voice/session`~~ | — | Dropped with Live voice (24 Oct) |
 | `GET /saint/tasks?alertId&status` | C | `SaintTask[]` (newest first) |
@@ -194,6 +194,7 @@ risk.event         { riskEvent }
 hazards.update     { hazards }
 agent.step         { step }           // Tech HUD
 alert.updated      { alert }
+area_warning.updated { areaWarning }  // district warnings + advisories
 report.new         { report }
 evac.updated       { evacCentre }
 saint.task         { task }
@@ -204,7 +205,7 @@ Producers: C emits from MongoDB **change streams**; B emits `agent.step` / `aler
 ### 1.5 Fixtures (`packages/shared/fixtures/`)
 Each owner commits realistic fixtures for what they provide, in the first 2 hours:
 - C: `region.kelantan.json`, `stations.json`, `readings.sample.json`, `villages.json`, `evac-centres.json`, `geo.json` (small), `hazards.sample.json`.
-- B: `evacuation-route.{ok,all-routes-flooded,boat-unsupported}.json` (done, schema-checked). Still to add: `agent-run.sample.json`, `alerts.sample.json` (can be generated from the scripted orchestrator test, no Gemini).
+- B: `evacuation-route.{ok,all-routes-flooded,boat-unsupported}.json` and `area-warning.{evacuate,advisory}.json` (done, schema-checked). Optional: `agent-run.sample.json`, `alerts.sample.json` (can be generated from the scripted orchestrator test, no Gemini).
 - A: none needed (consumer), but owns `apps/web/src/mock/` that replays fixtures as fake SSE.
 
 `MOCK=1` makes the API serve fixtures and emit a scripted SSE sequence (C builds this in ~30 min; it is the most valuable 30 minutes of the weekend).
@@ -245,10 +246,14 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 | 2 | Gemini ↔ Saint boundary: Gemini works before approval (sense, predict, plan, verify, draft); Saint after approval (people, messages, logistics). | GUIDELINES §6.5 |
 | 3 | Gemini 3.8 Live voice Q&A dropped; spoken alert (TTS) after approval instead. Antigravity + Nano Banana not used. | GUIDELINES §6.2 |
 | 4 | Landslide thresholds = Deep Research **option A** (mixed windows, each level checked on its own window; caveats shown). | `agent/research/output/` |
-| 5 | Verification loop = Flash-Lite draft → checks → Flash refine (≤ 3). *Updated Sat night:* the rules planner plans every at-risk village; Gemini is capped at 10 per run (fixes + top 5 tailored, batches of 6); Argon reads a shortlist (≈22k tokens); the rest is covered by district evacuate warnings + advisories (`AreaWarning`). | `agent/orchestrator.ts`, `agent/rules-planner.ts`, `agent/coverage.ts` |
+| 5 | ~~≤ 6 villages per run~~ → superseded by decisions 9–11. Verification loop per Gemini village = Flash-Lite draft → checks → Flash refine (≤ 3), batches of 6. | `agent/orchestrator.ts` |
 | 6 | Replay flood evidence = C's gauge levels reconstructed from GloFAS, labelled approximate. | `agent/situation-db.ts` |
 | 7 | Evacuation routing contract (A + B + C): one routing logic for residents and agent; missing hazard data = unknown; boat = `unsupported_mode`; `people` default 1. C's side (road/centre status, scenario time, provenance): [`docs/CONTRACT-ROUTING.md`](CONTRACT-ROUTING.md) (AGREED). | `packages/shared/src/routing.ts` |
 | 8 | `PUBLIC_DEMO=1` (A) blocks API mutations and automatic agent runs; read-only GETs stay public. An admin token may be added for operators but never overrides public-demo mode or ships in the frontend. | A's `server.ts` / `env.ts` |
+| 9 | **Coverage guarantee:** code screens every village (at risk / watch / unknown / no signal); the rules planner plans every at-risk village; Gemini only for what rules can't plan + Argon's top 5 tailored (cap `AGENT_GEMINI_MAX_VILLAGES`, default 10); leftovers → district evacuate warnings; watch/unknown → district advisories. Nobody near danger is left without a message for an official to approve. | `agent/shortlist.ts`, `rules-planner.ts`, `coverage.ts` |
+| 10 | **Shared (PR #33):** `AreaWarning` + `area_warnings` + `area_warning.updated`; `SaintTask.target`; `Alert.routeMode` ("boat" → no line) and `Alert.plannedBy` ("rules" \| "gemini"); `AgentRunDetail.areaWarnings`. All optional. | `packages/shared/src/types.ts` |
+| 11 | **Argon's role:** ranks the shortlist (≈40 villages), reads every advisory village + all 40 documents and escalates under-rated villages (code-checked, raise only), writes the situation report. Input ≈38k tokens instead of ≈140k. | `agent/escalation.ts`, `prompts/orchestrator.md` |
+| 12 | Centre status from C's flood model (`getCentreStatuses`): rules use only "usable" centres; Gemini is never offered "at_risk" ones. | `agent/situation-db.ts` |
 
 ## 2. Workstream A — 3D & Frontend (Person A)
 
@@ -309,7 +314,7 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 
 **Goal:** a real, verified, multi-model agent that turns risk events into approved-ready alerts, plus vulnerable-people pickup planning, landslide screening, the spoken alert and evacuation routing. Follow GUIDELINES §6.1 API rules exactly.
 
-**Status (Sat 24 Oct, 16:00):** B0–B6 done and merged; B7 = spoken alert (done); evacuation routing contract merged, endpoint next. Tests: `pnpm --filter @monsoonwatch/api test`. Useful scripts (no Gemini unless stated): `agent/inspect-situation.ts`, `agent/run-real.ts --dry-run`, `agent/run-sample.ts` (Gemini, test data), `agent/run-real.ts` (Gemini, real data), `agent/speak-sample.ts` (TTS).
+**Status (Sat 24 Oct, 23:00):** B0–B8 done and merged (B8 rest: the agent's `plan_route` tool still calls `route.ts` directly; same graph and rules). Coverage guarantee, district warnings and Argon escalations: §1.8 decisions 9–12. Tests: `pnpm --filter @monsoonwatch/api test`. Useful scripts (no Gemini unless stated): `agent/inspect-situation.ts`, `agent/run-real.ts --dry-run`, `agent/run-sample.ts` (Gemini, test data), `agent/run-real.ts` (Gemini, real data), `agent/speak-sample.ts` (TTS).
 
 ### B0. Setup (Fri, 30 min)
 - `npm i @google/genai@latest` (≥ 2.3.0). Install the official skills for your coding agent: `npx skills add google-gemini/gemini-skills --skill gemini-api-dev` and `--skill gemini-live-api-dev`.
@@ -317,13 +322,13 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 - **Done when:** a hello-world Argon call runs and appears as an `AgentStep` in Mongo (or in-memory in mock mode).
 
 ### B1. Tools for the agent — *done*
-- Argon gets the whole situation in context (`agent/situation-db.ts`: readings, risk events, villages, centres, C's `getHazards`, landslide events, knowledge); no data-fetching tools needed.
+- `agent/situation-db.ts` loads everything (readings, risk events, villages, centres, C's `getHazards` / road + centre status, landslide events, knowledge). Argon gets the deterministic shortlist + advisory villages + all documents in context (`situationForPrompt`); no data-fetching tools needed.
 - Flash subagent tools: `list_evac_centres` (12 nearest), `plan_route` (deterministic `agent/route.ts`: Dijkstra over C's junction-split segments, flooded ids removed), `suggest_pickups`, `submit_plan`.
 
 ### B2. Orchestrator (Sat AM)
 - `agent/orchestrator.ts`: `gemini-4-argon`, `thinking_level: "high"`. Context: region config, latest readings + thresholds, risk events, villages, centres, relevant `knowledge` chunks (2014 post-mortems etc.).
 - Output (structured JSON, validated with zod): list of at-risk villages with hazard, level, ETA, reasoning.
-- Every at-risk village gets a plan: the **rules planner** (no Gemini) plans all of them, most urgent first. **Gemini** plans at most 10 per run (villages the rules couldn't plan, then the top 5 for tailored messages), in batches of 6. Per village: **Flash-Lite quick draft** (no tools) → checks → **Flash refines** with tools via `submit_plan` (thinking "low"). Still unplanned → district **evacuate** warning; villages to watch → **advisory** (`AreaWarning` in `area_warnings`, deterministic template, approved like an alert).
+- Code screens every village first (`agent/shortlist.ts`); Argon ranks the at-risk shortlist, escalates advisory villages (checked by `agent/escalation.ts`) and writes the situation report. The **rules planner** (`agent/rules-planner.ts`) plans every at-risk village. Gemini villages (rules failures + top 5 tailored, cap 10, batches of 6, in parallel): **Flash-Lite quick draft** (no tools) → checks → **Flash refines** with tools via `submit_plan` (thinking "low"); parallel plans are re-checked against the capacity ledger. Leftovers → district evacuate warnings; watch/unknown → district advisories (`agent/coverage.ts`), saved to `area_warnings`.
 - Trigger: `POST /agent/run`, or automatically (`agent/auto-trigger.ts`) from Stream Processing `risk.event`s: level ≥ warning, dedupe by `_id`, first event per station/level or escalation only, bursts coalesced, one run per region + mode; replay restarts reset it. `AGENT_AUTO_RUN=0` disables; off in mock and public-demo mode.
 
 ### B3. Verification loop (Sat AM) — **highest priority after B2**
@@ -334,12 +339,13 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 | `route` | route does not intersect blocked roads or runout lines (`$geoIntersects` or turf.js) |
 | `capacity` | centre `capacity - headcount ≥ alert.people`; a village's alerts add up to its population (split across centres) |
 | `freshness` | supporting readings newer than 60 min (live mode) |
-| `language` | every language in `Region.languages` present, ≤ 500 chars |
+| `language` | every language in `Region.languages` present, ≤ 500 chars, each message starts with its level word (WASPADA/AMARAN/BAHAYA · ALERT/WARNING/DANGER) |
 | `vulnerable` | every counted vulnerable person has a pickup, priority order kept, vehicle suits the route |
 Loop: `plan → verify → if fail: replan with failure reasons (max 3) → status "verified"`. Every check is an `AgentStep` (`kind: "verify"`). **Make sure the demo scenario produces at least one real failure** (e.g. the nearest route crosses a flooded road).
 
 ### B4. Approval endpoints (Sat AM)
 - `POST /alerts/:id/approve|reject` — *done*. Only `verified` alerts can be approved; `approvedBy` required. Approve → `approved` → `SaintTask(send_alert, queued)` with the spoken-alert URLs → TTS generated in the background. **Nothing is sent before approval.** Blocked when `PUBLIC_DEMO=1`.
+- `POST /area-warnings/:id/approve|reject` — *done*: the same step for district warnings; approval → `SaintTask` with `target: "area_warning"` (C: handoff loads it from `area_warnings`). Each approval makes 2 TTS calls, so no uncapped "approve all".
 
 ### B5. Landslide screening model — *done* (see GUIDELINES §6.4)
 - `agent/landslide.ts` (deterministic): slope per terrain cell × accumulated rain from nearest rain stations (`rain6d`) vs thresholds → risk 0–1. Runout = steepest-descent path from high-risk cells.
@@ -355,9 +361,9 @@ Loop: `plan → verify → if fail: replan with failure reasons (max 3) → stat
 ### B7. Spoken alert — *done* (Live voice Q&A dropped, 24 Oct)
 - `agent/speech.ts`: after approval, `gemini-3.8-flash-tts` reads the approved text verbatim (Malay, then English; voice Kore, brisk). WAV in `apps/api/data/audio/` (git-ignored), `GET /alerts/:id/audio/:lang`.
 
-### B8. Evacuation routing (A's request, 24 Oct) — contract merged, endpoint next
-- Contract: `packages/shared/src/routing.ts` + fixtures (GUIDELINES §6.6). Core: `agent/evacuate.ts` (tested). Endpoint `routes/evacuation-route.ts` (B) uses C's `getRoadStatus` + centre status when they land; until then unclear segments are `unknown`.
-- Same logic for the agent (`plan_route` tool, route check). Boat → `unsupported_mode`.
+### B8. Evacuation routing (A's request, 24 Oct) — *done*
+- Contract: `packages/shared/src/routing.ts` + fixtures (GUIDELINES §6.6). Core `agent/evacuate.ts`; endpoint `routes/evacuation-route.ts` uses C's `getRoadStatus` + `getCentreStatuses` (unavailable → `unknown`). Road graph cached per region (first call ≈6 s, then < 0.5 s). Checked on real data: Manek Urai 24 Dec 2014 → `all_routes_flooded`; 12 Dec → ok, 3.1 km.
+- Boat → `unsupported_mode`. Agent boat alerts: `routeMode: "boat"`, no line drawn.
 
 ### B9. Flood history brief (stretch, not started)
 - Deep Research per district → `knowledge` → shown in district panel with citations.

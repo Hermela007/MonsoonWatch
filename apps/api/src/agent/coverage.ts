@@ -10,11 +10,11 @@
 //   + advisories   — district ADVISORY warnings for "watch" villages (river at alert+ nearby, no
 //                    flooding shown at the village) and "unknown" villages (model can't judge).
 //
-// AreaWarning is B-internal for now: the shared Alert needs a village, a centre and a route, which
-// a district warning doesn't have. Proposed to A + C as a shared type; until then area warnings
-// are logged as AgentSteps and returned from the run, not saved.
+// AreaWarning is a shared type (a district warning has no single village, centre or route, so it
+// can't be an Alert). The orchestrator saves them to `area_warnings`; routes/alerts.ts approves
+// or rejects them like alerts (approval → SaintTask target "area_warning" + spoken version).
 
-import type { Village, VulnerableCategory } from "@monsoonwatch/shared";
+import type { AreaWarning, Village, VulnerableCategory } from "@monsoonwatch/shared";
 import type { AtRiskVillage } from "./schemas";
 import type { FallbackReason, GeminiReason, RulesResult } from "./rules-planner";
 import type { AlertLevel, RiskScreen, VillageRisk } from "./shortlist";
@@ -89,34 +89,9 @@ export function accountabilitySummary(screen: RiskScreen, advisories: AreaWarnin
     `${screen.noSignal.length} no risk signal (nearest road assessed, no message)${counted !== total ? ` — ${total - counted} UNACCOUNTED` : ""}`;
 }
 
-export interface AreaWarning {
-  id: string;
-  regionId: string;
-  runId: string;
-  /**
-   * evacuate — at-risk villages (flooding / runout at the village) that got no individual plan:
-   *            move now; officials must arrange transport and pickups (none were planned).
-   * advisory — villages near a river at alert+ with no flooding shown at the village ("watch"), or
-   *            where the flood model can't judge ("unknown"): be ready to move. Never "safe".
-   */
-  kind: "evacuate" | "advisory";
-  /** Why these villages are in it (shown to the official). */
-  basis: string;
-  district: string;
-  hazard: "flood" | "landslide";
-  level: AlertLevel;
-  villageIds: string[];
-  people: number;
-  vulnerable: number;
-  /** Counts per category across the villages: pickups NOT planned — officials must arrange them. */
-  vulnerableByCategory: Record<VulnerableCategory, number>;
-  /** The strongest village's signals, so the text is checkable. */
-  evidence: string[];
-  messages: { lang: string; text: string }[];
-  /** Template, no AI. Never sent without a human approval. */
-  status: "needs_approval";
-  label: "Area-wide warning (deterministic template, no AI)";
-}
+/** Shared AreaWarning (packages/shared). Template text, no AI; never sent without a human approval. */
+export type { AreaWarning };
+export const AREA_WARNING_LABEL = "Area-wide warning (deterministic template, no AI)";
 
 const LEVEL_RANK: Record<AlertLevel, number> = { alert: 1, warning: 2, danger: 3 };
 const CATEGORIES: VulnerableCategory[] = ["bedridden", "disabled", "elderly", "noTransport"];
@@ -177,7 +152,7 @@ function toWarnings(groups: Group[], ctx: { regionId: string; runId: string; lan
   const out = groups.map((g): AreaWarning => {
     const byCat = Object.fromEntries(CATEGORIES.map((c) => [c, g.villages.reduce((n, v) => n + (v.vulnerable?.[c] ?? 0), 0)])) as Record<VulnerableCategory, number>;
     return {
-      id: `${g.kind === "evacuate" ? "area" : "advisory"}:${ctx.runId}:${g.basis}:${g.district}:${g.hazard}`,
+      _id: `${g.kind === "evacuate" ? "area" : "advisory"}:${ctx.runId}:${g.basis}:${g.district}:${g.hazard}`,
       regionId: ctx.regionId,
       runId: ctx.runId,
       kind: g.kind,
@@ -192,7 +167,7 @@ function toWarnings(groups: Group[], ctx: { regionId: string; runId: string; lan
       evidence: g.evidence,
       messages: (langs.length ? langs : (["en"] as const)).map((lang) => ({ lang, text: template(lang, g) })),
       status: "needs_approval",
-      label: "Area-wide warning (deterministic template, no AI)",
+      label: AREA_WARNING_LABEL,
     };
   });
   return out.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "evacuate" ? -1 : 1) || LEVEL_RANK[b.level] - LEVEL_RANK[a.level] || b.villageIds.length - a.villageIds.length);

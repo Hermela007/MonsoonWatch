@@ -1,6 +1,6 @@
 // B: POST /agent/run → { runId } (work continues in the background)
 //    POST /agent/runs/:id/stop → { runId } (202; stops before the next batch)
-//    GET  /agent/runs/:id → AgentRunDetail { run, steps (oldest first), alerts }
+//    GET  /agent/runs/:id → AgentRunDetail { run, steps (oldest first), alerts, areaWarnings }
 // Data source: the labelled TEST scenario when MOCK=1 or body.source = "sample"; otherwise MongoDB
 // (body.mode "live" | "replay", body.at = replay clock ISO time). Runs also start automatically
 // from Stream Processing risk events (agent/auto-trigger.ts).
@@ -56,7 +56,7 @@ export async function agentRoutes(app: FastifyInstance) {
     const store = defaultStore();
     const run = await store.getRun(req.params.id);
     if (!run) throw new HttpError(404, "not_found", `Agent run "${req.params.id}" not found`);
-    const [steps, alerts] = await Promise.all([store.stepsForRun(run._id), store.alertsForRun(run._id)]);
-    return { run, steps, alerts };
+    const [steps, alerts, areaWarnings] = await Promise.all([store.stepsForRun(run._id), store.alertsForRun(run._id), store.areaWarningsForRun(run._id)]);
+    return { run, steps, alerts, areaWarnings };
   });
 }

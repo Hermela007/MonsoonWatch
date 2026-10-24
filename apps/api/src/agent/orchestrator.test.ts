@@ -177,6 +177,8 @@ test("rules plan both sample villages with no Gemini: Tualang by dry road, Manik
   assert.deepEqual(manik.map((a) => [a.evacCentreId, a.people]), [["test-sk-manik-urai", 50], ["test-smk-kuala-krai", 250]]);
   assert.ok(manik.flatMap((a) => a.pickups ?? []).every((p) => p.vehicle === "boat"));
   assert.match(manik[1]!.messages.find((m) => m.lang === "en")!.text, /250 residents: rescue boats will take you to SMK Kuala Krai \(test\)/);
+  assert.deepEqual(manik.map((a) => a.routeMode), ["road", "boat"]); // boat → UI draws no line
+  assert.ok(res.rulesAlerts.every((a) => a.plannedBy === "rules"));
   assert.ok(getMemorySteps("t-rules-1").some((s) => s.actor === "Rules planner" && /2\/2 at-risk villages planned \+ verified; 0 need Gemini/.test(s.summary)));
   assertEveryVillageHasAlert(res, situation);
   // Argon's escalation is checked by code (Bukit Raja is ~70 km from the cited gauge → rejected), and
@@ -220,9 +222,14 @@ function conflictingVillages() {
 
 test("Gemini cap 0: nothing reaches Gemini, villages code can't plan get the area-wide fallback", async () => {
   const { situation, ai } = conflictingVillages();
-  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-rules-3", geminiCap: 0 });
+  const store = memoryStore();
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store, runId: "t-rules-3", geminiCap: 0 });
   assert.deepEqual(ai.calls, []);
   assert.equal(res.plannedBy.get("test-kg-manik-urai"), "area-wide");
+  // District warnings are saved for approval, like alerts.
+  const saved = await store.areaWarningsForRun("t-rules-3");
+  assert.ok(saved.some((w) => w.kind === "evacuate" && w.villageIds.includes("test-kg-manik-urai") && w.status === "needs_approval"));
+  assert.equal(saved.length, res.areaWarnings.length);
   assert.ok(getMemorySteps("t-rules-3").some((s) => /9 need Gemini \(conflicting signals 9\)/.test(s.summary)));
   assertEveryVillageHasAlert(res, situation);
 });
@@ -261,3 +268,13 @@ test("every at-risk village ends with an alert even if Gemini is down", async ()
   assert.ok(getMemorySteps("t-rules-6").some((s) => /Coverage: 10 at-risk villages → 1 rules alerts, 0 Gemini alerts, 9 in area-wide/.test(s.summary)));
 });
 
+
+test("if Argon fails, the run still covers every at-risk village by rules", async () => {
+  const situation = makeSampleSituation();
+  const ai = scriptedAI();
+  ai.planSituation = async () => { throw new Error("429 quota"); };
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-argon-down", tailorTop: 0 });
+  assert.equal(res.run.status, "done");
+  assert.ok(getMemorySteps("t-argon-down").some((x) => /Argon unavailable \(429 quota\)/.test(x.summary)));
+  assertEveryVillageHasAlert(res, situation);
+});
