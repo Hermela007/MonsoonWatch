@@ -87,7 +87,7 @@ void main() {
   col = mix(col, uRiskCol, risk * 0.7 * pulse * mix(1.0, inFocus, uFocusOn));
 
   // Outside the home's area: recede into paper.
-  col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.55);
+  col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.18);
 
   float fog = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
   gl_FragColor = vec4(mix(col, uFogCol, fog), 1.0);

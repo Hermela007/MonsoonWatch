@@ -237,8 +237,9 @@ async function main() {
     // Frame the home and its safe ground together.
     const safe = routePts ? routePts[routePts.length - 1] : homePos;
     const target = homePos.clone().lerp(safe, 0.35);
-    const span = Math.max(14, homePos.distanceTo(safe) * 3);
-    viewShot = { target, position: target.clone().add(new THREE.Vector3(0.35, 0.62, 0.7).normalize().multiplyScalar(span)) };
+    const span = Math.max(10, homePos.distanceTo(safe) * 3.2);
+    // Higher, map-like angle so the route and the expected flood area read at a glance.
+    viewShot = { target, position: target.clone().add(new THREE.Vector3(0.22, 0.9, 0.42).normalize().multiplyScalar(span)) };
     director.flyTo(viewShot, 2600);
   };
 
@@ -600,8 +601,9 @@ async function main() {
     const camDist = camera.position.distanceTo(controls.target);
     const s = stageM(Math.min(hour, REPLAY_HOURS));
     valley.update(rainAccumulated(hour), time, focus);
-    flood.update(s, time, focus);
-    rain.update(controls.target, camDist, rainIntensity(hour) * (1 - explode * 0.8), time);
+    // Around a chosen home, outline where the water is expected to reach at the peak.
+    flood.update(s, time, focus, homePos && !inStreet ? stageM(REPLAY_HOURS) : 1000);
+    rain.update(controls.target, camDist, rainIntensity(hour) * (homePos ? 0.35 : 1), time);
     home.update(camDist, time);
     slides?.update(hour, camDist, time);
     hotspots.update(hour, camDist, time);

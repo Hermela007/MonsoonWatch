@@ -190,6 +190,9 @@ h3 { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: u
 #legend .sw { width: 18px; height: 3px; display: inline-block; }
 #legend .sw.flood { background: var(--flood); }
 #legend .sw.slide { background: var(--slide); }
+#legend .sw.forecast { background: repeating-linear-gradient(90deg, var(--flood) 0 4px, transparent 4px 7px); height: 2px; }
+#legend .forecast-key { display: none; }
+body[data-view='result'] #legend .forecast-key { display: inline-flex; }
 #legend .grid-note { font-family: var(--mono); font-size: 11px; color: var(--faint); }
 body.street #legend, body[data-mode='control'] #legend { opacity: 0; }
 @media (max-width: 767px) { #legend { top: 52px; bottom: auto; right: 16px; left: 16px; justify-content: flex-end; gap: 12px; } #legend .grid-note { display: none; } }

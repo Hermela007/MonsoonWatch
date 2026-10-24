@@ -39,6 +39,7 @@ uniform float uFogDensity;
 uniform vec3 uFocus;
 uniform float uFocusR;
 uniform float uFocusOn;
+uniform float uForecast; // expected peak rise (m) to outline around the home
 varying vec2 vUv;
 varying vec3 vWorld;
 varying float vViewDist;
@@ -57,7 +58,22 @@ void main() {
   float depth = uStage * f.b - f.g;
   float aa = max(fwidth(depth), 1e-3);
   float cover = sea > 0.5 ? 1.0 : smoothstep(-aa, aa, depth);
-  if (cover < 0.01) discard;
+  // Forecast: where the water is expected to reach at the peak, near the home only.
+  float inFocusF = (1.0 - smoothstep(uFocusR, uFocusR * 1.6, length(vWorld.xz - uFocus.xz))) * uFocusOn;
+  float fdepth = uForecast * f.b - f.g;
+  float faa = max(fwidth(fdepth), 1e-3);
+  float fcover = smoothstep(-faa, faa, fdepth) * inFocusF * step(uForecast, 900.0) * (1.0 - sea);
+  if (cover < 0.01) {
+    if (fcover < 0.01) discard;
+    // Dashed outline along the forecast edge, faint fill inside.
+    float line = 1.0 - smoothstep(0.0, 1.6 * faa, abs(fdepth));
+    float dash = step(0.45, fract((vWorld.x + vWorld.z) * 2.2));
+    vec3 fc = mix(uShallow, uDeep, line * dash);
+    float fa = max(0.16 * fcover, line * dash * 0.9 * inFocusF);
+    float fogF = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
+    gl_FragColor = vec4(mix(fc, uFogCol, fogF), fa);
+    return;
+  }
 
   // Moving ripples: two scrolling noise layers perturb the normal.
   vec2 q = vWorld.xz * 6.0;
@@ -84,7 +100,7 @@ void main() {
     alpha = (0.55 + 0.4 * t + 0.3 * edge) * cover;
   }
   float inFocus = 1.0 - smoothstep(uFocusR, uFocusR * 2.2, length(vWorld.xz - uFocus.xz));
-  col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.45);
+  col = mix(col, uFogCol, (1.0 - inFocus) * uFocusOn * 0.15);
   float fog = 1.0 - exp(-pow(uFogDensity * vViewDist, 2.0));
   gl_FragColor = vec4(mix(col, uFogCol, fog), alpha);
 }
@@ -201,6 +217,7 @@ export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogCo
       uFocus: { value: new THREE.Vector3() },
       uFocusR: { value: 6 },
       uFocusOn: { value: 0 },
+      uForecast: { value: 1000 },
     },
   });
   const mesh = new THREE.Mesh(geometry, material);
@@ -209,8 +226,9 @@ export function createFlood(hm: Heightmap, hy: Hydrology, frame: GeoFrame, fogCo
 
   return {
     mesh,
-    update(stageM: number, timeS: number, focus: Focus) {
+    update(stageM: number, timeS: number, focus: Focus, forecastStageM = 1000) {
       const u = material.uniforms;
+      u.uForecast.value = forecastStageM;
       u.uStage.value = stageM;
       u.uTime.value = timeS;
       u.uFocus.value.copy(focus.centre);

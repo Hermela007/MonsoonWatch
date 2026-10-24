@@ -24,20 +24,22 @@ void main() {
 }
 `;
 
-function makeBeam(color: number, text: string, cls: string, anchorX: number) {
+function makeBeam(color: number, text: string, cls: string, anchorX: number, height = 1) {
   const root = new THREE.Group();
-  const beamGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 16, 1, true).translate(0, 0.5, 0);
+  const beamGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 8, 1, true).translate(0, 0.5, 0);
   const beamMat = new THREE.MeshBasicMaterial({ color });
-  const ringGeo = new THREE.RingGeometry(0.12, 0.17, 40).rotateX(-Math.PI / 2);
+  const ringGeo = new THREE.CircleGeometry(0.07, 32).rotateX(-Math.PI / 2).translate(0, 0.01, 0);
   const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false });
   const ring = new THREE.Mesh(ringGeo, ringMat);
-  root.add(new THREE.Mesh(beamGeo, beamMat), ring);
+  const beam = new THREE.Mesh(beamGeo, beamMat);
+  beam.scale.y = height;
+  root.add(beam, ring);
   const el = document.createElement('div');
   el.className = `place-label ${cls}`;
   el.textContent = text;
   const label = new CSS2DObject(el);
   label.center.set(anchorX, 1); // home label leans left, safe label right, so they don't collide
-  label.position.y = 1.08;
+  label.position.y = height + 0.04;
   root.add(label);
   root.visible = false;
   return {
@@ -45,9 +47,7 @@ function makeBeam(color: number, text: string, cls: string, anchorX: number) {
     el,
     update(size: number, t: number) {
       root.scale.setScalar(size);
-      const p = (t * 0.7) % 1;
-      ring.scale.setScalar(1 + p * 2.5);
-      ringMat.opacity = 1 - p;
+      ring.scale.setScalar(1 + 0.08 * Math.sin(t * 2));
     },
     dispose() {
       beamGeo.dispose();
@@ -61,8 +61,8 @@ function makeBeam(color: number, text: string, cls: string, anchorX: number) {
 /** "Your home" and "Higher ground" beams, and the glowing route between them. */
 export function createHomeLayer() {
   const group = new THREE.Group();
-  const home = makeBeam(0x1d1d1b, '', 'home', 0.85);
-  const safe = makeBeam(0x1d1d1b, '', 'safe', 0.15);
+  const home = makeBeam(0x1d1d1b, '', 'home', 0.5, 1);
+  const safe = makeBeam(0x1d1d1b, '', 'safe', 0.5, 0.55);
   group.add(home.root, safe.root);
 
   const routeMat = new THREE.ShaderMaterial({
@@ -104,9 +104,9 @@ export function createHomeLayer() {
       }
     },
     update(cameraDistance: number, t: number) {
-      const size = THREE.MathUtils.clamp(cameraDistance * 0.08, 0.6, 9);
+      const size = THREE.MathUtils.clamp(cameraDistance * 0.11, 0.8, 12);
       home.update(size, t);
-      safe.update(size * 0.8, t);
+      safe.update(size, t);
       routeMat.uniforms.uTime.value = t;
       routeMat.uniforms.uReveal.value = Math.min(1, (t - revealStart) / 1.8);
     },
