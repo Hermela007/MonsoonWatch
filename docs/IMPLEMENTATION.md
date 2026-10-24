@@ -175,11 +175,15 @@ export interface Hazards {            // what the 3D scene draws for a given tim
 | `POST /replay/start` `{regionId, secondsPerDay?, from?}` / `POST /replay/stop` / `GET /replay/status` | C | 202 / 202 / `{ running, replayId?, ts?, secondsPerDay?, … }` |
 | `GET /regions/:id/evacuation-route?lng&lat&travel&mode&ts&centreId&people` | B | `EvacuationRoute` (`packages/shared/src/routing.ts`; fixtures `evacuation-route.*.json`). Deterministic, no Gemini; same routing as the agent |
 | `POST /agent/run` `{regionId?, riskEventId?, source?: "sample"\|"db", mode?, at?}` | B | `{runId}` (202; also auto-triggered by Stream Processing risk events; blocked when `PUBLIC_DEMO=1`) |
+| `POST /agent/runs/:id/stop` | B | `{runId}` (202; stops before the next batch) |
 | `GET /agent/runs/:id` | B | steps + alerts |
 | `POST /alerts/:id/approve` · `/reject` | B (A calls it) | `Alert` |
+| `GET /area-warnings?runId=` · `POST /area-warnings/:id/approve` · `/reject` | B | `AreaWarning[]` (evacuate first) · `AreaWarning`; approve → `SaintTask` with `target: "area_warning"` |
 | `GET /alerts/:id/audio/:lang` | B | `audio/wav` spoken alert (Gemini TTS, generated after approval; 404 until ready) |
 | ~~`POST /voice/session`~~ | — | Dropped with Live voice (24 Oct) |
-| `POST /saint/updates` | C | 204 (for Saint or the shared-sheet sync) |
+| `GET /saint/tasks?alertId&status` | C | `SaintTask[]` (newest first) |
+| `GET /saint/tasks/:id/handoff` · `POST /saint/tasks/:id/handed-off {by}` | C | `{ taskId, alertId, brief, whatsappUrl }` (409 unless approved; alert or district warning by `target`) · `SaintTask` |
+| `POST /saint/updates {text, by?}` | C | `{ applied, skipped, errors }` from pasted `MW CHECKIN` lines |
 | `GET /stream` | C | **Server-Sent Events** (below) |
 
 ### 1.4 Live events (`GET /api/stream`, SSE)
@@ -241,7 +245,7 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 | 2 | Gemini ↔ Saint boundary: Gemini works before approval (sense, predict, plan, verify, draft); Saint after approval (people, messages, logistics). | GUIDELINES §6.5 |
 | 3 | Gemini 3.8 Live voice Q&A dropped; spoken alert (TTS) after approval instead. Antigravity + Nano Banana not used. | GUIDELINES §6.2 |
 | 4 | Landslide thresholds = Deep Research **option A** (mixed windows, each level checked on its own window; caveats shown). | `agent/research/output/` |
-| 5 | Verification loop = Flash-Lite draft → checks → Flash refine (≤ 3); ≤ 6 villages per run. | `agent/orchestrator.ts` |
+| 5 | Verification loop = Flash-Lite draft → checks → Flash refine (≤ 3). *Updated Sat night:* the rules planner plans every at-risk village; Gemini is capped at 10 per run (fixes + top 5 tailored, batches of 6); Argon reads a shortlist (≈22k tokens); the rest is covered by district evacuate warnings + advisories (`AreaWarning`). | `agent/orchestrator.ts`, `agent/rules-planner.ts`, `agent/coverage.ts` |
 | 6 | Replay flood evidence = C's gauge levels reconstructed from GloFAS, labelled approximate. | `agent/situation-db.ts` |
 | 7 | Evacuation routing contract (A + B + C): one routing logic for residents and agent; missing hazard data = unknown; boat = `unsupported_mode`; `people` default 1. C's side (road/centre status, scenario time, provenance): [`docs/CONTRACT-ROUTING.md`](CONTRACT-ROUTING.md) (AGREED). | `packages/shared/src/routing.ts` |
 | 8 | `PUBLIC_DEMO=1` (A) blocks API mutations and automatic agent runs; read-only GETs stay public. An admin token may be added for operators but never overrides public-demo mode or ships in the frontend. | A's `server.ts` / `env.ts` |
@@ -319,7 +323,7 @@ Merging the PR that adds this section = the team agrees. Shared code (`packages/
 ### B2. Orchestrator (Sat AM)
 - `agent/orchestrator.ts`: `gemini-4-argon`, `thinking_level: "high"`. Context: region config, latest readings + thresholds, risk events, villages, centres, relevant `knowledge` chunks (2014 post-mortems etc.).
 - Output (structured JSON, validated with zod): list of at-risk villages with hazard, level, ETA, reasoning.
-- At most 6 villages per run (danger first, soonest ETA). Per village, in parallel: **Flash-Lite quick draft** (no tools) → checks → **Flash refines** with tools via `submit_plan` (thinking "low").
+- Every at-risk village gets a plan: the **rules planner** (no Gemini) plans all of them, most urgent first. **Gemini** plans at most 10 per run (villages the rules couldn't plan, then the top 5 for tailored messages), in batches of 6. Per village: **Flash-Lite quick draft** (no tools) → checks → **Flash refines** with tools via `submit_plan` (thinking "low"). Still unplanned → district **evacuate** warning; villages to watch → **advisory** (`AreaWarning` in `area_warnings`, deterministic template, approved like an alert).
 - Trigger: `POST /agent/run`, or automatically (`agent/auto-trigger.ts`) from Stream Processing `risk.event`s: level ≥ warning, dedupe by `_id`, first event per station/level or escalation only, bursts coalesced, one run per region + mode; replay restarts reset it. `AGENT_AUTO_RUN=0` disables; off in mock and public-demo mode.
 
 ### B3. Verification loop (Sat AM) — **highest priority after B2**
@@ -449,7 +453,7 @@ Two real Atlas Stream Processing processors, defined in **`apps/api/src/db/strea
 - Keep `docs/saint-log.md`: what we asked, tools/accounts used, where it asked for approval (required for submission).
 - **No Saint allocated →** `SaintTask`s render as a human checklist; remove Saint from submission.
 
-> **As built (Sat 24 Oct):** Thea's guest access is WhatsApp-only, so the handoff is human-in-the-loop over WhatsApp: a Saint brief + `wa.me` link per approved alert, and pasted `MW CHECKIN` lines → `POST /api/saint/updates`. See `docs/saint-brief.md`, `docs/saint-log.md`, `apps/api/src/routes/saint.ts`.
+> **As built (Sat 24 Oct):** Thea's guest access is WhatsApp-only, so the handoff is human-in-the-loop over WhatsApp: a Saint brief + `wa.me` link per approved alert, and pasted `MW CHECKIN` lines → `POST /api/saint/updates`. District warnings (`AreaWarning`) use the same flow with their own brief; with no planned centre, Thea fills `centre=` from the leader's reply. See `docs/saint-brief.md`, `docs/saint-log.md`, `apps/api/src/routes/saint.ts`.
 
 ### C9. README, submission, videos (Sun AM, start notes Sat)
 - README per GUIDELINES §10, with **file links** for each sponsor feature (index JSONs, stream processor, prompts, wrapper).
