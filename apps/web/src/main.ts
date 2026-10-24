@@ -1006,8 +1006,12 @@ async function main() {
     home.set(pts[0], !boat && pts.length > 1 ? pts : null, 0, timer.getElapsed());
     focus.centre.copy(pts[0]);
     focusTarget = 1;
-    const span = Math.max(14, pts[0].distanceTo(pts[pts.length - 1]) * 3);
-    director.flyTo({ target: pts[0].clone(), position: pts[0].clone().add(new THREE.Vector3(0.35, 0.62, 0.7).normalize().multiplyScalar(span)) }, 2600);
+    // Frame from high up and far enough back to show the village in context — the floodplain, its river and the
+    // hills it drains from. Close and low, a coastal village (e.g. Kota Bharu, 0–10 m above sea level) is just a
+    // flat plain. Centred a little inland (south) so the hills come into view; still north-up.
+    const span = Math.max(40, pts[0].distanceTo(pts[pts.length - 1]) * 4);
+    const target = pts[0].clone().add(new THREE.Vector3(0, 0, span * 0.12));
+    director.flyTo({ target, position: target.clone().add(new THREE.Vector3(0.18, 0.6, 0.78).normalize().multiplyScalar(span)) }, 2600);
   };
   hub.on('area_warning.updated', ({ areaWarning }) => {
     if (areaWarning.regionId === KELANTAN.id) noteAreaWarning(areaWarning);
