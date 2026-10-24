@@ -43,6 +43,7 @@ const INDEXES: [string, IndexSpecification, CreateIndexesOptions?][] = [
   [COLLECTIONS.agentSteps, { runId: 1, ts: 1 }],
   [COLLECTIONS.saintTasks, { alertId: 1 }],
   [COLLECTIONS.geo, { regionId: 1, layer: 1 }],
+  [COLLECTIONS.geo, { geometry: "2dsphere" }], // route check: $geoIntersects on road segments
 ];
 
 interface SearchIndexFile {

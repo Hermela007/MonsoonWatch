@@ -1,6 +1,7 @@
 // Small helpers for OpenStreetMap (Overpass) and Open-Meteo elevation, with on-disk caching
 // so the demo never depends on these services being up.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const UA = "MonsoonWatch/0.1 (Encode London 2026 hackathon; flood early warning)";
@@ -12,28 +13,41 @@ export interface OsmElement {
   lon?: number;
   center?: { lat: number; lon: number };
   tags?: Record<string, string>;
+  nodes?: number[]; // ways, with `out body`
 }
+
+// A cache file ending in .gz is stored gzipped (the road network is ~60 MB as plain JSON).
+const writeCache = (file: string, text: string) => writeFileSync(file, file.endsWith(".gz") ? gzipSync(text) : text);
+const readCache = (file: string) => (file.endsWith(".gz") ? gunzipSync(readFileSync(file)).toString("utf8") : readFileSync(file, "utf8"));
 
 /** Run an Overpass query, caching the raw JSON at `cacheFile`. With `fromCache`, never hits the network. */
 export async function overpass(query: string, cacheFile: string, fromCache = false): Promise<OsmElement[]> {
   if (!fromCache) {
     try {
-      const res = await fetch(OVERPASS_URL, {
-        method: "POST",
-        headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded" },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(180_000),
-      });
+      const post = () =>
+        fetch(OVERPASS_URL, {
+          method: "POST",
+          headers: { "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded" },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: AbortSignal.timeout(180_000),
+        });
+      let res = await post();
+      if (res.status === 429 || res.status === 504) {
+        // Overpass is busy or rate-limiting us: one polite retry.
+        console.log(`   Overpass HTTP ${res.status}, retrying once in 60 s`);
+        await new Promise((r) => setTimeout(r, 60_000));
+        res = await post();
+      }
       if (!res.ok) throw new Error(`Overpass HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const text = await res.text();
-      writeFileSync(cacheFile, text);
+      writeCache(cacheFile, text);
       return (JSON.parse(text) as { elements: OsmElement[] }).elements;
     } catch (err) {
       console.warn(`⚠️  Overpass failed (${err instanceof Error ? err.message : err}) — trying cache`);
     }
   }
   if (!existsSync(cacheFile)) throw new Error(`No cached Overpass result at ${cacheFile}`);
-  return (JSON.parse(readFileSync(cacheFile, "utf8")) as { elements: OsmElement[] }).elements;
+  return (JSON.parse(readCache(cacheFile)) as { elements: OsmElement[] }).elements;
 }
 
 /** Ground elevation (m) for many points via the Open-Meteo elevation API (Copernicus 90 m DEM), cached by "lat,lon". */

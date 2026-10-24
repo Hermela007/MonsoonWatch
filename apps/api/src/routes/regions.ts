@@ -5,7 +5,7 @@ import { getDb } from "../db/client";
 import { toReading, type ReadingDoc } from "../db/readings";
 import { HttpError } from "../errors";
 
-async function requireRegion(id: string): Promise<Region> {
+export async function requireRegion(id: string): Promise<Region> {
   const region = await (await getDb()).collection<Region>(COLLECTIONS.regions).findOne({ _id: id });
   if (!region) throw new HttpError(404, "not_found", `Region "${id}" not found`);
   return region;
