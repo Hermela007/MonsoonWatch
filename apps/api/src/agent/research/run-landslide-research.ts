@@ -5,6 +5,7 @@
 //   pnpm --filter @monsoonwatch/api exec tsx src/agent/research/run-landslide-research.ts
 //   pnpm --filter @monsoonwatch/api exec tsx src/agent/research/run-landslide-research.ts --save
 //   … --from-report [--save]   skip Deep Research: re-extract + re-check the saved report
+//   … --use-saved --save       NO Gemini calls: re-check the saved extraction and save it
 //
 // Always writes (commit these — judges and README link to them):
 //   src/agent/research/output/landslide-thresholds.<region>.json   thresholds + citations + checks
@@ -20,11 +21,12 @@ import { env } from "../../env";
 import { interact, interactJson } from "../gemini";
 import { AGENTS, MODELS } from "../models";
 import { emitStep } from "../steps";
-import { checkExtraction, chunkReport, collectSources, ThresholdExtractionSchema, toRegionLandslide, type Source } from "./thresholds";
+import { checkExtraction, chunkReport, collectSources, ThresholdExtractionSchema, toRegionLandslide, type Source, type ThresholdExtraction } from "./thresholds";
 
 const regionId = process.argv.find((a) => a.startsWith("--region="))?.split("=")[1] ?? env.regionId;
 const save = process.argv.includes("--save");
-const fromReport = process.argv.includes("--from-report");
+const useSaved = process.argv.includes("--use-saved");
+const fromReport = useSaved || process.argv.includes("--from-report");
 const runId = `research-landslide-${regionId}-${Date.now()}`;
 const out = (name: string) => new URL(`./output/${name}`, import.meta.url);
 
@@ -89,7 +91,14 @@ try {
     console.log(`Report: ${report.length} chars, ${sources.length} sources found.`);
   }
 
-  const { data: extraction } = await interactJson({
+  // --use-saved: take the extraction from the last run's JSON (no Gemini call); the deterministic
+  // checks below still run again on it before anything is saved.
+  const saved = useSaved
+    ? (JSON.parse(readFileSync(out(`landslide-thresholds.${regionId}.json`), "utf8")) as { extraction?: ThresholdExtraction }).extraction
+    : undefined;
+  if (useSaved && !saved) throw new Error("--use-saved: no extraction in the saved JSON — run with --from-report first");
+  if (useSaved) console.log("Using the saved extraction — no Gemini calls.");
+  const extraction = saved ? ThresholdExtractionSchema.parse(saved) : (await interactJson({
     runId,
     model: MODELS.argon,
     thinkingLevel: "medium",
@@ -98,7 +107,7 @@ try {
     systemInstruction: EXTRACT_INSTRUCTION,
     input: `SOURCES:\n${sources.map((s) => `[${s.index}] ${s.title} — ${s.url}`).join("\n")}\n\nREPORT:\n${report}`,
     schema: ThresholdExtractionSchema,
-  });
+  })).data;
 
   const check = checkExtraction(extraction, sources, report);
   await emitStep({
