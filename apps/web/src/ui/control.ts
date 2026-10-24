@@ -1,3 +1,4 @@
+import { createSaintUi } from './saint';
 import type { ConnectionMode } from '../api/stream';
 import type { AgentStep, Alert, RiskEvent, SaintTask } from '@monsoonwatch/shared';
 
@@ -16,24 +17,15 @@ const CHECK_LABEL: Record<string, string> = {
   language: 'Message is clear',
   vulnerable: 'Vulnerable people covered',
 };
-const SAINT_LABEL: Record<SaintTask['type'], string> = {
-  send_alert: 'Send alert',
-  chase_reply: 'Confirm receipt',
-  log_checkin: 'Centre check-ins',
-  supply_order: 'Supplies',
-  sitrep: 'Situation report',
-};
-
 /** Control-room panels: the alert under review (with checks and approval) and the Tech HUD. */
 export function createControlUi(h: {
   onReplay: () => void;
   onRun: () => void;
   onDecide: (id: string, d: 'approve' | 'reject') => void;
   onSelectAlert: (a: Alert) => void;
-  onTaskDecide: (taskId: string, d: 'approve' | 'reject') => void;
 }) {
   const steps = new Map<string, HTMLElement>();
-  const tasks = new Map<string, HTMLElement>();
+  const saint = createSaintUi($('saint-box'));
   const list = $('hud-list');
   let t0 = 0;
   let current: Alert | null = null;
@@ -105,11 +97,13 @@ export function createControlUi(h: {
   return {
     setReadOnly(value: boolean) {
       readOnly = value;
+      saint.setReadOnly(value);
       $('public-demo-note').hidden = !value;
       updateActions();
       renderAlert();
     },
     setMode(mode: ConnectionMode) {
+      saint.setMode(mode);
       connected = mode === 'live' || mode === 'mock';
       updateActions();
       renderAlert();
@@ -153,27 +147,8 @@ export function createControlUi(h: {
     risk(e: RiskEvent) {
       $('control-risk').textContent = e.message;
     },
-    task(t: SaintTask) {
-      $('saint-box').hidden = false;
-      let row = tasks.get(t._id);
-      if (!row) {
-        row = document.createElement('li');
-        tasks.set(t._id, row);
-        $('saint-list').appendChild(row);
-      }
-      row.className = `task ${t.status}`;
-      row.innerHTML = `<b>${SAINT_LABEL[t.type]}</b><span>${esc(t.detail)}</span><em>${t.status.replace('_', ' ')}</em>`;
-      // Spending (and anything else Saint flags) needs a person: show the decision right on the task.
-      if (t.status === 'awaiting_approval' && $('hud-mode').dataset.mode === 'mock') {
-        const row2 = document.createElement('div');
-        row2.className = 'task-actions';
-        row2.innerHTML = `<button type="button" class="btn btn-primary">Approve</button><button type="button" class="btn">Decline</button>`;
-        const [ok, no] = row2.querySelectorAll('button');
-        ok.addEventListener('click', () => h.onTaskDecide(t._id, 'approve'));
-        no.addEventListener('click', () => h.onTaskDecide(t._id, 'reject'));
-        row.appendChild(row2);
-      }
-    },
+    task(t: SaintTask) { saint.task(t); },
+    evac(c: import('@monsoonwatch/shared').EvacCentre) { saint.evac(c); },
     note(text: string) {
       this.step({ _id: `note-${Date.now()}`, runId: '', ts: new Date().toISOString(), actor: 'MonsoonWatch', kind: 'info', summary: text, status: 'ok' });
     },
@@ -181,7 +156,7 @@ export function createControlUi(h: {
       alerts.clear();
       deciding = false;
       steps.clear();
-      tasks.clear();
+      saint.reset();
       list.innerHTML = '';
       $('saint-list').innerHTML = '';
       $('saint-box').hidden = true;

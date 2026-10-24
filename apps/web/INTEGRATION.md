@@ -40,3 +40,11 @@ The running real API returned health mock=false and 765 villages from MongoDB. T
 3. Human duty officer: approve a verified test alert after confirming the intended delivery destination. Verify the resulting queued task and actual delivery separately. These integration checks have not sent a real alert.
 4. Hosting: serve apps/web/dist, proxy /api/* to the Fastify service, preserve SSE streaming (no proxy buffering; allow long-lived connections), and keep environment secrets on the server. Static hosting alone cannot run the API. PUBLIC_DEMO=1 now blocks all API writes and automatic agent runs for the public deployment. Authenticated operator access remains future work. Render has been selected for a single frontend/API web service; see DEPLOYMENT.md.
 5. Terrain still downloads AWS Terrarium tiles on a cold load. Cache/bake terrain for a reliable offline event demo. The web build reports a >500 kB JavaScript chunk; performance should be checked on the presentation laptop.
+
+## Saint C8 integration
+
+The A branch now includes origin/main through b92fc72 and C8 from origin/c/saint (21b48ca); C8 was not yet on the fetched main when integrated. The control room loads existing tasks and listens for saint.task and evac.updated. A queued send_alert task offers Send to Saint: fetch the handoff, open its WhatsApp link in a reserved tab, then acknowledge the handoff. The operator still sends the message in WhatsApp; opening it is not delivery confirmation. If no link is configured, a copyable brief and explicit manual-handoff confirmation are shown. Set SAINT_WHATSAPP on the operator server to enable the link.
+
+Paste Thea’s report (including MW CHECKIN lines), enter the duty officer, and Apply report to see applied/skipped/errors. Pasted text is retained on errors. Public-demo mode disables these mutations; no deployment restriction was relaxed. Supply orders are drafts awaiting approval, never placed.
+
+Regression checks: web test:integration includes Saint request/error cases. Visit /tests/saint-preview.html on the Vite dev server for isolated browser checks with simulated API and popup responses; no real messages are sent. This test page is not part of the production dist build.

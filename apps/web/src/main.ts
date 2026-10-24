@@ -21,7 +21,7 @@ import { createStreet } from './layers/street';
 import { loadAreaFor, type AreaData } from './data/areas';
 import { t } from './ui/copy';
 import { createEventHub } from './api/stream';
-import { decideAlert, fetchAgentRun, fetchReplayStatus, fetchStations, runAgent, setApiLive, startReplay, stopReplay, type ReplayStatus } from './api/client';
+import { decideAlert, fetchAgentRun, fetchSaintTasks, fetchReplayStatus, fetchStations, runAgent, setApiLive, startReplay, stopReplay, type ReplayStatus } from './api/client';
 import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
 import { fetchEvacCentres, fetchVillages } from './api/client';
@@ -526,10 +526,6 @@ async function main() {
     onRun: () => void startAgent(),
     onDecide: (id, d) => void decide(id, d),
     onSelectAlert: (alert) => showAlertRoute(alert),
-    onTaskDecide: (taskId, d) => {
-      if (hub.mode === 'mock') mockAgent.decideTask(taskId, d, 'Duty officer');
-      else control.note('Saint task decisions need a backend endpoint from C.');
-    },
   });
   control.setMode('connecting');
   const hub = createEventHub({
@@ -540,6 +536,7 @@ async function main() {
       setApiLive(m === 'live');
       if (m === 'live') {
         loadApiData();
+        void fetchSaintTasks().then((tasks) => tasks?.forEach((task) => control.task(task)));
         void fetchReplayStatus().then((status) => status && applyReplay(status));
       }
     },
@@ -557,6 +554,14 @@ async function main() {
   });
   hub.on('risk.event', ({ riskEvent }) => control.risk(riskEvent));
   hub.on('saint.task', ({ task }) => control.task(task));
+  hub.on('evac.updated', ({ evacCentre }) => {
+    if (evacCentre.regionId !== KELANTAN.id) return;
+    const place = { name: evacCentre.name, lngLat: evacCentre.location.coordinates };
+    const i = centres.findIndex((c) => c.name === place.name);
+    if (i >= 0) centres[i] = place;
+    else centres.push(place);
+    control.evac(evacCentre);
+  });
   const showAlertRoute = (alert: Alert) => {
     if (document.body.dataset.mode !== 'control') return;
     const pts = alert.route.coordinates.map((ll) => frame.lngLatToWorld(ll, sampleElev(ll)).add(new THREE.Vector3(0, 0.05, 0)));

@@ -86,3 +86,28 @@ export const decideAlert = (id: string, decision: 'approve' | 'reject', by: stri
 
 /** Live JPS stations with their latest reading (C's API). */
 export const fetchStations = (regionId: string) => getJson<StationWithLatest[]>(`/regions/${regionId}/stations`, 6000);
+
+export interface SaintHandoff {
+  taskId: string;
+  alertId: string;
+  brief: string;
+  whatsappUrl: string | null;
+  note?: string;
+}
+export interface SaintUpdateResult {
+  applied: { alertId: string; centre: string; people: number; status: string; centreId: string; taskId: string; raw: string }[];
+  skipped: { line: string; reason: string }[];
+  errors: { line: string; reason: string }[];
+}
+export const fetchSaintTasks = () => getJson<import('@monsoonwatch/shared').SaintTask[]>('/saint/tasks', 6000);
+export async function fetchSaintHandoff(id: string): Promise<SaintHandoff> {
+  const res = await fetch(`/api/saint/tasks/${encodeURIComponent(id)}/handoff`, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+export const markSaintHandedOff = (id: string, by: string) =>
+  postJson<import('@monsoonwatch/shared').SaintTask>(`/saint/tasks/${encodeURIComponent(id)}/handed-off`, { by });
+export const submitSaintReport = (text: string, by: string) => postJson<SaintUpdateResult>('/saint/updates', { text, by }, 30000);

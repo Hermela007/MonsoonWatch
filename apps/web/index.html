@@ -55,10 +55,18 @@
           <button id="btn-approve" class="btn btn-primary" type="button" disabled>Approve and send</button>
           <button id="btn-reject" class="btn" type="button" disabled>Reject</button>
         </div>
-        <div id="saint-box" hidden>
-          <h3>After approval · Saint</h3>
-          <ul id="saint-list" class="tasks"></ul>
-        </div>
+      </div>
+      <div id="saint-box" hidden>
+        <h3>After approval · Saint (Thea)</h3>
+        <p class="note">One leader via WhatsApp. Supply orders remain drafts awaiting approval.</p>
+        <ul id="saint-list" class="tasks"></ul>
+        <label for="saint-by">Duty officer</label>
+        <input id="saint-by" value="Duty officer" autocomplete="name" />
+        <label for="saint-report">Paste Saint’s report</label>
+        <textarea id="saint-report" rows="5" placeholder="Paste Thea’s WhatsApp report, including MW CHECKIN lines"></textarea>
+        <button id="saint-submit" class="btn" type="button" disabled>Apply report</button>
+        <div id="saint-result" class="note" role="status" aria-live="polite"></div>
+        <p id="saint-capacity" class="note" aria-live="polite"></p>
       </div>
     </section>
 
