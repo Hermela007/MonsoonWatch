@@ -585,7 +585,7 @@ async function main() {
     if (k === '1') setMode('resident');
     if (k === '2') (setMode('resident'), pick('Kuala Krai'));
     if (k === '3') (setMode('resident'), pick('Kuala Krai'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
-    if (k === '4') (setMode('resident'), pick('hills near Gua Musang'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
+    if (k === '4') (setMode('resident'), pick(hillPlaces[0]?.name ?? 'Kampung Jabir'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
     if (k === '5') (setMode('control'), window.setTimeout(() => void startAgent(), 2400));
     if (k === '6') void decide('approve');
   });
