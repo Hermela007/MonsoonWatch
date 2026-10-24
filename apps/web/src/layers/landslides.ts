@@ -96,41 +96,45 @@ void main() {
   vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
   n *= sign(n.y + 1e-5); // the screen-derivative normal can point down; the ground always faces up
   float diff = clamp(dot(n, uSunDir), 0.0, 1.0);
-  // Edge feather: at the rim the hollow's surface meets the terrain, so its colour must match it there.
-  float inner = smoothstep(1.0, 0.55, a) * smoothstep(0.0, 0.03, u) * smoothstep(1.0, 0.9, u);
   float failed = uFail * step(u, uFront);
   vec3 ground = uPaper * (0.6 + 0.48 * diff); // the terrain's own shading
-  // Ombre down the slide: deep red where it would tear away, orange down the track, soft yellow where the
-  // debris would come to rest. Lit like the ground so it sits in the terrain, not on it.
-  // (Linear colours: the output pass converts to sRGB.)
-  vec3 ombre = mix(vec3(0.56, 0.055, 0.025), vec3(0.80, 0.22, 0.03), smoothstep(0.06, 0.5, u));
-  ombre = mix(ombre, vec3(0.86, 0.52, 0.09), smoothstep(0.5, 0.95, u));
-  ombre *= 0.72 + 0.4 * diff;
+  // Dirt: churned soil, not paint. Earth-coloured ombre down the slide (wet dark red-brown at the
+  // crown, terracotta down the track, dry ochre where the debris stops), with grain at several scales,
+  // clods and stones, and scour marks running downhill. (Linear colours: the output pass converts to sRGB.)
+  vec3 earth = mix(vec3(0.17, 0.055, 0.025), vec3(0.34, 0.12, 0.045), smoothstep(0.05, 0.5, u));
+  earth = mix(earth, vec3(0.46, 0.27, 0.09), smoothstep(0.55, 0.98, u));
+  vec2 p = vWorld.xz;
+  float grainA = fbm(p * 45.0);                 // patches of wetter / drier soil (~20 m)
+  float grainB = noise(p * 220.0);              // fine crumb
+  float clods = smoothstep(0.66, 0.8, noise(p * 120.0 + 7.3));   // lumps of earth
+  float stones = smoothstep(0.78, 0.86, noise(p * 300.0 + 2.1)); // scattered rock
+  float scour = fbm(vec2(vSlide.y * 7.0, u * 55.0 - uTime * 2.5 * uMoving)); // downhill streaks
+  vec3 dirt = earth * (0.62 + 0.62 * grainA) * (0.85 + 0.3 * grainB);
+  dirt *= 0.78 + 0.32 * scour;
+  dirt = mix(dirt, dirt * 0.55, clods * 0.7);                     // shadowed clods
+  dirt = mix(dirt, vec3(0.33, 0.31, 0.28), stones * 0.75);        // grey stones
+  dirt *= 0.42 + 0.78 * diff;                                     // lit like the hillside
+  // Ragged edges: soil frays into the hillside instead of ending in a clean ribbon outline.
+  float ragged = smoothstep(1.0, 0.62, a + (grainA - 0.5) * 0.55 + (grainB - 0.5) * 0.15)
+    * smoothstep(0.0, 0.03, u) * smoothstep(1.0, 0.88, u + (grainA - 0.5) * 0.08);
   vec3 col;
   if (failed < 0.5) {
-    // At risk: the ground itself, in a hollow, with a warm wash strongest in its deepest part and
-    // strengthening as the rain approaches the slope's threshold.
-    float wash = (0.78 + 0.2 * uWarn) * inner * mix(0.8, 1.0, smoothstep(0.0, 0.5, vPit));
-    col = mix(ground, ombre, wash);
+    // At risk: the slope is already scarred and wet; the soil shows more as the rain builds.
+    col = mix(ground, dirt, ragged * (0.9 + 0.1 * uWarn));
     // Tension cracks at the crown, spreading downslope as the rain nears the threshold.
     if (uFail < 0.5 && uWarn > 0.0) {
       float zone = 1.0 - smoothstep(0.03, 0.05 + 0.2 * uWarn, u);
       float jag = u * 90.0 + fbm(vec2(vSlide.y * 3.0, u * 12.0)) * 5.0;
       float crack = smoothstep(0.9, 0.98, abs(sin(jag))) * zone * step(a, 0.85);
-      col = mix(col, vec3(0.2, 0.12, 0.08), crack * 0.85);
+      col = mix(col, vec3(0.05, 0.025, 0.015), crack * 0.9);
     }
   } else {
-    // Failed: exposed soil, darker in the scar, paler where the track was scoured, mixed at the toe.
-    float grain = fbm(vWorld.xz * 16.0);
-    float streak = fbm(vec2(vSlide.y * 6.0, u * 40.0 - uTime * 3.0 * uMoving));
+    // Failed: freshly exposed, darker and wetter in the scar; a lumpy front while the debris moves.
     float scar = 1.0 - smoothstep(0.1, 0.3, u);
-    vec3 soil = mix(vec3(0.66, 0.55, 0.45), vec3(0.76, 0.66, 0.56), streak);
-    soil = mix(soil, mix(vec3(0.50, 0.38, 0.29), vec3(0.62, 0.50, 0.40), grain), scar);
-    soil *= 0.55 + 0.6 * diff;
+    vec3 fresh = mix(dirt, dirt * 0.62, scar);
     float frontBand = uMoving * smoothstep(uFront - 0.06, uFront, u);
-    soil = mix(soil, soil * 1.12, frontBand);
-    // Still carries a trace of the ombre, so failed slopes stay legible against the terrain.
-    col = mix(ground, mix(soil, ombre, 0.3), inner);
+    fresh = mix(fresh, fresh * 1.25 + vec3(0.02, 0.012, 0.006), frontBand * (0.4 + 0.6 * clods));
+    col = mix(ground, fresh, ragged);
   }
   // Ambient occlusion: less sky reaches the floor of the hollow.
   col *= 1.0 - 0.28 * smoothstep(0.15, 1.0, vPit);
@@ -139,12 +143,13 @@ void main() {
   col = mix(col, uLineStrong * 0.7, crownLine * mix(0.55, 0.9, max(uWarn, failed)));
   // Grid and 50 m contours continue into the hollow: they bend down with it, which is what reads as concave.
   float fadeG = 1.0 - smoothstep(60.0, 260.0, vViewDist);
-  col = mix(col, uLine, gridLine(vWorld.xz, 0.1, 0.6) * 0.16 * (1.0 - smoothstep(3.0, 14.0, vViewDist)));
-  col = mix(col, uLine, gridLine(vWorld.xz, 0.25, 0.7) * 0.26 * (1.0 - smoothstep(8.0, 45.0, vViewDist)));
-  col = mix(col, uLine, gridLine(vWorld.xz, 1.0, 0.8) * 0.45 * fadeG);
+  float onSoil = 1.0 - 0.6 * smoothstep(0.2, 0.8, ragged);
+  col = mix(col, uLine, gridLine(vWorld.xz, 0.1, 0.6) * 0.16 * onSoil * (1.0 - smoothstep(3.0, 14.0, vViewDist)));
+  col = mix(col, uLine, gridLine(vWorld.xz, 0.25, 0.7) * 0.26 * onSoil * (1.0 - smoothstep(8.0, 45.0, vViewDist)));
+  col = mix(col, uLine, gridLine(vWorld.xz, 1.0, 0.8) * 0.45 * onSoil * fadeG);
   float ce = vWorld.y / (uElevScale * 50.0);
   float cl = abs(fract(ce - 0.5) - 0.5) / max(fwidth(ce), 1e-4);
-  col = mix(col, uLineStrong, (1.0 - min(cl / 0.7, 1.0)) * 0.35 * inner * (1.0 - smoothstep(10.0, 60.0, vViewDist)));
+  col = mix(col, uLineStrong * 0.5, (1.0 - min(cl / 0.7, 1.0)) * 0.3 * ragged * (1.0 - smoothstep(10.0, 60.0, vViewDist)));
   gl_FragColor = vec4(mix(col, uFogCol, fog), 1.0);
 }
 `;
@@ -226,7 +231,7 @@ export function createLandslides(
       // narrows unevenly and runs out to nothing — no rounded ends.
       const head = THREE.MathUtils.smoothstep(u, 0, 0.012);
       const taper = 1 - 0.9 * THREE.MathUtils.smoothstep(u, 0.55, 1);
-      const body = THREE.MathUtils.lerp(0.12, 0.06, THREE.MathUtils.smoothstep(u, 0.05, 0.4));
+      const body = THREE.MathUtils.lerp(0.16, 0.08, THREE.MathUtils.smoothstep(u, 0.05, 0.4));
       const wobble = 0.78 + 0.44 * valueNoise(u * lengthKm * 2.2 + seed);
       const lean = (valueNoise(u * lengthKm * 1.3 + seed * 1.7) - 0.5) * 0.5; // the hollow sits a little off-centre
       const hw = Math.max(0.004, body * head * taper * wobble) * widthK * scale;

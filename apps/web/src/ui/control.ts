@@ -1,7 +1,8 @@
 import { createAlertAudio } from './alertAudio';
 import { createSaintUi } from './saint';
+import { createAreaWarningsUi } from './areaWarnings';
 import type { ConnectionMode } from '../api/stream';
-import type { AgentStep, Alert, RiskEvent, SaintTask } from '@monsoonwatch/shared';
+import type { AgentStep, Alert, AreaWarning, RiskEvent, SaintTask } from '@monsoonwatch/shared';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => {
   const el = document.getElementById(id);
@@ -24,11 +25,13 @@ export function createControlUi(h: {
   onRun: () => void;
   onDecide: (id: string, d: 'approve' | 'reject') => void;
   onSelectAlert: (a: Alert) => void;
+  onDecideArea: (id: string, d: 'approve' | 'reject') => void;
 }) {
   const audio = createAlertAudio($('alert-audio'));
   let scripted = false;
   const steps = new Map<string, HTMLElement>();
   const saint = createSaintUi($('saint-box'));
+  const areas = createAreaWarningsUi($('area-warnings'), { onDecide: (id, d) => h.onDecideArea(id, d) });
   const list = $('hud-list');
   let t0 = 0;
   let current: Alert | null = null;
@@ -48,6 +51,7 @@ export function createControlUi(h: {
   const updateActions = () => {
     $<HTMLButtonElement>('btn-run').disabled = !connected || readOnly || runBusy;
     $<HTMLButtonElement>('btn-replay').disabled = !connected || readOnly || replayBusy;
+    areas.setEnabled(connected && !readOnly, scripted);
   };
   $('alert-picker').addEventListener('change', () => {
     current = alerts.get($<HTMLSelectElement>('alert-picker').value) ?? null;
@@ -74,10 +78,20 @@ export function createControlUi(h: {
     const checks = a.verification;
     const pending = ['threshold', 'route', 'capacity', 'freshness', 'language', 'vulnerable'].filter((c) => !checks.some((v) => v.check === c));
     $('alert-title').textContent = `${a.hazard === 'flood' ? 'Flood' : 'Landslide'} alert · ${a.villageId}`;
+    // Who planned it: the deterministic rules planner or Gemini.
+    if (a.plannedBy) {
+      const badge = document.createElement('span');
+      badge.className = `planned-by planned-${a.plannedBy}`;
+      badge.textContent = a.plannedBy === 'gemini' ? 'Gemini' : 'Rules';
+      badge.title = a.plannedBy === 'gemini' ? 'Planned by Gemini, checked by code' : 'Planned by the deterministic rules planner';
+      $('alert-title').append(' ', badge);
+    }
     $('alert-meta').textContent = [
       a.level.toUpperCase(),
       a.etaHours != null ? `water in ~${Math.round(a.etaHours)} h` : null,
       `${a.people.toLocaleString('en-GB')} people`,
+      // Boat evacuations have no navigable-water path: name the pickup, draw no line.
+      a.routeMode === 'boat' ? `boat pickup → ${a.evacCentreId}` : null,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -150,6 +164,13 @@ export function createControlUi(h: {
       renderAlert();
     },
     get currentAlert() { return current; },
+    /** A district warning (B): villages without an individual plan, decided one by one. */
+    areaWarning(w: AreaWarning) {
+      setStage(w.status === 'approved' || w.status === 'sent' ? 4 : 3);
+      areas.upsert(w);
+    },
+    getAreaWarning(id: string) { return areas.get(id); },
+    setAreaBusy(id: string, on: boolean) { areas.setBusy(id, on); },
     setDeciding(value: boolean) { deciding = value; renderAlert(); },
     setRunBusy(value: boolean) { runBusy = value; updateActions(); },
     setReplay(running: boolean, text: string, busy = false) {
@@ -180,6 +201,7 @@ export function createControlUi(h: {
       $('saint-box').hidden = true;
       $('hud-empty').hidden = false;
       $('control-risk').textContent = '';
+      areas.reset();
       t0 = 0;
       current = null;
       stage = 1;

@@ -406,3 +406,36 @@ body.recording #render-performance { display: block; }
 .origin-main { font-size: 13px; color: var(--ink); }
 .origin-hint { font-size: 12px; line-height: 1.45; color: var(--muted); margin-top: 2px; }
 .m2d-home { cursor: grab; }
+/* Only real hazard tags ("landslide", "landslide + flood") are in the warning colour. */
+.suggestion small:not(.hazard-tag) { color: var(--faint); }
+
+/* District warnings (B): one card each, decided one by one. */
+.area-warnings { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.aw-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.aw-head h3 { margin: 0; }
+.aw-count { font-size: 12px; color: var(--slide); }
+.aw-intro { font-size: 12px; color: var(--muted); margin: 4px 0 12px; }
+.aw-card { border: 1px solid var(--rule); border-radius: 3px; padding: 12px 14px; margin-bottom: 10px; background: var(--card); }
+.aw-card.aw-approved, .aw-card.aw-sent, .aw-card.aw-rejected { opacity: 0.8; }
+.aw-top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.aw-level { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; padding: 2px 6px; border-radius: 2px; color: var(--card); background: var(--muted); }
+.aw-level-danger { background: var(--slide); }
+.aw-level-warning { background: #d9893b; }
+.aw-level-alert { background: #c9a227; }
+.aw-kind { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.aw-title { font-size: 15px; font-weight: 600; }
+.aw-stats { font-size: 13px; color: var(--ink); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.aw-vuln { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+.aw-pickups { font-size: 12px; color: var(--slide); margin-top: 4px; }
+.aw-more { margin-top: 8px; }
+.aw-more summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+.aw-more p, .aw-more blockquote { font-size: 12px; line-height: 1.5; color: #3b3a37; margin: 6px 0 0; }
+.aw-more .aw-evidence { color: var(--muted); }
+.aw-more .aw-label { color: var(--faint); }
+.aw-status { font-size: 12px; color: var(--ink); margin: 10px 0 8px; }
+.aw-audio { display: grid; gap: 6px; }
+.aw-audio label { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.aw-audio audio { height: 28px; flex: 1; }
+/* Who planned an alert. */
+.planned-by { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; border: 1px solid var(--rule-strong); color: var(--muted); vertical-align: middle; }
+.planned-gemini { border-color: #7aa7d9; color: #2f6fb0; }

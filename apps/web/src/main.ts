@@ -19,6 +19,7 @@ import { createFlood } from './layers/flood';
 import { createRain } from './layers/rain';
 import { createLandslides } from './layers/landslides';
 import { createHomeLayer } from './layers/home';
+import { residentNotice } from './ui/residentNotice';
 import { createResidentUi } from './ui/resident';
 import { createStreet } from './layers/street';
 import { loadAreaFor, type AreaData } from './data/areas';
@@ -28,7 +29,8 @@ import { createEventHub } from './api/stream';
 import { decideAlert, fetchAgentRun, fetchSaintTasks, fetchReplayStatus, fetchStations, runAgent, setApiLive, startReplay, stopReplay, type ReplayStatus } from './api/client';
 import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
-import { fetchEvacCentres, fetchVillages } from './api/client';
+import { decideAreaWarning, fetchEvacCentres, fetchVillages } from './api/client';
+import type { AreaWarning } from '@monsoonwatch/shared';
 import type { Alert, EvacCentre } from '@monsoonwatch/shared';
 import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, REPLAY_START_MS, peakHour, rainAccumulated, rainIntensity, replayDate, setRealSeries, stageM } from './data/replay2014';
 import { fetchEvacuationRoute, parseEvacuationRoute, type RouteResult } from './api/evacuationRoute';
@@ -718,6 +720,7 @@ async function main() {
   // Workstream C's data, when the API is up. Until then: local stand-ins.
   // Real candidate evacuation centres (schools, community halls) from C's data.
   let centres: { name: string; lngLat: LngLat }[] = real.centres;
+  let villageLocations: { id?: string; name: string; lngLat: LngLat }[] = [];
   const loadApiData = () => {
     void fetchStations(KELANTAN.id).then((list) => {
       if (!list?.length) return;
@@ -727,7 +730,7 @@ async function main() {
       updateGaugeCaption();
     });
     // Prefer the API's copies (same source, maintained by C) when it's running.
-    void fetchVillages(KELANTAN.id).then((v) => v && ui!.setPlaces([...allPlaces, ...v]));
+    void fetchVillages(KELANTAN.id).then((v) => { if (v) { villageLocations = v; ui!.setPlaces([...allPlaces, ...v]); refreshOfficial(); } });
     void fetchEvacCentres(KELANTAN.id).then((c: EvacCentre[] | null) => {
       if (c?.length) centres = c.map((x) => ({ name: x.name, lngLat: x.location.coordinates }));
     });
@@ -829,6 +832,7 @@ async function main() {
     onRun: () => void startAgent(),
     onDecide: (id, d) => void decide(id, d),
     onSelectAlert: (alert) => showAlertRoute(alert),
+    onDecideArea: (id, d) => void decideArea(id, d),
   });
   control.setMode('connecting');
   const hub = createEventHub({
@@ -888,19 +892,23 @@ async function main() {
   });
   // ---- Closing the loop: an alert a person approved reaches the resident's card ----------------
   const approved = new Map<string, Alert>();
+  const approvedWarnings = new Map<string, AreaWarning>();
   const kmBetween = (a: LngLat, b: LngLat) => frame.lngLatToWorld(a).distanceTo(frame.lngLatToWorld(b));
   const refreshOfficial = () => {
     if (!homeLngLat) return ui!.setOfficial(null);
-    // An alert covers this home if it was drafted for this place, or its village (the route's start) is close.
-    const match = [...approved.values()]
-      .filter((a) => a.villageId === homePlace || (a.route.coordinates.length > 0 && kmBetween(a.route.coordinates[0], homeLngLat!) < 3))
-      .sort((a, b) => (b.approvedAt ?? '').localeCompare(a.approvedAt ?? ''))[0];
+    const nearestVillage = villageLocations.filter(v => kmBetween(v.lngLat, homeLngLat!) < 3).sort((a, b) => kmBetween(a.lngLat, homeLngLat!) - kmBetween(b.lngLat, homeLngLat!))[0];
+    const match = residentNotice([...approved.values()], [...approvedWarnings.values()], nearestVillage?.id, homePlace, homeLngLat, kmBetween);
     if (!match) return ui!.setOfficial(null);
+    if ('villageIds' in match) {
+      const message = match.messages.find(m => m.lang === 'en') ?? match.messages.find(m => m.lang === 'ms') ?? match.messages[0];
+      return ui!.setOfficial({ id: match._id, status: match.status === 'sent' ? 'sent' : 'approved', languages: hub.mode === 'mock' ? [] : match.messages.map(m => m.lang), approvedAt: match.approvedAt ?? null, approvedBy: match.approvedBy ?? null, centre: '', people: 0, heading: match.kind === 'advisory' ? 'Approved district advisory' : 'Approved district evacuation warning', message: message?.text ?? '' });
+    }
     const end = match.route.coordinates[match.route.coordinates.length - 1];
     const centre = end && centres.length ? centres.reduce((best, c) => (kmBetween(c.lngLat, end) < kmBetween(best.lngLat, end) ? c : best), centres[0]) : null;
     const message = match.messages.find((m) => m.lang.startsWith('en')) ?? match.messages[0];
     ui!.setOfficial({
       id: match._id,
+      status: match.status === 'sent' ? 'sent' : 'approved',
       languages: hub.mode === 'mock' ? [] : match.messages.map(m => m.lang),
       approvedAt: match.approvedAt ?? null,
       approvedBy: match.approvedBy ?? null,
@@ -914,17 +922,27 @@ async function main() {
     else approved.delete(alert._id);
     refreshOfficial();
   };
+  const noteAreaWarning = (warning: AreaWarning) => {
+    if (warning.status === 'approved' || warning.status === 'sent') approvedWarnings.set(warning._id, warning);
+    else approvedWarnings.delete(warning._id);
+    control.areaWarning(warning); refreshOfficial();
+  };
   const showAlertRoute = (alert: Alert) => {
     if (document.body.dataset.mode !== 'control') return;
     const pts = alert.route.coordinates.map((ll) => frame.lngLatToWorld(ll, sampleElev(ll)).add(new THREE.Vector3(0, 0.05, 0)));
     if (!pts.length) return;
-    home.setLabels(alert.villageId, alert.evacCentreId);
-    home.set(pts[0], pts.length > 1 ? pts : null, 0, timer.getElapsed());
+    // Boat evacuations: no navigable-water data, so `route` is not a boat path — no line, just the pickup.
+    const boat = alert.routeMode === 'boat';
+    home.setLabels(boat ? `${alert.villageId} · boat pickup → ${alert.evacCentreId}` : alert.villageId, alert.evacCentreId);
+    home.set(pts[0], !boat && pts.length > 1 ? pts : null, 0, timer.getElapsed());
     focus.centre.copy(pts[0]);
     focusTarget = 1;
     const span = Math.max(14, pts[0].distanceTo(pts[pts.length - 1]) * 3);
     director.flyTo({ target: pts[0].clone(), position: pts[0].clone().add(new THREE.Vector3(0.35, 0.62, 0.7).normalize().multiplyScalar(span)) }, 2600);
   };
+  hub.on('area_warning.updated', ({ areaWarning }) => {
+    if (areaWarning.regionId === KELANTAN.id) noteAreaWarning(areaWarning);
+  });
   hub.on('alert.updated', ({ alert }) => {
     if (alert.regionId !== KELANTAN.id) return;
     noteApproved(alert);
@@ -945,6 +963,7 @@ async function main() {
       if (!detail) return;
       detail.steps.forEach((step) => control.step(step));
       detail.alerts.forEach((alert) => { noteApproved(alert); control.alert(alert); });
+      detail.areaWarnings?.forEach(noteAreaWarning);
       if (detail.run.status !== 'running') {
         runBusy = false;
         control.setRunBusy(false);
@@ -1003,7 +1022,29 @@ async function main() {
       route: routeLL,
       etaHours: Math.max(1, (risk.floodWetHour ?? hour + 6) - hour),
     });
+    // Scripted demo: B's sample district warnings (shared fixtures) arrive once the alert is drafted.
+    window.setTimeout(() => {
+      if (hub.mode !== 'mock') return;
+      for (const w of Object.values(sampleAreaWarnings)) control.areaWarning({ ...w, status: 'needs_approval' });
+    }, 9000);
   };
+
+  /** One district warning at a time: each approval makes two spoken-version (TTS) calls on the backend. */
+  const decideArea = async (id: string, d: 'approve' | 'reject') => {
+    const w = control.getAreaWarning(id);
+    if (!w || w.status !== 'needs_approval') return;
+    if (hub.mode === 'mock') {
+      control.areaWarning(d === 'approve' ? { ...w, status: 'approved', approvedBy: 'Duty officer', approvedAt: new Date().toISOString() } : { ...w, status: 'rejected' });
+      return;
+    }
+    if (hub.mode !== 'live') return control.note('API disconnected — no decision was sent.');
+    control.setAreaBusy(id, true);
+    try { noteAreaWarning(await decideAreaWarning(id, d, 'Duty officer')); }
+    catch (err) { control.note(`API: ${err instanceof Error ? err.message : String(err)}`); }
+    finally { control.setAreaBusy(id, false); }
+  };
+
+  const sampleAreaWarnings = import.meta.glob<AreaWarning>('../../../packages/shared/fixtures/area-warning.*.json', { eager: true, import: 'default' });
 
   const decide = async (id: string, d: 'approve' | 'reject') => {
     if (hub.mode === 'mock') { mockAgent.decide(d, 'Duty officer'); return; }

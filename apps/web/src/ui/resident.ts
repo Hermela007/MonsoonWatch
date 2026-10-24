@@ -1,3 +1,4 @@
+import { createResidentAudio } from './residentAudio';
 import { createAlertAudio } from './alertAudio';
 import type { Town } from '../geo/region';
 import { searchPlaces } from '../api/client';
@@ -104,6 +105,8 @@ export function leaveBy(v: ResultView): string | null {
 export interface OfficialAlertView {
   id: string;
   languages: string[];
+  status: 'approved' | 'sent';
+  heading?: string;
   approvedAt: string | null;
   approvedBy: string | null;
   centre: string;
@@ -132,7 +135,6 @@ export function createResidentUi(
   const note = $('landing-note');
   const listen = $<HTMLButtonElement>('btn-listen');
   let current: ReturnType<typeof describe> | null = null;
-  let speaking = false;
   let places = initialPlaces;
   let remote: Town[] = [];
   let addresses: AddressSuggestion[] = [];
@@ -172,8 +174,10 @@ export function createResidentUi(
       b.className = 'suggestion';
       b.textContent = town.name;
       {
+        // Hazard tags ("landslide", "landslide + flood") say which places show what; otherwise just "village".
         const n = document.createElement('small');
-        n.textContent = 'village';
+        n.textContent = town.note ?? 'village';
+        if (town.note) n.classList.add('hazard-tag');
         b.appendChild(n);
       }
       b.addEventListener('click', () => h.onPick(town));
@@ -218,22 +222,26 @@ export function createResidentUi(
   $('btn-route-back').addEventListener('click', h.onRouteBack);
 
   const officialAudio = createAlertAudio($('official-audio'));
-  const stopSpeaking = () => {
-    window.speechSynthesis?.cancel();
-    speaking = false;
-    listen.textContent = `🔊 ${t('listen')}`;
-  };
-  // Browser speech for now; Workstream B's /voice (Gemini TTS) replaces this.
-  listen.addEventListener('click', () => {
-    if (!current || !('speechSynthesis' in window)) return;
-    if (speaking) return stopSpeaking();
-    const u = new SpeechSynthesisUtterance([current.level, ...current.lines, current.action].join('. '));
-    u.lang = 'en-GB';
-    u.onend = stopSpeaking;
-    speaking = true;
-    listen.textContent = `■ ${t('stop')}`;
-    window.speechSynthesis.speak(u);
+  const audioStatus = document.createElement('p');
+  audioStatus.className = 'note'; audioStatus.id = 'resident-audio-status'; audioStatus.setAttribute('role', 'status');
+  listen.insertAdjacentElement('afterend', audioStatus);
+  listen.hidden = true;
+  const residentAudio = createResidentAudio(state => {
+    listen.hidden = !state.visible;
+    listen.textContent = state.phase === 'playing' ? '■ Stop' : state.phase === 'loading' ? '■ Cancel audio' : `🔊 Listen · Gemini${state.language ? ` (${state.language.toUpperCase()})` : ''}`;
+    listen.setAttribute('aria-pressed', String(state.phase === 'playing' || state.phase === 'loading'));
+    audioStatus.textContent = state.message;
+    audioStatus.hidden = !state.message;
   });
+  const stopSpeaking = () => {
+    residentAudio.stop();
+    document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
+  };
+  listen.addEventListener('click', () => {
+    document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
+    void residentAudio.toggle();
+  });
+  $('official-audio').addEventListener('play', () => residentAudio.stop(), true);
 
   // Static copy.
   for (const el of document.querySelectorAll<HTMLElement>('[data-copy]')) el.textContent = t(el.dataset.copy as never);
@@ -250,14 +258,14 @@ export function createResidentUi(
     },
     showLanding() {
       searchRevision++; clearTimeout(searchTimer); remote = []; addresses = [];
-      stopSpeaking();
+      stopSpeaking(); residentAudio.set(null);
       document.body.dataset.view = 'landing';
       input.value = '';
       note.textContent = '';
       renderSuggestions();
     },
     showResult(v: ResultView) {
-      stopSpeaking();
+      stopSpeaking(); residentAudio.set(null);
       current = describe(v);
       // A new place: the previous place's journey no longer applies (the new one arrives separately).
       $('journey').hidden = true;
@@ -342,6 +350,7 @@ export function createResidentUi(
     setOfficial(a: OfficialAlertView | null) {
       const box = $('official');
       box.hidden = !a;
+      residentAudio.set(a ? { id: a.id, languages: a.languages, status: a.status } : null);
       officialAudio.set(a?.languages.length ? { id: a.id, languages: a.languages } : null);
       if (!a) return;
       const when = a.approvedAt
@@ -349,7 +358,7 @@ export function createResidentUi(
           new Date(a.approvedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
         : '';
       $('official-kicker').textContent = t('officialKicker', { when, by: a.approvedBy ?? 'the duty officer' });
-      $('official-go').textContent = t('officialGo', { centre: a.centre });
+      $('official-go').textContent = a.heading ?? t('officialGo', { centre: a.centre });
       $('official-msg').textContent = a.message;
       $('official-people').textContent = a.people > 0 ? t('officialPeople', { n: a.people.toLocaleString('en-GB') }) : '';
     },

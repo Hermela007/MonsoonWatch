@@ -22,12 +22,13 @@ export async function getJson<T>(path: string, timeoutMs = 2500): Promise<T | nu
 }
 
 export interface Place extends Town {
+  id?: string;
   kind?: 'village' | 'evac_centre' | 'station' | 'town';
 }
 
 export async function fetchVillages(regionId: string): Promise<Place[] | null> {
   const v = await getJson<Village[]>(`/regions/${regionId}/villages`);
-  return v && v.length ? v.map((x) => ({ name: x.name, lngLat: x.location.coordinates, kind: 'village' })) : null;
+  return v && v.length ? v.map((x) => ({ id: x._id, name: x.name, lngLat: x.location.coordinates, kind: 'village' })) : null;
 }
 
 export async function fetchEvacCentres(regionId: string): Promise<EvacCentre[] | null> {
@@ -83,6 +84,13 @@ export const stopReplay = () => postJson<ReplayStatus>('/replay/stop', {});
 /** POST /alerts/:id/approve | reject (Workstream B). Human-in-the-loop: nothing is sent without this. */
 export const decideAlert = (id: string, decision: 'approve' | 'reject', by: string) =>
   postJson<Alert>(`/alerts/${encodeURIComponent(id)}/${decision}`, decision === 'approve' ? { approvedBy: by } : { rejectedBy: by });
+
+/** District warnings for a run (B): evacuate first, then by people. */
+export const fetchAreaWarnings = (runId: string) =>
+  getJson<import('@monsoonwatch/shared').AreaWarning[]>(`/area-warnings?runId=${encodeURIComponent(runId)}`, 8000);
+/** Approve or reject one district warning. Approval creates a Saint task and spoken versions (2 TTS calls). */
+export const decideAreaWarning = (id: string, decision: 'approve' | 'reject', by: string) =>
+  postJson<import('@monsoonwatch/shared').AreaWarning>(`/area-warnings/${encodeURIComponent(id)}/${decision}`, decision === 'approve' ? { approvedBy: by } : { rejectedBy: by });
 
 /** Live JPS stations with their latest reading (C's API). */
 export const fetchStations = (regionId: string) => getJson<StationWithLatest[]>(`/regions/${regionId}/stations`, 6000);
