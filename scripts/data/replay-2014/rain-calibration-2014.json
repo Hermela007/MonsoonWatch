@@ -1,0 +1,61 @@
+{
+  "label": "Calibrated reanalysis, approximate",
+  "description": "Dec 2014 replay rainfall = ERA5 reanalysis daily precipitation (Open-Meteo Archive API, sampled at each district centre) SCALED per district so its 20–25 Dec 2014 total equals the mean of the published JPS rain-station totals in that district. It is a scaling to published totals, NOT observed station data: the day-to-day shape is still ERA5's. Days outside the window are not scaled. Districts without a published station are not scaled.",
+  "method": "per-district factor = mean(published station totals 20–25 Dec) / ERA5 total 20–25 Dec at the district centre; applied to every daily value from 20 to 25 Dec (value and rain6d alike)",
+  "window": { "start": "2014-12-20", "end": "2014-12-25", "timezone": "Asia/Kuala_Lumpur" },
+  "sources": [
+    {
+      "id": "usm-data-hujan",
+      "title": "Prof. Ir. Mohd Nordin Adlan, 'Banjir Kelantan' (CGSS, Universiti Sains Malaysia) — slide 'DATA HUJAN' (rainfall data, JPS rain stations, 20–25 Dec 2014)",
+      "url": "https://cgss.usm.my/images/Air_-_Prof._Ir._Mohd_Nordin_Adlan.pdf",
+      "used": true,
+      "note": "Daily mm per station, columns 'Tarikh | Tempat Menyukat Hujan | Jumlah'. The district header row is merged across columns; each station's district is taken from the current JPS Public Infobanjir station list (scripts/data/jps/rain.latest.html), which agrees with the header. Jeti Kastam is no longer in the JPS list; its district (Kota Bharu) is the slide's header. Station elevations on the slide: Gunung Gagau 1376 m, Gua Musang 118 m, Kuala Kerai 36 m.",
+      "stations": [
+        { "station": "Gunung Gagau", "district": "Gua Musang", "jpsId": "0731091RF", "dailyMm": { "2014-12-20": 36, "2014-12-21": 302, "2014-12-22": 478, "2014-12-23": 515, "2014-12-24": 159, "2014-12-25": 32 }, "totalMm": 1522 },
+        { "station": "Kg. Aring", "district": "Gua Musang", "jpsId": "0731021RF", "dailyMm": { "2014-12-20": 19, "2014-12-21": 128, "2014-12-22": 294, "2014-12-23": 13, "2014-12-24": 0, "2014-12-25": 0 }, "totalMm": 454 },
+        { "station": "Kg. Laloh", "district": "Kuala Krai", "jpsId": "5322044", "dailyMm": { "2014-12-20": 17, "2014-12-21": 77, "2014-12-22": 208, "2014-12-23": 0, "2014-12-24": 0, "2014-12-25": 0 }, "totalMm": 302 },
+        { "station": "Gua Musang", "district": "Gua Musang", "jpsId": "0731071RF", "dailyMm": { "2014-12-20": 13, "2014-12-21": 65, "2014-12-22": 212, "2014-12-23": 116, "2014-12-24": 0, "2014-12-25": 0 }, "totalMm": 406 },
+        { "station": "Kg. Jeli", "district": "Jeli", "jpsId": "0731321RF", "dailyMm": { "2014-12-20": 106, "2014-12-21": 70, "2014-12-22": 130, "2014-12-23": 39, "2014-12-24": 160, "2014-12-25": 60 }, "totalMm": 565 },
+        { "station": "Dabong", "district": "Kuala Krai", "jpsId": "0730941RF", "dailyMm": { "2014-12-20": 24, "2014-12-21": 78, "2014-12-22": 243, "2014-12-23": 154, "2014-12-24": 101, "2014-12-25": 0 }, "totalMm": 600 },
+        { "station": "Tualang", "district": "Kuala Krai", "jpsId": "0730971RF", "dailyMm": { "2014-12-20": 16, "2014-12-21": 82, "2014-12-22": 227, "2014-12-23": 164, "2014-12-24": 112, "2014-12-25": 8 }, "totalMm": 609 },
+        { "station": "Kuala Krai", "district": "Kuala Krai", "jpsId": "0730991RF", "dailyMm": { "2014-12-20": 38, "2014-12-21": 78, "2014-12-22": 155, "2014-12-23": 24, "2014-12-24": 211, "2014-12-25": 22 }, "totalMm": 528 },
+        { "station": "Kusial", "district": "Tanah Merah", "jpsId": "0731371RF", "dailyMm": { "2014-12-20": 121, "2014-12-21": 99, "2014-12-22": 83, "2014-12-23": 27, "2014-12-24": 261, "2014-12-25": 18 }, "totalMm": 609 },
+        { "station": "Jeti Kastam", "district": "Kota Bharu", "jpsId": null, "dailyMm": { "2014-12-20": 84, "2014-12-21": 32, "2014-12-22": 12, "2014-12-23": 5, "2014-12-24": 40, "2014-12-25": 6 }, "totalMm": 179 },
+        { "station": "Jenob", "district": "Tanah Merah", "jpsId": "0740261RF", "dailyMm": { "2014-12-20": 110, "2014-12-21": 96, "2014-12-22": 70, "2014-12-23": 46, "2014-12-24": 181, "2014-12-25": 15 }, "totalMm": 518 },
+        { "station": "Rantau Panjang", "district": "Pasir Mas", "jpsId": "0740121RF", "dailyMm": { "2014-12-20": 58, "2014-12-21": 59, "2014-12-22": 20, "2014-12-23": 13, "2014-12-24": 77, "2014-12-25": 17 }, "totalMm": 244 },
+        { "station": "Pasir Putih", "district": "Pasir Puteh", "jpsId": "0731001RF", "dailyMm": { "2014-12-20": 105, "2014-12-21": 23, "2014-12-22": 29, "2014-12-23": 4, "2014-12-24": 60, "2014-12-25": 10 }, "totalMm": 231 }
+      ],
+      "dailyTotalsAllStationsMm": { "2014-12-20": 747, "2014-12-21": 1189, "2014-12-22": 2161, "2014-12-23": 1120, "2014-12-24": 1362, "2014-12-25": 188 },
+      "grandTotalMm": 6767
+    },
+    {
+      "id": "era5-open-meteo",
+      "title": "ERA5 reanalysis daily precipitation_sum via the Open-Meteo Archive API (cached response scripts/data/replay-2014/openmeteo-rain.json)",
+      "url": "https://archive-api.open-meteo.com/v1/archive?latitude=4.88,5.53,5.7,5.8,5.76,6.05,6.13,6.2,6.07,5.84&longitude=101.97,102.2,101.84,102.15,102.22,102.14,102.24,102.17,102.4,102.4&start_date=2014-12-10&end_date=2015-01-10&daily=precipitation_sum&timezone=Asia%2FKuala_Lumpur",
+      "used": true,
+      "note": "Denominator of each factor: the sum of the cached daily values 20–25 Dec at the district centre's grid point (era5WindowMm below)."
+    },
+    {
+      "id": "jps-parliament-944",
+      "title": "Written parliamentary reply, March 2015 (JPS explanation of the Dec 2014 Kelantan flood)",
+      "url": "https://pardocs.sinarproject.org/documents/2015-mar-apr/oral-questions/2015-03-24-parliamentary-replies/soalan-63.pdf",
+      "used": false,
+      "figure": "about 944 mm of rain over 15–24 December 2014 (Kelantan)",
+      "note": "Not used: the per-station USM table is more specific. Kept as the documented fallback (one Kelantan-wide factor) and as a sanity check."
+    }
+  ],
+  "districts": [
+    { "district": "Gua Musang", "gridLat": 4.8857646, "gridLon": 102.0, "stations": ["Gunung Gagau", "Kg. Aring", "Gua Musang"], "publishedMeanMm": 794, "era5WindowMm": 169.0, "factor": 4.6982, "caveat": "Mean includes Gunung Gagau (1,376 m, 1,522 mm), a mountain station far wetter than the valley; the factor is large because of it." },
+    { "district": "Kuala Krai", "gridLat": 5.5184536, "gridLon": 102.16418, "stations": ["Kg. Laloh", "Dabong", "Tualang", "Kuala Krai"], "publishedMeanMm": 509.75, "era5WindowMm": 295.4, "factor": 1.7256 },
+    { "district": "Jeli", "gridLat": 5.7293496, "gridLon": 101.82045, "stations": ["Kg. Jeli"], "publishedMeanMm": 565, "era5WindowMm": 363.9, "factor": 1.5526 },
+    { "district": "Tanah Merah", "gridLat": 5.799649, "gridLon": 102.12978, "stations": ["Kusial", "Jenob"], "publishedMeanMm": 563.5, "era5WindowMm": 316.5, "factor": 1.7804 },
+    { "district": "Pasir Mas", "gridLat": 6.0808434, "gridLon": 102.17029, "stations": ["Rantau Panjang"], "publishedMeanMm": 244, "era5WindowMm": 249.2, "factor": 0.9791 },
+    { "district": "Kota Bharu", "gridLat": 6.1511426, "gridLon": 102.25563, "stations": ["Jeti Kastam"], "publishedMeanMm": 179, "era5WindowMm": 249.2, "factor": 0.7183 },
+    { "district": "Pasir Puteh", "gridLat": 5.8699474, "gridLon": 102.36469, "stations": ["Pasir Putih"], "publishedMeanMm": 231, "era5WindowMm": 359.9, "factor": 0.6418 }
+  ],
+  "uncalibrated": [
+    { "district": "Machang", "reason": "No station for this district in the published table — ERA5 left unscaled." },
+    { "district": "Tumpat", "reason": "No station for this district in the published table — ERA5 left unscaled." },
+    { "district": "Bachok", "reason": "No station for this district in the published table — ERA5 left unscaled." }
+  ]
+}
