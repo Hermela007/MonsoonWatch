@@ -24,7 +24,7 @@ import { GEMINI_DEFAULTS, accountabilitySummary, buildAdvisories, buildAreaWarni
 import { applyEscalations, checkEscalation, escalateScreen, unsupportedNumbers, type EscalationVerdict } from "./escalation";
 import { geminiAI, type AgentAI, type RefineFeedback } from "./gemini-planners";
 import { planAllByRules, type GeminiReason } from "./rules-planner";
-import type { AtRiskVillage, VillagePlan } from "./schemas";
+import type { AtRiskVillage, OrchestratorPlan, VillagePlan } from "./schemas";
 import { buildRoadGraph, type RoadGraph } from "./route";
 import { shortlistForArgon, shortlistSummary, type VillageRisk } from "./shortlist";
 import { situationForPrompt, type Situation } from "./situation";
@@ -110,7 +110,15 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     // 1. Deterministic risk screen → lead orchestrator on the shortlist
     const shortlist = shortlistForArgon(s);
     await emitStep({ runId, actor: "Agent", kind: "info", status: "ok", summary: `${shortlistSummary(shortlist)}${test}`.slice(0, 300) });
-    const plan = await ai.planSituation(runId, s, shortlist);
+    // If Argon fails (quota, network, invalid output), the run continues: the rules planner covers
+    // every at-risk village from the screen's own evidence. Coverage never depends on Gemini.
+    let plan: OrchestratorPlan;
+    try {
+      plan = await ai.planSituation(runId, s, shortlist);
+    } catch (err) {
+      plan = { summary: "Argon unavailable", villages: [], escalations: [], sitrep: "" };
+      await emitStep({ runId, actor: "Gemini 4 Argon", kind: "plan", status: "fail", summary: `Argon unavailable (${(err as Error).message}) — continuing: rules plan every at-risk village from the screen's evidence`.slice(0, 300) });
+    }
     const known = new Map(s.villages.map((v) => [v._id, v]));
     const confirmed = plan.villages
       .filter((v) => known.has(v.villageId))

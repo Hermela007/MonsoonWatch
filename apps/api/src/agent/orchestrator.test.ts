@@ -268,3 +268,13 @@ test("every at-risk village ends with an alert even if Gemini is down", async ()
   assert.ok(getMemorySteps("t-rules-6").some((s) => /Coverage: 10 at-risk villages → 1 rules alerts, 0 Gemini alerts, 9 in area-wide/.test(s.summary)));
 });
 
+
+test("if Argon fails, the run still covers every at-risk village by rules", async () => {
+  const situation = makeSampleSituation();
+  const ai = scriptedAI();
+  ai.planSituation = async () => { throw new Error("429 quota"); };
+  const res = await runAgent({ situation, trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-argon-down", tailorTop: 0 });
+  assert.equal(res.run.status, "done");
+  assert.ok(getMemorySteps("t-argon-down").some((x) => /Argon unavailable \(429 quota\)/.test(x.summary)));
+  assertEveryVillageHasAlert(res, situation);
+});
