@@ -4,6 +4,7 @@
 //
 //   pnpm --filter @monsoonwatch/api exec tsx src/agent/research/run-landslide-research.ts
 //   pnpm --filter @monsoonwatch/api exec tsx src/agent/research/run-landslide-research.ts --save
+//   … --from-report [--save]   skip Deep Research: re-extract + re-check the saved report
 //
 // Always writes (commit these — judges and README link to them):
 //   src/agent/research/output/landslide-thresholds.<region>.json   thresholds + citations + checks
@@ -12,17 +13,18 @@
 // into `knowledge` as kind "deep_research" chunks (Automated Embedding picks them up).
 // Takes several minutes (Deep Research: most runs < 20 min).
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { COLLECTIONS, type KnowledgeChunk, type Region } from "@monsoonwatch/shared";
 import { closeDb, getDb } from "../../db/client";
 import { env } from "../../env";
 import { interact, interactJson } from "../gemini";
 import { AGENTS, MODELS } from "../models";
 import { emitStep } from "../steps";
-import { checkExtraction, chunkReport, collectSources, ThresholdExtractionSchema, toRegionLandslide } from "./thresholds";
+import { checkExtraction, chunkReport, collectSources, ThresholdExtractionSchema, toRegionLandslide, type Source } from "./thresholds";
 
 const regionId = process.argv.find((a) => a.startsWith("--region="))?.split("=")[1] ?? env.regionId;
 const save = process.argv.includes("--save");
+const fromReport = process.argv.includes("--from-report");
 const runId = `research-landslide-${regionId}-${Date.now()}`;
 const out = (name: string) => new URL(`./output/${name}`, import.meta.url);
 
@@ -41,27 +43,51 @@ Write a structured report: a short summary, then a table of thresholds (value, a
 level, region the study covers, source), then caveats on uncertainty and applicability to the Kelantan
 valley. Put the full URL of each source next to the values it supports.`;
 
-const EXTRACT_INSTRUCTION = `You extract landslide thresholds from a Deep Research report for an early-warning screening model.
-Use ONLY values stated in the report and cite the numbered source that states them (from the sources list).
-Never invent a number or a source. If the report gives one threshold rather than three levels, map it
-honestly (e.g. the published threshold = "warning") and explain the mapping in notes. Prefer 3-day
-cumulative rainfall if available. Return only JSON matching the schema.`;
+// Team decision (24 Oct, "option A"): keep three cited levels even though their windows differ,
+// and show the caveats openly rather than inventing Kelantan-specific numbers.
+export const DECISION =
+  "Option A (team, 24 Oct): alert = national empirical 3-day threshold (50% landslide probability; may " +
+  "over-warn in Kelantan's monsoon); warning and danger = published operational 1-day criteria " +
+  "(JKR/JICA early-warning criterion; MetMalaysia continuous-heavy-rain danger warning). Mixed windows: " +
+  "each level is checked against its own window. Screening use only.";
 
-console.log(`Deep Research for ${regionId} — this takes several minutes…`);
+const EXTRACT_INSTRUCTION = `You extract landslide thresholds from a Deep Research report for an early-warning SCREENING model.
+Use ONLY values stated in the report and cite the numbered source that states them (from the sources list).
+Never invent a number or a source. Copy each quote EXACTLY from the report text.
+
+Use this level mapping (the team's decision):
+- alert   = the national empirical cumulative 3-day threshold (e.g. 50% landslide-initiation probability).
+- warning = the published operational 1-day criterion used by JKR / the JICA early-warning criteria.
+- danger  = the published 1-day MetMalaysia continuous-heavy-rain danger threshold.
+- slope   = the minimum slope angle Malaysian guidance treats as landslide-prone.
+For each level, write a one-sentence caveat on applicability to Kelantan (the report discusses this:
+e.g. national/West-Coast values may over-warn during the Northeast Monsoon; a weather warning is not a
+landslide study). Put the overall reasoning in notes. Return only JSON matching the schema.`;
+
 try {
-  const research = await interact({
-    runId,
-    agent: AGENTS.deepResearch,
-    agentConfig: { type: "deep-research", thinking_summaries: "none", visualization: "off", collaborative_planning: false },
-    kind: "tool",
-    summary: "Deep Research: published rainfall thresholds for landslides in Kelantan / Malaysia",
-    input: QUERY,
-  });
-  const report = research.text ?? "";
-  if (!report) throw new Error("Deep Research returned an empty report");
-  const sources = collectSources(research.raw, report);
-  writeFileSync(out(`landslide-report.${regionId}.md`), `${report}\n`);
-  console.log(`Report: ${report.length} chars, ${sources.length} sources found.`);
+  let report: string;
+  let sources: Source[];
+  if (fromReport) {
+    // Reuse the saved Deep Research output (report + the sources collected from its raw response).
+    report = readFileSync(out(`landslide-report.${regionId}.md`), "utf8");
+    sources = (JSON.parse(readFileSync(out(`landslide-thresholds.${regionId}.json`), "utf8")) as { sources: Source[] }).sources;
+    console.log(`Re-using saved report (${report.length} chars, ${sources.length} sources) — Deep Research not re-run.`);
+  } else {
+    console.log(`Deep Research for ${regionId} — this takes several minutes…`);
+    const research = await interact({
+      runId,
+      agent: AGENTS.deepResearch,
+      agentConfig: { type: "deep-research", thinking_summaries: "none", visualization: "off", collaborative_planning: false },
+      kind: "tool",
+      summary: "Deep Research: published rainfall thresholds for landslides in Kelantan / Malaysia",
+      input: QUERY,
+    });
+    report = research.text ?? "";
+    if (!report) throw new Error("Deep Research returned an empty report");
+    sources = collectSources(research.raw, report);
+    writeFileSync(out(`landslide-report.${regionId}.md`), `${report}\n`);
+    console.log(`Report: ${report.length} chars, ${sources.length} sources found.`);
+  }
 
   const { data: extraction } = await interactJson({
     runId,
@@ -74,11 +100,11 @@ try {
     schema: ThresholdExtractionSchema,
   });
 
-  const check = checkExtraction(extraction, sources);
+  const check = checkExtraction(extraction, sources, report);
   await emitStep({
     runId, actor: "Verification", kind: "verify", status: check.passed ? "ok" : "fail",
     summary: check.passed
-      ? `Landslide thresholds: every value cites a returned source and is plausible (${extraction.rainThresholdsMm.length} thresholds)`
+      ? `Landslide thresholds: every value cited, found verbatim in the report and plausible (${extraction.rainThresholdsMm.length} thresholds)${check.warnings.length ? " · mixed windows" : ""}`
       : `Landslide thresholds REJECTED: ${check.problems.join("; ")}`.slice(0, 240),
   });
 
@@ -88,7 +114,13 @@ try {
     generatedAt: new Date().toISOString(),
     method: `${AGENTS.deepResearch} report → ${MODELS.argon} extraction → deterministic checks`,
     label: "Screening thresholds from published sources — not a site-specific geotechnical assessment",
+    decision: DECISION,
     check,
+    // For C's stream processor (risk.js): one entry per level, with its own window.
+    levels: extraction.rainThresholdsMm.map((t) => ({
+      level: t.level, days: t.days, mm: t.mm, caveat: t.caveat,
+      source: sources.find((x) => x.index === t.source)?.url ?? null,
+    })),
     regionLandslide: landslide,
     extraction,
     sources,
@@ -96,7 +128,11 @@ try {
 
   console.log(`\nChecks: ${check.passed ? "PASSED" : "FAILED"}`);
   for (const p of check.problems) console.log(`  ✗ ${p}`);
-  for (const t of extraction.rainThresholdsMm) console.log(`  ${t.level.padEnd(7)} ${String(t.mm).padStart(5)} mm over ${t.days} d  [${t.source}] ${sources.find((s) => s.index === t.source)?.url ?? "?"}`);
+  for (const w of check.warnings) console.log(`  ⚠ ${w}`);
+  for (const t of extraction.rainThresholdsMm) {
+    console.log(`  ${t.level.padEnd(7)} ${String(t.mm).padStart(6)} mm over ${t.days} d  [${t.source}] ${sources.find((s) => s.index === t.source)?.url ?? "?"}`);
+    console.log(`          caveat: ${t.caveat}`);
+  }
   console.log(`  slope ≥ ${extraction.slopeMinDeg}°  [${extraction.slopeSource}]`);
   console.log(`  notes: ${extraction.notes}`);
   console.log(`\nWrote src/agent/research/output/landslide-thresholds.${regionId}.json and landslide-report.${regionId}.md`);

@@ -48,7 +48,8 @@ export const ThresholdExtractionSchema = z.object({
         days: z.number().describe("Accumulation period in days"),
         mm: z.number().describe("Cumulative rainfall in mm over `days`"),
         source: z.number().int().describe("Index of the source that states (or directly supports) this value"),
-        quote: z.string().describe("Short phrase from the report backing this value"),
+        quote: z.string().describe("Short phrase copied EXACTLY from the report that states this value"),
+        caveat: z.string().describe("One sentence on applicability to this region (e.g. derived elsewhere, may over-warn)"),
       }),
     )
     .describe("Cumulative rainfall thresholds; empty if the sources give none"),
@@ -56,11 +57,30 @@ export const ThresholdExtractionSchema = z.object({
 });
 export type ThresholdExtraction = z.infer<typeof ThresholdExtractionSchema>;
 
-export interface CheckResult { passed: boolean; problems: string[] }
+export interface CheckResult {
+  passed: boolean;
+  problems: string[];
+  /** Not failures, but must be visible to whoever uses the thresholds (e.g. mixed time windows). */
+  warnings: string[];
+}
 
-/** Deterministic checks on Argon's extraction. */
-export function checkExtraction(x: ThresholdExtraction, sources: Source[]): CheckResult {
+const norm = (t: string) => t.toLowerCase().replace(/[*_`|]/g, " ").replace(/\s+/g, " ").trim();
+/** "47.66" / "100" / "1,295" as written in the report (with or without thousands separators). */
+function numberInText(n: number, text: string): boolean {
+  const plain = String(n);
+  const withComma = n >= 1000 ? n.toLocaleString("en-US") : plain;
+  const re = new RegExp(`(^|[^0-9.])(${plain.replace(".", "\\.")}|${withComma.replace(/[.,]/g, (c) => `\\${c}`)})(?![0-9])`);
+  return re.test(text);
+}
+
+/**
+ * Deterministic checks on Argon's extraction. With `report`, each value must also appear in the
+ * report and each quote must be found in it verbatim (whitespace/markdown-insensitive).
+ */
+export function checkExtraction(x: ThresholdExtraction, sources: Source[], report?: string): CheckResult {
   const problems: string[] = [];
+  const warnings: string[] = [];
+  const text = report ? norm(report) : "";
   const known = new Set(sources.map((s) => s.index));
   if (sources.length === 0) problems.push("Deep Research returned no sources");
   if (!known.has(x.slopeSource)) problems.push(`slope cites source ${x.slopeSource}, which Deep Research did not return`);
@@ -71,6 +91,19 @@ export function checkExtraction(x: ThresholdExtraction, sources: Source[]): Chec
     if (!known.has(t.source)) problems.push(`${label} cites source ${t.source}, which Deep Research did not return`);
     if (!(t.days >= 1 && t.days <= 30)) problems.push(`${label}: days outside 1–30`);
     if (!(t.mm >= 10 && t.mm <= 2000)) problems.push(`${label}: mm outside 10–2000`);
+    if (report) {
+      if (!numberInText(t.mm, report)) problems.push(`${label}: the value ${t.mm} does not appear in the report`);
+      if (!t.quote.trim() || !text.includes(norm(t.quote))) problems.push(`${label}: quote not found verbatim in the report`);
+    }
+    if (!t.caveat.trim()) problems.push(`${label}: missing caveat`);
+  }
+  if (report && !numberInText(x.slopeMinDeg, report)) problems.push(`slope ${x.slopeMinDeg}° does not appear in the report`);
+  const windows = [...new Set(x.rainThresholdsMm.map((t) => t.days))];
+  if (windows.length > 1) {
+    warnings.push(
+      `Mixed accumulation windows (${x.rainThresholdsMm.map((t) => `${t.level} ${t.days}-day`).join(", ")}): ` +
+        "each level must be checked against its own window",
+    );
   }
   const order = ["alert", "warning", "danger"] as const;
   for (const days of new Set(x.rainThresholdsMm.map((t) => t.days))) {
@@ -80,7 +113,7 @@ export function checkExtraction(x: ThresholdExtraction, sources: Source[]): Chec
       if (lo !== undefined && hi !== undefined && hi <= lo) problems.push(`${days}-day thresholds must rise alert < warning < danger`);
     }
   }
-  return { passed: problems.length === 0, problems };
+  return { passed: problems.length === 0, problems, warnings };
 }
 
 /** Region.landslide (§1.6 decision 6): only sources actually cited by a value are kept. */
