@@ -2,8 +2,9 @@
 //   mode "live":   latest live readings, risk events from the last 24 h.
 //   mode "replay": the 2014 replay as of `at` (the replay clock) — latest replay reading per
 //                  station / GloFAS cell at or before `at`, replay risk events in the 24 h before.
-// Hazards (flooded segments, landslide runouts) come from C6 `/hazards` once it exists — until
-// then they are empty.
+// Hazards: C6 getHazards (flooded road segments from the water model; landslide from our screening
+// model, registered as its landslide provider). Villages near a landslide runout get a
+// `landslide_screen` risk event so the agent can cite it and verify.ts can check it.
 
 import {
   COLLECTIONS,
@@ -13,6 +14,9 @@ import {
 import { getDb } from "../db/client";
 import { toReading, type ReadingDoc } from "../db/readings";
 import { serialize } from "../events/change-streams";
+import { getHazards } from "../hazards";
+import { landslideEventsForVillages } from "./landslide";
+import { computeLandslideDetailed, registerLandslideProvider } from "./landslide-provider";
 import type { Situation } from "./situation";
 
 const RISK_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -69,17 +73,29 @@ export async function loadSituationFromDb(regionId: string, opts: LoadOptions = 
   ]);
   const roads: RoadFeature[] = roadDocs.map((d) => ({ type: "Feature", id: d._id, geometry: d.geometry, properties: d.properties }));
 
+  registerLandslideProvider();
+  const hazards = await getHazards(regionId, at, mode);
+  const detail = await computeLandslideDetailed(regionId, at, mode).catch(() => null);
+  const landslideEvents = detail ? landslideEventsForVillages(regionId, at.toISOString(), villages, detail.landslide, detail.sources) : [];
+
   return {
     region,
     mode,
     now: at,
     stations: withLatest,
-    riskEvents,
+    riskEvents: [...riskEvents, ...landslideEvents],
     villages,
     centres,
     roads,
-    // TODO(C6): use /regions/:id/hazards (blockedRoadIds + runouts) when it lands.
-    hazards: { blockedRoadIds: [], blockedRoads: { type: "MultiLineString", coordinates: [] }, landslide: { cells: [], runouts: [] } },
+    hazards: {
+      blockedRoadIds: hazards.blockedRoadIds,
+      blockedRoads: hazards.blockedRoads,
+      landslide: detail?.landslide ?? hazards.landslide,
+    },
+    hazardNotes: [
+      ...hazards.notes,
+      ...(detail ? [`Landslide SCREENING (not a site survey): thresholds from ${detail.configSource}; ${detail.landslide.runouts.length} runouts.`] : []),
+    ],
     knowledge: knowledge.map((k) => serialize<KnowledgeChunk>(k)),
     glofas: cells.map((c) => ({ id: c.id, label: c.label, lngLat: c.lngLat, latest: byId.get(c.id) ?? null })),
     isTestData: false,
