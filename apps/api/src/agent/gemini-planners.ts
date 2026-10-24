@@ -1,12 +1,16 @@
-// The two Gemini planners behind the orchestrator. Kept behind a small interface (AgentAI) so the
-// plan → verify → replan loop can be tested without network calls (orchestrator.test.ts).
+// The Gemini planners behind the orchestrator, behind a small interface (AgentAI) so the
+// draft → verify → refine loop can be tested without network calls (orchestrator.test.ts).
 //
 //   planSituation: Gemini 4 Argon, thinking "high" — whole region in one context.
-//   planVillage:   Gemini 3.8 Flash, one per village, in parallel — tools: list_evac_centres,
-//                  plan_route, suggest_pickups. Replans continue the same interaction with the
-//                  failure reasons (previous_interaction_id), tools re-specified each turn.
+//   draftVillage:  Gemini 3.5 Flash-Lite, no tools — a fast first plan per village. It has no
+//                  road/flood information, so the checks genuinely catch its mistakes.
+//   planVillage:   Gemini 3.8 Flash, thinking "low", tools list_evac_centres, plan_route,
+//                  suggest_pickups, and submit_plan (the plan arrives as a validated tool call).
+//                  A replan answers that submit_plan call with the verification failures, in the
+//                  same interaction (previous_interaction_id), so Flash fixes its own plan.
 
 import { readFileSync } from "node:fs";
+import { z } from "zod";
 import type { Village } from "@monsoonwatch/shared";
 import { interactJson } from "./gemini";
 import { haversineKm } from "./geo";
@@ -14,7 +18,7 @@ import { MODELS } from "./models";
 import { planRoute, type RoadGraph, type RouteMode } from "./route";
 import { OrchestratorPlanSchema, VillagePlanSchema, type AtRiskVillage, type OrchestratorPlan, type VillagePlan } from "./schemas";
 import { situationForPrompt, type Situation } from "./situation";
-import { runWithTools, type AgentTool } from "./tool-loop";
+import { runWithTools, submitResult, type AgentTool, type ToolLoopResult } from "./tool-loop";
 import { suggestPickups } from "./vulnerable";
 
 const prompt = (name: string) => readFileSync(new URL(`./prompts/${name}.md`, import.meta.url), "utf8");
@@ -27,13 +31,49 @@ export interface VillageTask {
   atRisk: AtRiskVillage;
 }
 
+/** Opaque handle to continue a Flash interaction (its open submit_plan call). */
+export interface VillageContinuation {
+  interactionId: string;
+  submitted: NonNullable<ToolLoopResult["submitted"]>;
+}
+
+export interface RefineFeedback {
+  /** Bullet list of failed checks. */
+  reasons: string;
+  /** The plan that failed (the draft, on the first refine). */
+  failedPlan?: VillagePlan;
+  continuation?: VillageContinuation;
+}
+
 export interface AgentAI {
   planSituation(runId: string, situation: Situation): Promise<OrchestratorPlan>;
-  /** `feedback` = failure reasons from the checks (replan); `continueFrom` = previous interaction id. */
-  planVillage(task: VillageTask, feedback?: { reasons: string; continueFrom?: string }): Promise<{ plan: VillagePlan; interactionId?: string }>;
+  draftVillage(task: VillageTask): Promise<VillagePlan>;
+  planVillage(task: VillageTask, feedback?: RefineFeedback): Promise<{ plan: VillagePlan; continuation?: VillageContinuation }>;
 }
 
 const tag = (s: Situation) => (s.isTestData ? " [TEST DATA]" : "");
+
+function centresFor(s: Situation, village: Village) {
+  return s.centres
+    .map((c) => ({
+      id: c._id, name: c.name, capacity: c.capacity, headcount: c.headcount,
+      freePlaces: c.capacity - c.headcount, elevationM: c.elevationM,
+      distanceKm: Math.round(haversineKm(village.location.coordinates, c.location.coordinates) * 10) / 10,
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
+function villageBrief(task: VillageTask) {
+  const { situation: s, village, atRisk } = task;
+  return {
+    village: { id: village._id, name: village.name, population: village.population, vulnerable: village.vulnerable ?? null },
+    hazard: atRisk.hazard, level: atRisk.level, etaHours: atRisk.etaHours, leadPlannerReasoning: atRisk.reasoning,
+    languages: s.region.languages, maxMessageChars: 500, testData: s.isTestData,
+  };
+}
+
+// JSON Schema for submit_plan's parameters, generated from the same zod schema we validate with.
+const { $schema: _drop, ...PLAN_PARAMS } = z.toJSONSchema(VillagePlanSchema) as Record<string, unknown>;
 
 function villageTools(task: VillageTask): AgentTool[] {
   const { situation: s, graph, village } = task;
@@ -46,14 +86,7 @@ function villageTools(task: VillageTask): AgentTool[] {
         description: "Evacuation centres with free places and straight-line distance from the village, nearest first.",
         parameters: { type: "object", properties: {}, required: [] },
       },
-      run: () =>
-        s.centres
-          .map((c) => ({
-            id: c._id, name: c.name, capacity: c.capacity, headcount: c.headcount,
-            freePlaces: c.capacity - c.headcount, elevationM: c.elevationM,
-            distanceKm: Math.round(haversineKm(village.location.coordinates, c.location.coordinates) * 10) / 10,
-          }))
-          .sort((a, b) => a.distanceKm - b.distanceKm),
+      run: () => centresFor(s, village),
       describe: (_a, r) => `${village.name}: ${(r as unknown[]).length} centres listed`,
     },
     {
@@ -97,6 +130,22 @@ function villageTools(task: VillageTask): AgentTool[] {
       run: (args) => suggestPickups(village, Boolean(args.routeCrossesFlood)),
       describe: (_a, r) => `${village.name}: ${(r as unknown[]).length} pickup groups suggested`,
     },
+    {
+      actor: "Gemini 3.8 Flash",
+      submit: true,
+      decl: {
+        type: "function",
+        name: "submit_plan",
+        description: "Submit your final evacuation plan for this village. It is checked by code; you will get the verdict back.",
+        parameters: PLAN_PARAMS,
+      },
+      run: (args) => {
+        const r = VillagePlanSchema.safeParse(args);
+        if (!r.success) throw new Error(`Plan does not match the schema: ${z.prettifyError(r.error).slice(0, 600)}`);
+        return r.data;
+      },
+      describe: (_a, r) => `${village.name}: plan submitted (${(r as VillagePlan).groups.length} group(s)) → verifying`,
+    },
   ];
 }
 
@@ -115,54 +164,68 @@ export const geminiAI: AgentAI = {
     return data;
   },
 
-  async planVillage(task, feedback) {
-    const { runId, situation: s, village, atRisk } = task;
-    const input = feedback
-      ? `Verification FAILED. Fix exactly these problems and return the whole corrected plan:\n${feedback.reasons}`
-      : JSON.stringify({
-          village: { id: village._id, name: village.name, population: village.population, vulnerable: village.vulnerable ?? null },
-          hazard: atRisk.hazard, level: atRisk.level, etaHours: atRisk.etaHours, leadPlannerReasoning: atRisk.reasoning,
-          languages: s.region.languages, maxMessageChars: 500, testData: s.isTestData,
-        });
-    const result = await runWithTools({
-      runId,
-      model: MODELS.flash,
-      thinkingLevel: "medium",
-      kind: feedback ? "replan" : "subagent",
-      summary: `${feedback ? "Replanning" : "Planning"} ${village.name}${tag(s)}`,
-      systemInstruction: prompt("village-subagent"),
-      input,
-      // No response_format here: combining it with function tools is not confirmed in the docs we
-      // checked. The prompt asks for JSON; if the answer isn't valid, we ask once more below with
-      // the schema enforced (no tools).
-      previousInteractionId: feedback?.continueFrom,
-      agentTools: villageTools(task),
-    });
-    // Final answer must be JSON; if it isn't, ask once more in the same interaction with the schema.
-    const parsed = tryParse(result.text);
-    if (parsed) return { plan: parsed, interactionId: result.id };
-    const { data, result: fixed } = await interactJson({
-      runId,
-      model: MODELS.flash,
+  async draftVillage(task) {
+    const { data } = await interactJson({
+      runId: task.runId,
+      model: MODELS.flashLite,
       thinkingLevel: "low",
       kind: "subagent",
-      summary: `${village.name}: final plan as JSON`,
-      systemInstruction: prompt("village-subagent"),
-      input: "Return your final plan now, as JSON matching the schema.",
-      previousInteractionId: result.id,
+      summary: `Quick draft for ${task.village.name}${tag(task.situation)}`,
+      systemInstruction: prompt("village-draft"),
+      input: JSON.stringify({ ...villageBrief(task), evacCentres: centresFor(task.situation, task.village) }),
       schema: VillagePlanSchema,
     });
-    return { plan: data, interactionId: fixed.id };
+    return data;
+  },
+
+  async planVillage(task, feedback) {
+    const { runId, situation: s, village } = task;
+    const tools = villageTools(task);
+    const base = {
+      runId,
+      model: MODELS.flash,
+      thinkingLevel: "low" as const,
+      systemInstruction: prompt("village-subagent"),
+      agentTools: tools,
+    };
+    const verdict = feedback
+      ? `VERIFICATION FAILED. Fix exactly these problems, use the tools to check, then call submit_plan again with the whole corrected plan:\n${feedback.reasons}`
+      : "";
+
+    let result: ToolLoopResult | undefined;
+    if (feedback?.continuation) {
+      // Answer our own open submit_plan call with the verdict (documented function_result pattern).
+      try {
+        result = await runWithTools({
+          ...base, kind: "replan", summary: `Replanning ${village.name}${tag(s)}`,
+          input: submitResult(feedback.continuation.submitted, verdict),
+          previousInteractionId: feedback.continuation.interactionId,
+        });
+      } catch {
+        result = undefined; // fall back to a fresh interaction below
+      }
+    }
+    if (!result) {
+      const intro = { ...villageBrief(task), ...(feedback?.failedPlan ? { previousPlanThatFailed: feedback.failedPlan } : {}) };
+      result = await runWithTools({
+        ...base,
+        kind: feedback ? "replan" : "subagent",
+        summary: `${feedback ? "Refining" : "Planning"} ${village.name}${tag(s)}`,
+        input: `${JSON.stringify(intro)}${feedback ? `\n\n${verdict}` : ""}`,
+      });
+    }
+    if (!result.submitted) {
+      // Answered in text instead of calling the tool: ask once to submit.
+      result = await runWithTools({
+        ...base, kind: "subagent", summary: `${village.name}: asking for submit_plan`,
+        input: "Call submit_plan now with your final plan.",
+        previousInteractionId: result.id,
+      });
+    }
+    if (!result.submitted) throw new Error(`${village.name}: Flash did not submit a plan`);
+    return {
+      plan: result.submitted.value as VillagePlan,
+      continuation: { interactionId: result.id, submitted: result.submitted },
+    };
   },
 };
-
-function tryParse(text: string | null): VillagePlan | null {
-  if (!text) return null;
-  const json = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-  try {
-    const r = VillagePlanSchema.safeParse(JSON.parse(json));
-    return r.success ? r.data : null;
-  } catch {
-    return null;
-  }
-}

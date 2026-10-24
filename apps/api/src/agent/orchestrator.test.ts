@@ -76,10 +76,14 @@ function scriptedAI(): AgentAI & { calls: string[] } {
         ],
       };
     },
+    async draftVillage(task) {
+      calls.push(`${task.village._id}:draft`);
+      return task.village._id === "test-kg-tualang" ? tualang : naive;
+    },
     async planVillage(task, feedback) {
-      calls.push(`${task.village._id}:${feedback ? "replan" : "plan"}`);
+      calls.push(`${task.village._id}:${feedback ? "refine" : "plan"}`);
       if (task.village._id === "test-kg-tualang") return { plan: tualang };
-      return { plan: feedback ? fixed : naive, interactionId: "i-1" };
+      return { plan: fixed };
     },
   };
 }
@@ -97,7 +101,7 @@ test("fail → replan → pass for Manik Urai; Tualang passes first time; unknow
   assert.equal(manik.alerts.length, 2);
   assert.ok(manik.alerts.every((a) => a.status === "verified"));
   assert.equal(outcomes.find((o) => o.villageId === "test-kg-tualang")!.attempts, 1);
-  assert.deepEqual(ai.calls.sort(), ["test-kg-manik-urai:plan", "test-kg-manik-urai:replan", "test-kg-tualang:plan"]);
+  assert.deepEqual(ai.calls.sort(), ["test-kg-manik-urai:draft", "test-kg-manik-urai:refine", "test-kg-tualang:draft"]);
 
   const steps = getMemorySteps("t-run-1");
   const failed = steps.filter((s) => s.kind === "verify" && s.status === "fail").map((s) => s.summary).join("\n");
@@ -107,13 +111,13 @@ test("fail → replan → pass for Manik Urai; Tualang passes first time; unknow
   assert.ok(steps.some((s) => /Kg\. Manik Urai: all checks passed on attempt 2/.test(s.summary)));
 });
 
-test("a village that never passes stays draft (not approvable) after 3 attempts", async () => {
+test("a village that never passes stays draft (not approvable) after draft + 3 refines", async () => {
   const ai = scriptedAI();
   ai.planVillage = async (task) => ({ plan: task.village._id === "test-kg-tualang" ? tualang : naive });
   const { outcomes } = await runAgent({ situation: makeSampleSituation(), trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-2" });
   const manik = outcomes.find((o) => o.villageId === "test-kg-manik-urai")!;
   assert.equal(manik.passed, false);
-  assert.equal(manik.attempts, 3);
+  assert.equal(manik.attempts, 4);
   assert.ok(manik.alerts.every((a) => a.status === "draft"));
 });
 
@@ -121,9 +125,18 @@ test("a road route through floodwater fails the route check", async () => {
   const ai = scriptedAI();
   const bad: VillagePlan = structuredClone(fixed);
   bad.groups[0]!.routeMode = "road";
+  ai.draftVillage = async (task) => (task.village._id === "test-kg-tualang" ? tualang : bad);
   ai.planVillage = async (task) => ({ plan: task.village._id === "test-kg-tualang" ? tualang : bad });
   const { outcomes } = await runAgent({ situation: makeSampleSituation(), trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-3" });
   const route = outcomes.find((o) => o.villageId === "test-kg-manik-urai")!.alerts[0]!.verification.find((r) => r.check === "route" && !r.passed);
   assert.ok(route, "expected a failed route check");
   assert.match(route.detail, /flooded road segment|No dry road route/);
+});
+
+test("if the draft call itself fails, Flash plans from scratch", async () => {
+  const ai = scriptedAI();
+  ai.draftVillage = async () => { throw new Error("Flash-Lite unavailable"); };
+  const { outcomes } = await runAgent({ situation: makeSampleSituation(), trigger: { type: "manual" }, ai, store: memoryStore(), runId: "t-run-4" });
+  assert.ok(outcomes.every((o) => o.passed));
+  assert.ok(getMemorySteps("t-run-4").some((st) => st.actor === "Gemini 3.5 Flash-Lite" && st.status === "fail"));
 });
