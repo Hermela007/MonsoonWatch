@@ -9,7 +9,7 @@ import { createKnowledgeSearch } from './ui/knowledge';
 import { cellLngLat, gridCoords, nearestCell, sampleField } from './terrain/heightmap';
 import { analyseHydrology, depthAt } from './terrain/hydrology';
 import { findSlideSources, type SlideSource } from './terrain/landslide';
-import { assessHome, neighbourhood } from './terrain/homeRisk';
+import { assessHome, neighbourhood, type HomeRisk } from './terrain/homeRisk';
 import { routeToSafeGround } from './terrain/route';
 import { createStage } from './scene/stage';
 import { createCameraDirector, type Shot } from './scene/camera';
@@ -32,11 +32,13 @@ import { createControlUi } from './ui/control';
 import { decideAreaWarning, fetchEvacCentres, fetchVillages } from './api/client';
 import type { AreaWarning } from '@monsoonwatch/shared';
 import type { Alert, EvacCentre } from '@monsoonwatch/shared';
-import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, REPLAY_START_MS, peakHour, rainAccumulated, rainIntensity, replayDate, setRealSeries, stageM } from './data/replay2014';
+import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, REPLAY_START_MS, peakHour, rainAccumulated, rainAccumulatedMm, rainIntensity, replayDate, setRealSeries, stageM } from './data/replay2014';
 import { fetchEvacuationRoute, parseEvacuationRoute, type RouteResult } from './api/evacuationRoute';
 import { journeyView, type JourneyView } from './ui/journey';
 import { relocateRoute } from './ui/relocateRoute';
 import { createRouteMarkers } from './layers/routeMarkers';
+import { loadScreening } from './api/screening';
+import { screenPlace, type ScreenRunout } from './terrain/screening';
 import { searchAddresses } from './maps/addressSearch';
 import type { Padding, RouteMap2d } from './maps/routeMap2d';
 import type { EvacuationRoute, TravelMode } from '@monsoonwatch/shared';
@@ -97,12 +99,66 @@ async function main() {
   const SLAB_DEPTH = 2.2;
   const valley = createValley(hm, hy, frame, stage.fogColor, boundary.texture, kelRing);
   // State-wide landslide hotspots (inside Kelantan only).
-  const hotspotSources = findSlideSources(hm, hy, { minSlopeDeg: 26, minElevM: 150, spacingKm: 9, max: 30 }).filter((h) => {
+  let hotspotSources = findSlideSources(hm, hy, { minSlopeDeg: 26, minElevM: 150, spacingKm: 9, max: 30 }).filter((h) => {
     const r = Math.floor(h.cell / hm.cols);
     return boundary.inside(cellLngLat(hm, h.cell - r * hm.cols, r));
   });
-  const hotspots = createLandslides(hotspotSources, hm, frame, stage.fogColor, { mask: boundary.texture, tubeRadiusKm: 0.09, labelled: 1, labelText: 'Landslide risk', labelSpacingKm: 60 });
+  const hotspotOpts = { mask: boundary.texture, tubeRadiusKm: 0.09, labelled: 1, labelText: 'Landslide risk', labelSpacingKm: 60 };
+  let hotspots = createLandslides(hotspotSources, hm, frame, stage.fogColor, hotspotOpts);
   scene.add(hotspots.group);
+
+  // ---- Landslide screening shared with the agent (GET /hazards) -------------------------------------
+  // The agent screens villages with its runouts (cited rain thresholds, slope ≥ 25°, within 1 km). Once
+  // loaded, the resident card, the map's landslide hollows and the street view all use the same runouts,
+  // so the app never says "landslide HIGH" where the agent sees none. Until then (or offline) the local
+  // terrain estimate stands in, labelled as such.
+  let screening: ScreenRunout[] | null = null;
+  let screenSources: SlideSource[] | null = null;
+  const toSlideSource = (r: ScreenRunout): SlideSource | null => {
+    const path: number[] = [];
+    for (const ll of r.coords) {
+      const c = nearestCell(hm, ll);
+      if (c !== null && path[path.length - 1] !== c) path.push(c);
+    }
+    if (!path.length) return null;
+    // It "fails" in the animations only once the screening puts it at WARNING or DANGER; an ALERT-only slope
+    // stays an at-risk zone (no failure is shown that the agent's model doesn't support).
+    const failHour = r.highHour;
+    let lengthKm = 0;
+    for (let i = 1; i < path.length; i++) lengthKm += cellWorld(path[i]).distanceTo(cellWorld(path[i - 1]));
+    return {
+      cell: path[0],
+      slopeDeg: hy.slopeDeg[path[0]],
+      elevM: hm.elevM[path[0]],
+      triggerRainAcc: failHour === null ? Infinity : rainAccumulated(failHour),
+      triggerMm: failHour === null ? Infinity : rainAccumulatedMm(failHour),
+      path,
+      lengthKm,
+      reachesRiver: path.some((c) => hy.riverMask[c]),
+      screen: { level: r.maxLevel, key: r.key },
+    };
+  };
+  /** The card's landslide part from the screening (flood part unchanged): the agent's 1 km rule. */
+  const withScreening = (risk: HomeRisk, lngLat: LngLat, near: SlideSource[]): HomeRisk => {
+    const sc = screenPlace(lngLat, screening ?? []);
+    const slide = sc.runout ? near.find((s) => s.screen?.key === sc.runout!.key) ?? toSlideSource(sc.runout) : null;
+    const rank = { low: 0, medium: 1, high: 2 } as const;
+    const level = rank[risk.floodLevel] >= rank[sc.level] ? risk.floodLevel : sc.level;
+    return { ...risk, level, slide, slideHour: sc.hour, slideDistM: sc.distM, slideLevel: sc.level };
+  };
+  const applyScreening = (runouts: ScreenRunout[]) => {
+    screening = runouts.filter((r) => r.coords.some((c) => boundary.inside(c)));
+    screenSources = screening.map(toSlideSource).filter((x): x is SlideSource => !!x);
+    // State-wide hollows on the landing: the agent's runouts.
+    scene.remove(hotspots.group);
+    hotspots.dispose();
+    hotspotSources = screenSources;
+    hotspots = createLandslides(hotspotSources, hm, frame, stage.fogColor, hotspotOpts);
+    scene.add(hotspots.group);
+    rebuildPlaces();
+    // A place already open is re-read with the screening (unless the resident is in the street or on a route).
+    if (homeLngLat && !inStreet && !routeOpen && document.body.dataset.view === 'result') selectHome(homeLngLat, homePlace, false);
+  };
   const apiHazards = createApiHazards(hm, frame, real.rivers, boundary.inside);
   scene.add(apiHazards.group);
 
@@ -136,6 +192,8 @@ async function main() {
   /** Flagged slopes around a home: close detailed search + wider one + state-wide hotspots nearby. One
    *  function so the place list, the card and the street always agree. */
   const slopesNear = (cell: number): SlideSource[] => {
+    // With the agent's screening loaded, these are its runouts — the same slopes the agent warns about.
+    if (screenSources) return screenSources.filter((s) => s.path.some((c) => cellWorld(c).distanceTo(cellWorld(cell)) < FOCUS_KM));
     const close = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 0.8, max: 6, near: { cell, radiusKm: 2.5 } });
     const wide = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 1.2, max: 8, near: { cell, radiusKm: FOCUS_KM } });
     const out = [...close];
@@ -436,7 +494,7 @@ async function main() {
     housesFor = loadAreaFor(lngLat).catch(() => null);
     const local = slopesNear(cell);
     localSlides = local;
-    const risk = assessHome(hm, hy, cell, local);
+    const risk = screening ? withScreening(assessHome(hm, hy, cell, []), lngLat, local) : assessHome(hm, hy, cell, local);
     const avoid = new Uint8Array(hm.cols * hm.rows);
     for (const s of local) for (const c of s.path) for (const i of neighbourhood(hm, c, 1)) avoid[i] = 1;
     // If the home area is at risk, "higher ground" must be outside it.
@@ -476,7 +534,7 @@ async function main() {
     const upstreamSlopes = hotspotSources.filter((h) => hm.elevM[h.cell] > hm.elevM[cell] + 50 && cellWorld(h.cell).distanceTo(cellWorld(cell)) < 30).length;
     closeRoute(false);
     journey = null;
-    ui!.showResult({ place, risk, nowHour: NOW_HOUR, route, upstreamSlopes });
+    ui!.showResult({ place, risk, nowHour: NOW_HOUR, route, upstreamSlopes, screening: !!screening });
     homePlace = place;
     refreshOfficial();
     syncUrl({ place, lngLat, named: namedPlace });
@@ -683,20 +741,28 @@ async function main() {
   layoutShift();
   ui.ready();
 
-  // Places where both hazards meet: REAL villages that a flagged slope's runout reaches
-  // (the same test the resident view runs), preferring ones that also face flooding.
-  const hillPlaces: Town[] = [];
-  {
+  // Places where both hazards meet: REAL villages that a flagged slope's runout reaches (the same test the
+  // resident card runs), preferring ones that also face flooding. Rebuilt when the agent's screening arrives,
+  // so a "landslide" tag in the list always matches what the card and the agent say.
+  let hillPlaces: Town[] = [];
+  let allPlaces: Town[] = [];
+  const rebuildPlaces = () => {
     const scored: { town: Town; score: number }[] = [];
     for (const v of real.villages) {
       if (v.kind === 'city') continue;
       const cell = nearestCell(hm, v.lngLat);
-      if (cell === null || hy.seaMask[cell] || hy.slopeDeg[cell] > 25) continue;
-      // Quick pre-check (close search only), then the shared search used by the card.
-      const quick = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 0.8, max: 6, near: { cell, radiusKm: 2.5 } });
-      if (!quick.length || assessHome(hm, hy, cell, quick).slideLevel !== 'high') continue;
-      const local = slopesNear(cell);
-      const r = assessHome(hm, hy, cell, local);
+      if (cell === null || hy.seaMask[cell] || !boundary.inside(v.lngLat)) continue;
+      let r: HomeRisk;
+      if (screening) {
+        if (screenPlace(v.lngLat, screening).level !== 'high') continue;
+        r = withScreening(assessHome(hm, hy, cell, []), v.lngLat, slopesNear(cell));
+      } else {
+        if (hy.slopeDeg[cell] > 25) continue;
+        // Quick pre-check (close search only), then the shared search used by the card.
+        const quick = findSlideSources(hm, hy, { minSlopeDeg: 24, minElevM: 80, spacingKm: 0.8, max: 6, near: { cell, radiusKm: 2.5 } });
+        if (!quick.length || assessHome(hm, hy, cell, quick).slideLevel !== 'high') continue;
+        r = assessHome(hm, hy, cell, slopesNear(cell));
+      }
       if (r.slideLevel !== 'high' || !r.slide) continue;
       // Feature only slopes inside Kelantan: the model has no ground beyond the border to show them on.
       const sr = Math.floor(r.slide.cell / hm.cols);
@@ -706,16 +772,18 @@ async function main() {
     }
     // One landslide-only village (the clearest demo of a slope failing), then the steepest
     // landslide + flood village (the cascade), then the next landslide-only one.
-    const slideOnly = scored.filter((s) => s.score < 100).sort((a, b) => b.score - a.score);
-    const both = scored.filter((s) => s.score >= 100).sort((a, b) => b.score - a.score);
-    for (const s of [slideOnly[0], both[0], slideOnly[1], both[1]]) if (s && hillPlaces.length < 3 && !hillPlaces.some((p) => p.name === s.town.name)) hillPlaces.push(s.town);
-  }
-  // Lead with one flood place and one landslide place; everything else is searchable.
-  const ordered = [realByName('Kuala Krai'), ...hillPlaces.slice(0, 2), realByName('Dabong'), realByName('Kota Bharu')].filter(
-    (x): x is Town => !!x,
-  );
-  const allPlaces = [...ordered, ...hillPlaces.slice(2), ...realTowns.filter((t) => !ordered.some((o) => o.name === t.name))];
-  ui.setPlaces(allPlaces);
+    const slideOnly = scored.filter((x) => x.score < 100).sort((a, b) => b.score - a.score);
+    const both = scored.filter((x) => x.score >= 100).sort((a, b) => b.score - a.score);
+    hillPlaces = [];
+    for (const x of [slideOnly[0], both[0], slideOnly[1], both[1]]) if (x && hillPlaces.length < 3 && !hillPlaces.some((p) => p.name === x.town.name)) hillPlaces.push(x.town);
+    // Lead with one flood place and one landslide place; everything else is searchable.
+    const ordered = [realByName('Kuala Krai'), ...hillPlaces.slice(0, 2), realByName('Dabong'), realByName('Kota Bharu')].filter(
+      (x): x is Town => !!x,
+    );
+    allPlaces = [...ordered, ...hillPlaces.slice(2), ...realTowns.filter((t) => !ordered.some((o) => o.name === t.name))];
+    ui!.setPlaces(allPlaces);
+  };
+  rebuildPlaces();
 
   // Workstream C's data, when the API is up. Until then: local stand-ins.
   // Real candidate evacuation centres (schools, community halls) from C's data.
@@ -846,6 +914,7 @@ async function main() {
       else refreshHazards(true);
       if (m === 'live') {
         loadApiData();
+        if (!screening) void loadScreening(KELANTAN.id).then((r) => r && applyScreening(r));
         // A home chosen before the API connected (e.g. opened from a link) gets its route now.
         if (homeLngLat && !journey && !routeFixture) void requestJourney();
         void fetchSaintTasks().then((tasks) => tasks?.forEach((task) => control.task(task)));

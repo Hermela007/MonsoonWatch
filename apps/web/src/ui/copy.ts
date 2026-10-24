@@ -38,6 +38,8 @@ const COPY = {
   slideHighWhenDays: 'Rain on that slope may reach the danger point in about {d} days.',
   slideMedium: 'Steep slopes {d} away could slide. Avoid hillside roads.',
   slideLow: 'No unstable slopes near your home.',
+  slideScreen: 'Landslide screening on cited rain thresholds: shows where to check first, not an on-site survey.',
+  slideEstimate: 'Terrain estimate (the landslide screening is offline): illustrative thresholds.',
   slideUpstream: '{n} unstable slopes upstream could send mud and debris into the river.',
   slideUpstreamOne: '1 unstable slope upstream could send mud and debris into the river.',
   floodLow: 'Your area is not expected to flood.',

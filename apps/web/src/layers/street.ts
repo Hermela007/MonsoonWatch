@@ -310,7 +310,7 @@ export function createStreet(opts: {
   if (best && best.pts.length >= 3) {
     // A landslide street is framed wide (crown to toe, ~1 km), so the haze starts further out.
     if (scene.fog instanceof THREE.Fog) [scene.fog.near, scene.fog.far] = [1300, 3400];
-    slide = createStreetSlide({ path: best.pts, groundY, triggerMm: triggerRainMm(best.s.slopeDeg), sky, risk: THEME.slide, labels: opts.slideLabels, groundUniforms: slideU, fogRange: [1300, 3400] });
+    slide = createStreetSlide({ path: best.pts, groundY, triggerMm: best.s.triggerMm ?? triggerRainMm(best.s.slopeDeg), sky, risk: THEME.slide, labels: opts.slideLabels, groundUniforms: slideU, fogRange: [1300, 3400] });
     scene.add(slide.group);
     disposables.push(slide);
   }

@@ -19,6 +19,8 @@ export interface ResultView {
   route: SafeRoute | null;
   /** Flagged slopes in the hills upstream of the home (valley-wide screening). */
   upstreamSlopes: number;
+  /** True when the landslide part comes from the agent's screening (GET /hazards), false for the local estimate. */
+  screening?: boolean;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => {
@@ -61,6 +63,8 @@ export function describe(v: ResultView) {
     }
   } else if (risk.slideLevel === 'medium') slide.push(t('slideMedium', { d: fmtDistance(risk.slideDistM / 1000) }));
   else slide.push(t('slideLow'));
+  // Say which landslide model this is (the agent's screening, or the offline terrain estimate).
+  if (v.screening !== undefined && risk.slideLevel !== 'low') slide.push(v.screening ? t('slideScreen') : t('slideEstimate'));
   if (v.upstreamSlopes > 0) slide.push(v.upstreamSlopes === 1 ? t('slideUpstreamOne') : t('slideUpstream', { n: v.upstreamSlopes }));
 
   const action =

@@ -12,6 +12,10 @@ export interface SlideSource {
   path: number[];
   lengthKm: number;
   reachesRiver: boolean;
+  /** Set when the slope comes from the agent's screening (GET /hazards), so every view agrees with it. */
+  screen?: { level: 'alert' | 'warning' | 'danger'; key: string };
+  /** Accumulated rain (mm) at which it fails, when known from the screening; else from the slope. */
+  triggerMm?: number;
 }
 
 /**
