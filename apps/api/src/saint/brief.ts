@@ -3,18 +3,33 @@
 import type { Alert, AreaWarning, EvacCentre, Village } from "@monsoonwatch/shared";
 
 const LANG_LABEL: Record<string, string> = { ms: "BM", en: "EN" };
+/** Every alert goes out in both languages, exactly as approved (GUIDELINES §2). */
+export const REQUIRED_LANGS = ["ms", "en"] as const;
+const CATEGORY_LABEL: Record<string, string> = { bedridden: "bedridden", disabled: "disabled", elderly: "elderly", noTransport: "without transport" };
 
-function routeKm(alert: Pick<Alert, "route">): number {
-  const c = alert.route?.coordinates ?? [];
-  let m = 0;
-  for (let i = 1; i < c.length; i++) {
-    const [lon1, lat1] = c[i - 1]!, [lon2, lat2] = c[i]!;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180, dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    m += 2 * 6_371_000 * Math.asin(Math.sqrt(a));
-  }
-  return m / 1000;
+/** Languages the approved text is missing (empty texts count as missing). Thea must not translate. */
+export function missingLanguages(messages: { lang: string; text: string }[]): string[] {
+  return REQUIRED_LANGS.filter((l) => !messages.some((m) => m.lang === l && m.text.trim()));
 }
+
+/**
+ * The route line. The distance comes from the approved message text (the planner's road length),
+ * so the brief can never show a different number from what the village head receives.
+ */
+function routeLine(alert: Pick<Alert, "messages" | "routeMode">): string {
+  if (alert.routeMode === "boat") return "Route: boat pickup (no dry road route)";
+  const en = alert.messages.find((m) => m.lang === "en")?.text ?? "";
+  const km = /(\d+(?:\.\d+)?)\s*km\b/.exec(en)?.[1];
+  return km ? `Route: ${km} km by road, as in the message (verified by MonsoonWatch)` : "Route: see app";
+}
+
+/** What Thea asks the leader, so every check-in number comes from a person (Thea's own feedback). */
+const FOLLOW_UP =
+  "Please: 1) WhatsApp the message above, exactly as written, to the ketua kampung of {v}; " +
+  "2) ask them to confirm they received it, how many people are moving now, and to tell you when they arrive and how many; " +
+  "3) when I ask, chase if there's no reply; " +
+  "4) after each reply, report back to me and end the report with this one line, filled in from what the leader said " +
+  "(leave people= empty for acknowledged; never fill in a number the leader didn't give):";
 
 export function buildBrief(input: {
   taskId: string;
@@ -26,11 +41,10 @@ export function buildBrief(input: {
   const villageName = village?.name ?? alert.villageId;
   const centreName = centre?.name ?? alert.evacCentreId;
   const eta = typeof alert.etaHours === "number" ? `ETA ~${Math.round(alert.etaHours)} h` : "ETA unknown";
-  const km = routeKm(alert);
   const pickups = (alert.pickups ?? [])
     .slice()
     .sort((a, b) => a.order - b.order)
-    .map((p) => `${p.order}. ${p.people} ${p.category} by ${p.vehicle}`);
+    .map((p) => `${p.order}. ${p.people} ${CATEGORY_LABEL[p.category] ?? p.category} by ${p.vehicle}`);
   const approvedAt = alert.approvedAt
     ? new Date(alert.approvedAt).toLocaleString("en-GB", { timeZone: "Asia/Kuala_Lumpur", dateStyle: "medium", timeStyle: "short" }) + " MYT"
     : "time unknown";
@@ -44,21 +58,20 @@ export function buildBrief(input: {
     `Village: ${villageName}${village?.district ? ` (${village.district})` : ""}, ${alert.people} people`,
     `Hazard: ${alert.hazard.toUpperCase()}, level ${alert.level.toUpperCase()}, ${eta}`,
     `Evacuation centre: ${centreName}${centre ? ` (${Math.max(0, centre.capacity - centre.headcount)} places free of ${centre.capacity}, estimated)` : ""}`,
-    km > 0 ? `Route: ${km.toFixed(1)} km (verified by MonsoonWatch)` : `Route: see app`,
+    routeLine(alert),
     pickups.length ? `Priority pickups (in order):\n${pickups.join("\n")}` : `Priority pickups: none recorded`,
     `Approved by ${alert.approvedBy ?? "an official"} at ${approvedAt}`,
     ``,
     `Message for the ketua kampung of ${villageName}:`,
     ...messages,
     ``,
-    `Please: 1) WhatsApp this alert to the ketua kampung of ${villageName}; 2) when I ask, chase if there's no reply; 3) report back to me and end each report with this one line, filled in:`,
+    FOLLOW_UP.replace("{v}", villageName),
     `MW CHECKIN alert=${alert._id} centre=${centreName} people=<number> status=<acknowledged|moving|arrived>`,
   ].join("\n");
 }
 
 /** Village names shown in a district brief; the rest are counted, to keep the WhatsApp link short. */
 export const AREA_BRIEF_MAX_VILLAGES = 15;
-const CATEGORY_LABEL: Record<string, string> = { bedridden: "bedridden", disabled: "disabled", elderly: "elderly", noTransport: "without transport" };
 
 /**
  * Brief for a district-level warning (AreaWarning). There is no planned centre or route: officials
@@ -94,7 +107,11 @@ export function buildAreaBrief(input: { taskId: string; warning: AreaWarning; vi
     `Message for the ketua kampung of each village above:`,
     ...messages,
     ``,
-    `Please: 1) WhatsApp this warning to the ketua kampung you are cleared to contact; 2) when I ask, chase if there's no reply; 3) report back to me and end each report with this one line, filled in (centre = where the leader says people are going):`,
+    `Please: 1) WhatsApp the message above, exactly as written, to the ketua kampung you are cleared to contact; ` +
+      `2) ask them to confirm they received it, how many people are moving and to which centre, and to tell you when they arrive and how many; ` +
+      `3) when I ask, chase if there's no reply; ` +
+      `4) after each reply, report back to me and end the report with this one line, filled in from what the leader said ` +
+      `(centre = where the leader says people are going; leave people= empty for acknowledged; never fill in a number the leader didn't give):`,
     `MW CHECKIN alert=${w._id} centre=<centre name> people=<number> status=<acknowledged|moving|arrived>`,
   ].join("\n");
 }

@@ -117,7 +117,7 @@ export function createSaintUi(root: HTMLElement) {
       summary.textContent = `Applied: ${response.applied.length} · Skipped: ${response.skipped.length} · Errors: ${response.errors.length}`;
       result.append(summary);
       for (const item of response.applied) {
-        const p = document.createElement('p'); p.textContent = `Applied: ${item.people} people ${item.status} → ${item.centre}`; result.append(p);
+        const p = document.createElement('p'); p.textContent = item.people === null ? `Applied: acknowledged → ${item.centre}` : `Applied: ${item.people} people ${item.status} → ${item.centre}`; result.append(p);
       }
       for (const [label, entries] of [['Skipped', response.skipped], ['Error', response.errors]] as const) {
         for (const item of entries) { const p = document.createElement('p'); p.textContent = `${label}: ${item.reason} — ${item.line}`; result.append(p); }

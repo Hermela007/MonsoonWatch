@@ -103,7 +103,7 @@ export interface SaintHandoff {
   note?: string;
 }
 export interface SaintUpdateResult {
-  applied: { alertId: string; centre: string; people: number; status: string; centreId: string; taskId: string; raw: string }[];
+  applied: { alertId: string; centre: string; people: number | null; status: string; centreId: string; taskId: string; raw: string }[];
   skipped: { line: string; reason: string }[];
   errors: { line: string; reason: string }[];
 }

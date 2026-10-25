@@ -7,6 +7,10 @@ import { decideAlert, fetchAgentRun, setApiLive, startReplay, stopReplay } from 
 
 // Exercise the frontend's actual HTTP payloads against B/C's registered routes,
 // using an in-memory agent store. No MongoDB, Gemini calls, or external delivery.
+// Guard: the in-memory store is only used when MOCK=1 (`pnpm test:web` sets it). Run any other way
+// with a real .env, these tests would write fake alerts and Saint tasks into the shared database
+// (that happened on 24 Oct: "integration-approve" reached Saint), so they skip instead.
+const SKIP = process.env.MOCK === '1' ? false : 'needs MOCK=1 (run with `pnpm test:web`): would write to the real database';
 const app = buildServer();
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
@@ -29,7 +33,7 @@ const makeAlert = (id: string): Alert => ({
   verification: [{ check: 'route', passed: true, detail: 'Test route' }], status: 'verified',
 });
 
-test('frontend approval records the officer and creates a queued handoff', async () => {
+test('frontend approval records the officer and creates a queued handoff', { skip: SKIP }, async () => {
   await defaultStore().saveAlert(makeAlert('integration-approve'));
   const approved = await decideAlert('integration-approve', 'approve', 'Test officer');
   assert.equal(approved.status, 'approved');
@@ -40,20 +44,20 @@ test('frontend approval records the officer and creates a queued handoff', async
   await assert.rejects(decideAlert(approved._id, 'approve', 'Test officer'), /only alerts that passed every check/);
 });
 
-test('frontend rejection and backend validation errors propagate', async () => {
+test('frontend rejection and backend validation errors propagate', { skip: SKIP }, async () => {
   await defaultStore().saveAlert(makeAlert('integration-reject'));
   assert.equal((await decideAlert('integration-reject', 'reject', 'Test officer')).status, 'rejected');
   await assert.rejects(decideAlert('integration-reject', 'approve', ''), /approvedBy/);
 });
 
-test('frontend can recover persisted run details after missed stream events', async () => {
+test('frontend can recover persisted run details after missed stream events', { skip: SKIP }, async () => {
   await defaultStore().saveRun({ _id: 'integration-run', regionId: 'kelantan', trigger: { type: 'manual' }, status: 'done', startedAt: new Date().toISOString() });
   const detail = await fetchAgentRun('integration-run');
   assert.equal(detail?.run.status, 'done');
   assert.equal(detail?.alerts.length, 2);
 });
 
-test('replay controls use the registered C routes and surface start errors', async () => {
+test('replay controls use the registered C routes and surface start errors', { skip: SKIP }, async () => {
   // An empty region is rejected by the request schema before opening MongoDB.
   await assert.rejects(startReplay(''), /regionId/);
   assert.equal((await stopReplay()).running, false);

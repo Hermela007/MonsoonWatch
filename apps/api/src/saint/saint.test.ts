@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Alert, AreaWarning } from "@monsoonwatch/shared";
 import { readFileSync } from "node:fs";
-import { AREA_BRIEF_MAX_VILLAGES, buildAreaBrief, buildBrief, whatsappUrl } from "./brief";
+import { AREA_BRIEF_MAX_VILLAGES, buildAreaBrief, buildBrief, missingLanguages, whatsappUrl } from "./brief";
 import { normaliseName, parseCheckins } from "./checkin";
 
 test("parses a check-in line inside a longer WhatsApp message", () => {
@@ -42,7 +42,7 @@ const alert: Alert = {
   evacCentreId: "c1", people: 120,
   pickups: [{ category: "bedridden", people: 2, vehicle: "boat", order: 1 }, { category: "elderly", people: 12, vehicle: "boat", order: 2 }],
   route: { type: "LineString", coordinates: [[102.06, 5.389], [102.01, 5.378]] },
-  messages: [{ lang: "en", text: "Evacuate now to SK Dabong." }, { lang: "ms", text: "Sila berpindah sekarang ke SK Dabong." }],
+  messages: [{ lang: "en", text: "Evacuate now to SK Dabong (4.6 km by dry roads)." }, { lang: "ms", text: "Sila berpindah sekarang ke SK Dabong (4.6 km ikut jalan yang kering)." }],
   verification: [], status: "approved", approvedBy: "Heru", approvedAt: "2014-12-24T02:00:00Z",
 };
 
@@ -55,7 +55,36 @@ test("brief includes alert, village, centre, pickups, both languages (Malay firs
   assert.match(brief, /1\. 2 bedridden by boat/);
   assert.ok(brief.indexOf("[BM]") < brief.indexOf("[EN]"));
   assert.match(brief, /MW CHECKIN alert=alert-1 centre=SK Dabong people=<number>/);
-  assert.match(brief, /Route: \d+\.\d km/);
+  // The brief's distance is the one in the approved message, never a separately measured line.
+  assert.match(brief, /Route: 4\.6 km by road, as in the message/);
+  // Thea is told to collect receipt + numbers from the leader and never to invent one.
+  assert.match(brief, /ask them to confirm they received it, how many people are moving now/);
+  assert.match(brief, /leave people= empty for acknowledged; never fill in a number the leader didn't give/);
+});
+
+test("pickup categories read as words, boat routes say so, missing distance falls back", () => {
+  const withNoTransport = { ...alert, pickups: [{ category: "noTransport" as const, people: 62, vehicle: "bus" as const, order: 1 }] };
+  assert.match(buildBrief({ taskId: "t", alert: withNoTransport, village: null, centre: null }), /1\. 62 without transport by bus/);
+  assert.match(buildBrief({ taskId: "t", alert: { ...alert, routeMode: "boat" }, village: null, centre: null }), /Route: boat pickup \(no dry road route\)/);
+  const noKm = { ...alert, messages: [{ lang: "en", text: "Go now." }, { lang: "ms", text: "Pergi sekarang." }] };
+  assert.match(buildBrief({ taskId: "t", alert: noKm, village: null, centre: null }), /Route: see app/);
+});
+
+test("handoff language check: both Malay and English must be present and non-empty", () => {
+  assert.deepEqual(missingLanguages(alert.messages), []);
+  assert.deepEqual(missingLanguages([{ lang: "en", text: "Integration test only" }]), ["ms"]);
+  assert.deepEqual(missingLanguages([{ lang: "ms", text: "  " }, { lang: "en", text: "x" }]), ["ms"]);
+});
+
+test("acknowledged may leave people= empty; moving/arrived may not", () => {
+  const { checkins, errors } = parseCheckins(
+    "MW CHECKIN alert=a1 centre=SK Dabong people= status=acknowledged\nMW CHECKIN alert=a1 centre=SK Dabong status=acknowledged\nMW CHECKIN alert=a1 centre=SK Dabong people= status=moving",
+  );
+  assert.equal(checkins.length, 2);
+  assert.equal(checkins[0]!.people, null);
+  assert.equal(checkins[0]!.raw, checkins[1]!.raw); // same receipt → same idempotency key
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]!.reason, /missing people/);
 });
 
 test("whatsapp link encodes the brief; no number → null", () => {

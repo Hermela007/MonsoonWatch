@@ -7,7 +7,7 @@ export type CheckinStatus = (typeof CHECKIN_STATUSES)[number];
 export interface Checkin {
   alertId: string;
   centre: string;
-  people: number;
+  people: number | null; // null only for "acknowledged" (no headcount given)
   status: CheckinStatus;
   raw: string; // the normalised line, used as the idempotency key
 }
@@ -38,10 +38,12 @@ export function parseCheckins(text: string): ParseResult {
       const to = i + 1 < marks.length ? marks[i + 1]!.index! : body.length;
       fields[key] = body.slice(from, to).trim().replace(/[.,;]+$/, "");
     });
-    const missing = KEYS.filter((k) => !fields[k]);
+    // people= may be empty on "acknowledged": a receipt has no headcount, and 0 would claim nobody moved.
+    const ackNoCount = (fields.status ?? "").toLowerCase() === "acknowledged" && !fields.people;
+    const missing = KEYS.filter((k) => !fields[k] && !(k === "people" && ackNoCount));
     if (missing.length) { errors.push({ line, reason: `missing ${missing.join(", ")}` }); continue; }
-    const people = Number.parseInt(fields.people!, 10);
-    if (!Number.isFinite(people) || people < 0 || people > 100_000) { errors.push({ line, reason: `people must be a whole number` }); continue; }
+    const people = ackNoCount ? null : /^\d+$/.test(fields.people!) ? Number(fields.people) : NaN;
+    if (people !== null && (!Number.isFinite(people) || people > 100_000)) { errors.push({ line, reason: `people must be a whole number` }); continue; }
     const status = fields.status!.toLowerCase();
     if (!(CHECKIN_STATUSES as readonly string[]).includes(status)) {
       errors.push({ line, reason: `status must be one of ${CHECKIN_STATUSES.join(", ")}` });
@@ -49,7 +51,7 @@ export function parseCheckins(text: string): ParseResult {
     }
     const alertId = fields.alert!.replace(/^<|>$/g, "");
     const centre = fields.centre!.replace(/^<|>$/g, "");
-    checkins.push({ alertId, centre, people, status: status as CheckinStatus, raw: `MW CHECKIN alert=${alertId} centre=${centre} people=${people} status=${status}` });
+    checkins.push({ alertId, centre, people, status: status as CheckinStatus, raw: `MW CHECKIN alert=${alertId} centre=${centre} people=${people ?? ""} status=${status}` });
   }
   return { checkins, errors };
 }
