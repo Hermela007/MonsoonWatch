@@ -2,10 +2,18 @@
 
 Deploy one Node web service to serve apps/web/dist and the Fastify API from the same origin. No separate Vercel project, reverse proxy or Docker installation is needed.
 
+Live service: **https://monsoonwatch.onrender.com** — one link for the submission. The same service serves:
+
+- `/` — the resident app
+- `/control/` — the officials' console (the build writes `apps/web/dist/control/index.html`; there is no link to it from the resident app)
+- `/api/...` — the API (and `/api/stream`, SSE)
+
+`pnpm dev` runs Vite (5173) and the API (8787) as two processes for development only; deployment is a single service.
+
 ## Settings
 
 - Repository: https://github.com/Hermela007/MonsoonWatch
-- Branch: a/terrain-flood (contains the integration and deployment changes)
+- Branch: `main` (the team's merged work; `a/terrain-flood` is merged into it)
 - Root directory: leave empty (repository root)
 - Language/runtime: Node
 - Region: Frankfurt
@@ -13,7 +21,7 @@ Deploy one Node web service to serve apps/web/dist and the Fastify API from the 
 - Build command: `corepack pnpm install --frozen-lockfile --prod=false && corepack pnpm typecheck && corepack pnpm build`
 - Start command: `node --import ./apps/api/node_modules/tsx/dist/loader.mjs apps/api/src/index.ts`
 - Health check: `/api/health`
-- One instance, manual deploys.
+- One instance, manual deploys: after the final push to `main`, open the service in Render → Manual Deploy → "Deploy latest commit", then run the checks below.
 
 The equivalent service settings are recorded in render.yaml for Blueprint deployments. Creating a normal Web Service requires entering these values manually.
 
@@ -40,10 +48,11 @@ Atlas needs to allow the Render service's outbound IP ranges. Use the service's 
 
 ## Verify the deployed link
 
-- `/` renders the valley; `/api/health` returns ok=true, mock=false and readOnly=true.
+- `/` renders the valley with no Residents / Control room switch; `/api/health` returns ok=true, mock=false and readOnly=true.
+- `/control/` opens the officials' console (dark top bar, "MonsoonWatch CONTROL · Kelantan district · Officials only"). A 404 here means an old build is deployed.
 - `/api/regions/kelantan/villages` returns the team data after Atlas networking is configured.
 - `/api/stream` remains an SSE response; controls stay restricted in normal mode.
-- `/?mock=1` → Control room → Run the agent now plays the labelled scripted verification and approval flow.
+- `/control/?mock=1` → Run the agent now plays the labelled scripted verification and approval flow (the link to give judges for trying approvals on the public site).
 - POST /api/agent/run and POST /api/alerts/test/approve return 403 in public-demo mode.
 
 Terrain comes from AWS tiles in the browser, so the first map load still depends on that network connection. Paid compute avoids Render's free-tier inactivity sleep; it does not eliminate network or model latency.
