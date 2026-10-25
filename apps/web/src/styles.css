@@ -472,3 +472,6 @@ body[data-mode='control'] .clock b { color: var(--card); }
 #control { overflow-x: hidden; }
 #control select, #control input, #control textarea { max-width: 100%; }
 #control blockquote, #control .note, #control .ctl-status, #control .alert-meta { overflow-wrap: anywhere; }
+/* Routing status sits in the card's indented column, like the deadline and route lines above it. */
+#journey-status { padding-left: 14px; margin: 0 0 12px; font-size: 13px; line-height: 1.45; }
+#journey-status:empty { display: none; }
