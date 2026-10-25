@@ -245,6 +245,8 @@ async function main() {
     u.searchParams.delete('at');
     u.searchParams.delete('label');
     u.searchParams.delete('view');
+    if (home && selectedCentreId) u.searchParams.set('centreId', selectedCentreId);
+    else u.searchParams.delete('centreId');
     if (home && home.named) u.searchParams.set('place', home.place);
     else if (home) {
       u.searchParams.set('at', `${home.lngLat[0].toFixed(5)},${home.lngLat[1].toFixed(5)}`);
@@ -297,6 +299,7 @@ async function main() {
   // estimate. ?routeFixture=ok|all-routes-flooded|boat-unsupported shows the shared sample responses,
   // moved so they start at the chosen home (they are TEST DATA).
   let journeyTravel: TravelMode = 'car';
+  let selectedCentreId: string | null = params.get('centreId');
   let journeySeq = 0;
   let journey: { route: EvacuationRoute; view: JourneyView; pts: THREE.Vector3[]; turnPts: THREE.Vector3[] } | null = null;
   let routeOpen = false;
@@ -310,7 +313,7 @@ async function main() {
     onCentre: (id: string) => void requestJourney(id),
     onStep: (i: number) => selectTurn(i),
   };
-  const requestJourney = async (centreId: string | null = null): Promise<void> => {
+  const requestJourney = async (centreId: string | null = selectedCentreId): Promise<void> => {
     if (!homeLngLat || !homePos) return;
     const seq = ++journeySeq;
     ui!.setJourneyStatus('Finding routes from your confirmed starting point…');
@@ -333,6 +336,11 @@ async function main() {
     }
     ui!.setJourneyStatus('');
     const route = withRouteCheckpoints(res.route);
+    selectedCentreId = centreId;
+    const routeUrl = new URL(location.href);
+    if (centreId) routeUrl.searchParams.set('centreId', centreId);
+    else routeUrl.searchParams.delete('centreId');
+    history.replaceState(null, '', routeUrl);
     const view = journeyView(route);
     const lift = (ll: LngLat) => frame.lngLatToWorld(ll, elevAt(ll)).add(new THREE.Vector3(0, 0.03, 0));
     const pts = route.status === 'ok' && route.geometry ? drape(route.geometry.coordinates) : [];
@@ -494,6 +502,7 @@ async function main() {
     controls.autoRotate = false;
     leaveStreet();
     disposeStreet();
+    if (homeLngLat && (homeLngLat[0] !== lngLat[0] || homeLngLat[1] !== lngLat[1])) selectedCentreId = null;
     homeLngLat = lngLat;
     homeCell = cell;
     // Start fetching houses now so "See my street" opens fast.
@@ -657,6 +666,7 @@ async function main() {
   const backToLanding = () => {
     leaveStreet();
     disposeStreet();
+    selectedCentreId = null;
     homeLngLat = null;
     homePlace = '';
     journeySeq++;
