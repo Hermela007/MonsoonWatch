@@ -18,6 +18,7 @@ import { saintRoutes } from "./routes/saint";
 import { searchRoutes } from "./routes/search";
 import { stationRoutes } from "./routes/stations";
 import { streamRoutes } from "./routes/stream";
+import { residentNoticeRoutes } from "./routes/resident-notices";
 
 export function buildServer(opts: { webRoot?: string; serveWeb?: boolean; publicDemo?: boolean } = {}) {
   // forceCloseConnections: open SSE clients would otherwise keep app.close() waiting on shutdown.
@@ -62,6 +63,7 @@ export function buildServer(opts: { webRoot?: string; serveWeb?: boolean; public
       // B: agent, alerts, voice routes go here.
       await api.register(agentRoutes);
       await api.register(alertRoutes);
+      await api.register(residentNoticeRoutes);
       await api.register(evacuationRouteRoutes);
     },
     { prefix: "/api" },

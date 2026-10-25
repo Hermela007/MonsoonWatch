@@ -29,7 +29,7 @@ import { createEventHub } from './api/stream';
 import { decideAlert, fetchAgentRun, fetchSaintTasks, fetchReplayStatus, fetchStations, runAgent, setApiLive, startReplay, stopReplay, type ReplayStatus } from './api/client';
 import { createMockAgent } from './mock/agentScript';
 import { createControlUi } from './ui/control';
-import { decideAreaWarning, fetchEvacCentres, fetchVillages } from './api/client';
+import { decideAreaWarning, fetchEvacCentres, fetchVillages, fetchResidentNotices } from './api/client';
 import type { AreaWarning } from '@monsoonwatch/shared';
 import type { Alert, EvacCentre } from '@monsoonwatch/shared';
 import { NOW_HOUR, PEAK_STAGE_M, REPLAY_HOURS, REPLAY_START_MS, peakHour, rainAccumulated, rainAccumulatedMm, rainIntensity, replayDate, setRealSeries, stageM } from './data/replay2014';
@@ -937,6 +937,7 @@ async function main() {
       else refreshHazards(true);
       if (m === 'live') {
         loadApiData();
+        void syncResidentNotices();
         if (!screening && landslideModel === 'screening') void loadScreening(KELANTAN.id).then((r) => r && applyScreening(r));
         // A home chosen before the API connected (e.g. opened from a link) gets its route now.
         if (homeLngLat && !journey && !routeFixture) void requestJourney();
@@ -951,8 +952,8 @@ async function main() {
           // Historical runs can contain thousands of records; avoid parallel bulk downloads.
           for (const id of runIds) {
             const detail = await fetchAgentRun(id, 30000);
-            detail?.alerts.filter(alert => targetIds.has(alert._id)).forEach(alert => control.alert(alert));
-            detail?.areaWarnings?.filter(warning => targetIds.has(warning._id)).forEach(warning => control.areaWarning(warning));
+            detail?.alerts.filter(alert => targetIds.has(alert._id)).forEach(alert => { noteApproved(alert); control.alert(alert); });
+            detail?.areaWarnings?.filter(warning => targetIds.has(warning._id)).forEach(noteAreaWarning);
           }
         });
         void fetchReplayStatus().then((status) => status && applyReplay(status));
@@ -999,6 +1000,22 @@ async function main() {
   // ---- Closing the loop: an alert a person approved reaches the resident's card ----------------
   const approved = new Map<string, Alert>();
   const approvedWarnings = new Map<string, AreaWarning>();
+  let syncingNotices = false;
+  const syncResidentNotices = async () => {
+    if (syncingNotices || hub.mode !== 'live') return;
+    syncingNotices = true;
+    try {
+      const snapshot = await fetchResidentNotices(KELANTAN.id);
+      if (!snapshot) return;
+      for (const alert of snapshot.alerts) {
+        if (alert.status === 'approved' || alert.status === 'sent') approved.set(alert._id, alert);
+      }
+      for (const warning of snapshot.areaWarnings) {
+        if (warning.status === 'approved' || warning.status === 'sent') approvedWarnings.set(warning._id, warning);
+      }
+      refreshOfficial();
+    } finally { syncingNotices = false; }
+  };
   const kmBetween = (a: LngLat, b: LngLat) => frame.lngLatToWorld(a).distanceTo(frame.lngLatToWorld(b));
   const refreshOfficial = () => {
     if (!homeLngLat) return ui!.setOfficial(null);
@@ -1084,6 +1101,7 @@ async function main() {
   };
   window.setInterval(() => {
     void syncRun();
+    if (document.body.dataset.mode !== 'control') void syncResidentNotices();
     refreshHazards();
     if (hub.mode === 'live') void fetchReplayStatus().then((status) => status && applyReplay(status));
   }, 5000);

@@ -69,6 +69,8 @@ async function postJson<T>(path: string, body: unknown, timeoutMs = 8000): Promi
 export const runAgent = (regionId: string, opts: { mode?: 'live' | 'replay'; at?: string } = {}) =>
   postJson<AgentRunStarted>('/agent/run', { regionId, ...opts }, 30000);
 export const fetchAgentRun = (id: string, timeoutMs = 6000) => getJson<AgentRunDetail>(`/agent/runs/${encodeURIComponent(id)}`, timeoutMs);
+export const fetchResidentNotices = (regionId: string) =>
+  getJson<{ alerts: Alert[]; areaWarnings: import('@monsoonwatch/shared').AreaWarning[] }>(`/resident-notices?regionId=${encodeURIComponent(regionId)}`, 15000);
 
 // C's replay status is kept local to the web client; shared contracts are unchanged.
 export interface ReplayStatus {
