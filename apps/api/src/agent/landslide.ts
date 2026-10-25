@@ -145,8 +145,8 @@ export function screenLandslides(
   const maxCells = opts.maxCells ?? 3000;
   const maxRunouts = opts.maxRunouts ?? 25;
   const maxKm = opts.maxStationKm ?? 25;
-  const levels = rain.map((p) => ({ p, lvl: rainLevel(p, cfg) })).filter((r) => r.lvl);
-  if (levels.length === 0) return { landslide: { cells: [], runouts: [] }, sources: [] };
+  const all = rain.map((p) => ({ p, lvl: rainLevel(p, cfg) }));
+  if (!all.some((r) => r.lvl)) return { landslide: { cells: [], runouts: [] }, sources: [] };
 
   const cells: { x: number; y: number; lngLat: LngLat; risk: number; src: RunoutSource }[] = [];
   for (let y = cellPx; y < g.height - cellPx; y += cellPx) {
@@ -154,14 +154,16 @@ export function screenLandslides(
       const slope = slopeDegAt(g, x, y);
       if (slope === null || slope < cfg.slopeMinDeg) continue;
       const lngLat = pxToLngLat(g, x, y);
-      let near: (typeof levels)[number] | null = null;
+      // The cell's OWN nearest rain station decides (not the nearest one that happens to be over a
+      // threshold, which would borrow rain from up to maxKm away and over-warn).
+      let near: (typeof all)[number] | null = null;
       let nearKm = Infinity;
-      for (const r of levels) {
+      for (const r of all) {
         const km = haversineKm(lngLat, r.p.lngLat);
         if (km < nearKm) { near = r; nearKm = km; }
       }
-      if (!near || nearKm > maxKm) continue;
-      const lvl = near.lvl!;
+      if (!near?.lvl || nearKm > maxKm) continue;
+      const lvl = near.lvl;
       const slopeFrac = Math.min(1, (slope - cfg.slopeMinDeg) / 25);
       const risk = Math.min(1, Math.round((BAND[lvl.level] + 0.2 * slopeFrac) * 100) / 100);
       cells.push({ x, y, lngLat, risk, src: { slopeDeg: Math.round(slope), level: lvl.level, stationId: near.p.stationId, rainMm: lvl.mm, days: lvl.days, threshold: lvl.threshold } });
