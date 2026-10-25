@@ -207,13 +207,6 @@ export function createResidentUi(
       b.type = 'button';
       b.className = 'suggestion';
       b.textContent = town.name;
-      {
-        // Hazard tags ("landslide", "landslide + flood") say which places show what; otherwise just "village".
-        const n = document.createElement('small');
-        n.textContent = town.note ?? 'village';
-        if (town.note) n.classList.add('hazard-tag');
-        b.appendChild(n);
-      }
       onChoose(b, () => h.onPick(town));
       suggestions.appendChild(b);
     }
