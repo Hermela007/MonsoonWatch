@@ -428,9 +428,6 @@ body.recording #render-performance { display: block; }
 .aw-more .aw-evidence { color: var(--muted); }
 .aw-more .aw-label { color: var(--faint); }
 .aw-status { font-size: 12px; color: var(--ink); margin: 10px 0 8px; }
-.aw-audio { display: grid; gap: 6px; }
-.aw-audio label { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
-.aw-audio audio { height: 28px; flex: 1; }
 /* Who planned an alert. */
 .planned-by { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; border: 1px solid var(--rule-strong); color: var(--muted); vertical-align: middle; }
 .planned-gemini { border-color: #7aa7d9; color: #2f6fb0; }
@@ -456,3 +453,18 @@ body[data-mode='control'] .console-meta { display: flex; align-items: center; ga
 body[data-mode='control'] .clock { color: #bdb8b0; }
 body[data-mode='control'] .clock b { color: var(--card); }
 @media (max-width: 767px) { body[data-mode='control'] .console-badge { display: none; } }
+
+/* Long alert IDs must not widen the panel or make focusing the picker scroll it sideways. */
+#control { overflow-x: hidden; overscroll-behavior: contain; }
+#control .ctl-steps { grid-template-columns: minmax(0, 1fr); }
+#control .ctl-step { min-width: 0; overflow-wrap: anywhere; }
+#control .ctl-head > b { min-width: 0; }
+#alert-picker-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+#alert-picker { display: block; width: 100%; min-width: 0; max-width: 100%; }
+#control input, #control select, #control textarea, #control audio { min-width: 0; max-width: 100%; }
+#control .actions { grid-template-columns: minmax(0, 1fr); }
+#control .actions.two { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+#control .checks li { grid-template-columns: 18px minmax(0, 1fr); }
+#control .tasks li { grid-template-columns: minmax(0, 1fr) auto; }
+#control .task-actions { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+#control .aw-head, #control .aw-top { flex-wrap: wrap; }

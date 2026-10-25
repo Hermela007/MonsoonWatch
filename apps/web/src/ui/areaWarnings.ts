@@ -64,7 +64,6 @@ export function createAreaWarningsUi(root: HTMLElement, h: { onDecide: (id: stri
   const items = new Map<string, AreaWarning>();
   const busy = new Set<string>();
   let enabled = false;
-  let scripted = false;
 
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
     const e = document.createElement(tag);
@@ -110,19 +109,6 @@ export function createAreaWarningsUi(root: HTMLElement, h: { onDecide: (id: stri
         no.addEventListener('click', () => h.onDecide(a._id, 'reject'));
         row.append(ok, no);
         card.append(row);
-      } else if (!scripted && (a.status === 'approved' || a.status === 'sent')) {
-        // Spoken versions use the alert audio URL (B): one player per language.
-        const audio = el('div', 'aw-audio');
-        for (const m of a.messages) {
-          const lab = el('label', undefined, m.lang.toUpperCase());
-          const player = el('audio');
-          player.controls = true;
-          player.preload = 'none';
-          player.src = `/api/alerts/${encodeURIComponent(a._id)}/audio/${encodeURIComponent(m.lang)}`;
-          lab.append(player);
-          audio.append(lab);
-        }
-        card.append(audio);
       }
       root.append(card);
     }
@@ -141,9 +127,8 @@ export function createAreaWarningsUi(root: HTMLElement, h: { onDecide: (id: stri
       else busy.delete(id);
       render();
     },
-    setEnabled(on: boolean, isScripted: boolean) {
+    setEnabled(on: boolean) {
       enabled = on;
-      scripted = isScripted;
       render();
     },
     reset() {

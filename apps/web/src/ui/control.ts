@@ -1,4 +1,3 @@
-import { createAlertAudio } from './alertAudio';
 import { createSaintUi } from './saint';
 import { createAreaWarningsUi } from './areaWarnings';
 import type { ConnectionMode } from '../api/stream';
@@ -27,8 +26,6 @@ export function createControlUi(h: {
   onSelectAlert: (a: Alert) => void;
   onDecideArea: (id: string, d: 'approve' | 'reject') => void;
 }) {
-  const audio = createAlertAudio($('alert-audio'));
-  let scripted = false;
   const steps = new Map<string, HTMLElement>();
   const saint = createSaintUi($('saint-box'));
   const areas = createAreaWarningsUi($('area-warnings'), { onDecide: (id, d) => h.onDecideArea(id, d) });
@@ -51,7 +48,7 @@ export function createControlUi(h: {
   const updateActions = () => {
     $<HTMLButtonElement>('btn-run').disabled = !connected || readOnly || runBusy;
     $<HTMLButtonElement>('btn-replay').disabled = !connected || readOnly || replayBusy;
-    areas.setEnabled(connected && !readOnly, scripted);
+    areas.setEnabled(connected && !readOnly);
   };
   $('alert-picker').addEventListener('change', () => {
     current = alerts.get($<HTMLSelectElement>('alert-picker').value) ?? null;
@@ -68,7 +65,6 @@ export function createControlUi(h: {
     const a = current;
     $('alert-box').hidden = !a;
     $('control-idle').hidden = !!a;
-    audio.set(a && !scripted && ['approved', 'sent'].includes(a.status) ? { id: a._id, languages: a.messages.map(m => m.lang) } : null);
     if (!a) return;
     $('alert-box').dataset.alertId = a._id;
     const picker = $<HTMLSelectElement>('alert-picker');
@@ -128,7 +124,6 @@ export function createControlUi(h: {
       renderAlert();
     },
     setMode(mode: ConnectionMode) {
-      scripted = mode === 'mock';
       saint.setMode(mode);
       connected = mode === 'live' || mode === 'mock';
       updateActions();
