@@ -252,7 +252,7 @@ export function createResidentUi(
   $('risk-level').insertAdjacentElement('afterend', listen);
   const officialAudio = createAlertAudio($('official-audio'));
   const audioStatus = document.createElement('p');
-  audioStatus.className = 'note'; audioStatus.id = 'resident-audio-status'; audioStatus.setAttribute('role', 'status');
+  audioStatus.className = 'audio-recording-status'; audioStatus.id = 'resident-audio-status'; audioStatus.setAttribute('role', 'status');
   listen.insertAdjacentElement('afterend', audioStatus);
   listen.hidden = false;
   listen.disabled = true;
@@ -264,6 +264,7 @@ export function createResidentUi(
     listen.setAttribute('aria-pressed', String(state.phase === 'playing' || state.phase === 'loading'));
     const message = state.visible ? state.message : 'Waiting for an approved alert for this location.';
     audioStatus.textContent = message;
+    audioStatus.dataset.state = state.phase === 'error' ? 'error' : 'ready';
     audioStatus.hidden = !message;
   });
   const stopSpeaking = () => {
