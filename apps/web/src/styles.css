@@ -462,7 +462,8 @@ body[data-mode='control'] .clock b { color: var(--card); }
 #control .actions { grid-template-columns: minmax(0, 1fr); }
 #control .actions.two { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 #control .checks li { grid-template-columns: 18px minmax(0, 1fr); }
-#control .tasks li { grid-template-columns: minmax(0, 1fr) auto; }
+#control .tasks li { grid-template-columns: minmax(0, 1fr); }
+#control .tasks li em { grid-column: 1; grid-row: auto; white-space: normal; line-height: 1.5; }
 #control .task-actions { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 #control .aw-head, #control .aw-top { flex-wrap: wrap; }
 
