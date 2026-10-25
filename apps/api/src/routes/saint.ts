@@ -13,7 +13,7 @@ import { emitStep } from "../agent/steps";
 import { getDb } from "../db/client";
 import { env } from "../env";
 import { HttpError } from "../errors";
-import { AREA_BRIEF_MAX_VILLAGES, buildAreaBrief, buildBrief, whatsappUrl } from "../saint/brief";
+import { AREA_BRIEF_MAX_VILLAGES, buildAreaBrief, buildBrief, missingLanguages, whatsappUrl } from "../saint/brief";
 import { normaliseName, parseCheckins, type Checkin } from "../saint/checkin";
 
 const STATUSES: SaintTask["status"][] = ["queued", "in_progress", "awaiting_approval", "done", "failed"];
@@ -52,6 +52,12 @@ async function loadCheckinTarget(id: string): Promise<{ regionId: string; runId:
 
 const approvedOrSent = (status: string) => status === "approved" || status === "sent";
 
+/** Refuse a handoff whose approved text isn't bilingual: Thea must not translate it herself. */
+function requireBilingual(kind: string, id: string, messages: { lang: string; text: string }[]) {
+  const missing = missingLanguages(messages);
+  if (missing.length) throw new HttpError(409, "conflict", `The approved ${kind} "${id}" has no ${missing.join(" or ")} text; it can't be handed to Saint until both languages are approved`);
+}
+
 export async function saintRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { alertId?: string; status?: string } }>("/saint/tasks", async (req): Promise<SaintTask[]> => {
     const filter: Record<string, string> = {};
@@ -71,6 +77,7 @@ export async function saintRoutes(app: FastifyInstance) {
       if (!approvedOrSent(warning.status)) {
         throw new HttpError(409, "conflict", `Area warning is "${warning.status}"; only approved warnings are handed to Saint`);
       }
+      requireBilingual("district warning", warning._id, warning.messages);
       const ids = warning.villageIds.slice(0, AREA_BRIEF_MAX_VILLAGES);
       const docs = await (await getDb()).collection<Village>(COLLECTIONS.villages).find({ _id: { $in: ids } }, { projection: { name: 1 } }).toArray();
       const names = new Map(docs.map((v) => [v._id, v.name]));
@@ -89,6 +96,7 @@ export async function saintRoutes(app: FastifyInstance) {
     if (!approvedOrSent(ctx.alert.status)) {
       throw new HttpError(409, "conflict", `Alert is "${ctx.alert.status}"; only approved alerts are handed to Saint`);
     }
+    requireBilingual("alert", ctx.alert._id, ctx.alert.messages);
     const brief = buildBrief({ taskId: task._id, alert: ctx.alert, village: ctx.village, centre: ctx.centre });
     const url = whatsappUrl(env.saintWhatsapp, brief);
     return {
@@ -159,7 +167,7 @@ export async function saintRoutes(app: FastifyInstance) {
         ts: new Date().toISOString(),
         type: "log_checkin",
         status: "done",
-        detail: `Saint (via WhatsApp): ${c.people} people ${c.status} → ${centre.name}${req.body?.by ? ` · logged by ${req.body.by}` : ""}`,
+        detail: `Saint (via WhatsApp): ${c.people === null ? "leader acknowledged" : `${c.people} people ${c.status}`} → ${centre.name}${req.body?.by ? ` · logged by ${req.body.by}` : ""}`,
       };
       try {
         await tasks.insertOne(task);
@@ -167,7 +175,7 @@ export async function saintRoutes(app: FastifyInstance) {
         if ((err as { code?: number }).code === 11000) { skipped.push({ line: c.raw, reason: "already applied" }); continue; }
         throw err;
       }
-      if (c.status === "arrived") {
+      if (c.status === "arrived" && c.people !== null) {
         await centres.updateOne({ _id: centre._id }, { $inc: { headcount: c.people }, $set: { headcountUpdatedAt: new Date().toISOString() } as never });
       }
       // The original send_alert task is done once the leader has responded.
@@ -177,7 +185,7 @@ export async function saintRoutes(app: FastifyInstance) {
         actor: "Saint",
         kind: "saint",
         status: "ok",
-        summary: `Leader report via WhatsApp: ${c.people} people ${c.status} → ${centre.name}${c.status === "arrived" ? " (headcount updated)" : ""}`,
+        summary: `Leader report via WhatsApp: ${c.people === null ? "alert acknowledged" : `${c.people} people ${c.status}`} → ${centre.name}${c.status === "arrived" ? " (headcount updated)" : ""}`,
       });
       applied.push({ ...c, centreId: centre._id, taskId });
     }
