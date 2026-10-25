@@ -29,4 +29,11 @@ What we asked Saint (agent: **Thea**) to do, which tools and accounts it used, a
 
 **Open question:** each person's conversation with Thea appears to be separate, so the leader's replies may not reach the officer's chat. Asked the Saint team (Encode Club) whether Thea can relay between two cleared contacts. Until then, the check-in line is relayed by a person and pasted into the app by the duty officer.
 
-| _next_ | Second test with the new brief: the leader sends a number only she knows, to check where the check-in figures come from | | |
+### Second test and redesign (Sun 25 Oct, early morning, London time)
+| When | We asked | Thea's response / what it did | Approval asked? |
+|---|---|---|---|
+| ~01:00–01:15 | Same chain with the fixed brief (Thea asks the leader for receipt and numbers). The leader replied to Thea in her own chat; we then asked Thea, in the officer's chat, for the check-in lines | **The leader's replies were not relayed accurately** into the officer's chat. Confirms what Thea warned in the first test: her conversations are separate, so she should not carry numbers between them | — |
+
+**Redesign (25 Oct):** Thea no longer relays numbers between conversations. Her job per alert is now: (1) check the brief before anything goes out; (2) send the approved message verbatim; (3) help the village head **in their own chat** (questions about the centre, route and pickups; who to collect first; say what she doesn't know); (4) write the `MW CHECKIN` line there, which **the village head forwards** to the duty officer, who pastes it into the app. The numbers now start with the person who counted, in the same conversation. App changes: brief wording and the paste-box label only ([`brief.ts`](../apps/api/src/saint/brief.ts), [`saint-brief.md`](saint-brief.md)).
+
+| _next_ | Test the redesigned flow: brief check → send → leader asks Thea a question → Thea writes the line → leader forwards it → officer pastes | | |
