@@ -43,7 +43,7 @@ test('approved district warning uses its own ID and falls back from Malay to Eng
   assert.equal(h.states.at(-1)?.language, 'en');
 });
 
-test('no approved message means no requests or playback, and button stays hidden', async () => {
+test('no approved message means no requests or playback, and recording stays unavailable', async () => {
   const h = harness((async () => { throw new Error('must not request'); }) as typeof fetch);
   h.player.set({ ...approved, status: 'draft' }); await h.player.toggle();
   h.player.set({ ...approved, status: 'needs_approval' }); await h.player.toggle();

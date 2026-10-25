@@ -254,13 +254,17 @@ export function createResidentUi(
   const audioStatus = document.createElement('p');
   audioStatus.className = 'note'; audioStatus.id = 'resident-audio-status'; audioStatus.setAttribute('role', 'status');
   listen.insertAdjacentElement('afterend', audioStatus);
-  listen.hidden = true;
+  listen.hidden = false;
+  listen.disabled = true;
+  audioStatus.textContent = 'Waiting for an approved alert for this location.';
   const residentAudio = createResidentAudio(state => {
-    listen.hidden = !state.visible;
+    listen.hidden = false;
+    listen.disabled = !state.visible;
     listen.textContent = state.phase === 'playing' ? '■ Stop' : state.phase === 'loading' ? '■ Cancel audio' : `🔊 Listen · Gemini${state.language ? ` (${state.language.toUpperCase()})` : ''}`;
     listen.setAttribute('aria-pressed', String(state.phase === 'playing' || state.phase === 'loading'));
-    audioStatus.textContent = state.message;
-    audioStatus.hidden = !state.message;
+    const message = state.visible ? state.message : 'Waiting for an approved alert for this location.';
+    audioStatus.textContent = message;
+    audioStatus.hidden = !message;
   });
   const stopSpeaking = () => {
     residentAudio.stop();
@@ -275,7 +279,7 @@ export function createResidentUi(
   // Static copy.
   for (const el of document.querySelectorAll<HTMLElement>('[data-copy]')) el.textContent = t(el.dataset.copy as never);
   input.placeholder = t('placeholder');
-  listen.textContent = `🔊 ${t('listen')}`;
+  listen.textContent = '🔊 Listen · Gemini';
   renderSuggestions();
 
   return {
