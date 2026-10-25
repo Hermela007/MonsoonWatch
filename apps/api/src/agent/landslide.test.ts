@@ -65,3 +65,15 @@ test("a cell uses its own nearest rain station, not a wetter one further away", 
   assert.equal(screenLandslides(g, [dryHere, wetFar], OPTION_A, { cellPx: 4 }).landslide.cells.length, 0);
   assert.ok(screenLandslides(g, [wetFar], OPTION_A, { cellPx: 4 }).landslide.cells.length > 0); // alone, the wet one still counts
 });
+
+test("slopes near villages get runouts even when they are not among the statewide steepest", () => {
+  const g = hill();
+  const rain = [{ stationId: "s", lngLat: centre, value: 300 }];
+  const foot: [number, number] = [g.bbox[0] + 30 * g.dLon, g.bbox[1] + 15 * g.dLat]; // below the hill flank
+  assert.equal(screenLandslides(g, rain, OPTION_A, { cellPx: 4, maxRunouts: 0 }).landslide.runouts.length, 0);
+  const withVillage = screenLandslides(g, rain, OPTION_A, { cellPx: 4, maxRunouts: 0, focus: [foot] });
+  assert.equal(withVillage.landslide.runouts.length, 1);
+  assert.equal(withVillage.sources.length, 1);
+  // A place with no steep slope within focusKm gets none.
+  assert.equal(screenLandslides(g, rain, OPTION_A, { cellPx: 4, maxRunouts: 0, focus: [[103, 6]] }).landslide.runouts.length, 0);
+});

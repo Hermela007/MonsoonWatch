@@ -27,7 +27,7 @@ try {
     const rain = await rainAt(regionId, ts, mode);
     const d1 = rain.map((p) => rainOverDays(p, 1)), d3 = rain.map((p) => rainOverDays(p, 3));
     const lv = rain.map((p) => rainLevel(p, cfg)?.level ?? "none");
-    const { landslide } = screenLandslides(grid, rain, cfg);
+    const { landslide } = screenLandslides(grid, rain, cfg, { focus: villages.map((v) => v.location.coordinates) });
     const byLevel = landslide.runouts.reduce<Record<string, number>>((m, r) => ((m[levelFromRisk(r.risk)] = (m[levelFromRisk(r.risk)] ?? 0) + 1), m), {});
     const nearest = Math.min(...villages.flatMap((v) => landslide.runouts.map((r) => pointToLineKm(v.location.coordinates, r.coordinates))));
     rows.push({
@@ -35,6 +35,7 @@ try {
       max1dMm: d1.length ? Math.max(...d1) : null, max3dMm: d3.length ? Math.max(...d3) : null,
       stationsAlert: lv.filter((x) => x === "alert").length, stationsWarning: lv.filter((x) => x === "warning").length, stationsDanger: lv.filter((x) => x === "danger").length,
       runouts: landslide.runouts.length, runoutLevels: JSON.stringify(byLevel), nearestVillageKm: Number.isFinite(nearest) ? Math.round(nearest * 10) / 10 : null,
+      villagesWithin1km: villages.filter((v) => landslide.runouts.some((r) => pointToLineKm(v.location.coordinates, r.coordinates) <= 1)).length,
     });
   }
   console.table(rows);
