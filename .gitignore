@@ -16,4 +16,7 @@ dist/
 scripts/data/terrain/tiles/
 
 # B: generated spoken-alert audio (WAV). Not all of apps/api/data: C commits terrain there.
-apps/api/data/audio/
+apps/api/data/audio/*
+# Approved Kuala Krai submission-demo recordings, served by the same alert audio endpoint.
+!apps/api/data/audio/area_real-replay-1792883374716_at_risk_Kuala_Krai_flood.en.wav
+!apps/api/data/audio/area_real-replay-1792883374716_at_risk_Kuala_Krai_flood.ms.wav
