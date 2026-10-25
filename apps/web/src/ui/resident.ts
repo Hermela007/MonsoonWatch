@@ -249,26 +249,77 @@ export function createResidentUi(
   $('btn-route-back').addEventListener('click', h.onRouteBack);
 
   const officialAudio = createAlertAudio($('official-audio'));
+  let hasOfficialRecording = false;
+  let summarySpeaking = false;
+  let summaryRevision = 0;
+  const renderSummaryButton = () => {
+    listen.hidden = !current;
+    listen.textContent = summarySpeaking ? '■ Stop reading' : '🔊 Listen to summary';
+    listen.setAttribute('aria-pressed', String(summarySpeaking));
+  };
+  const stopSummary = () => {
+    summaryRevision++;
+    window.speechSynthesis?.cancel();
+    summarySpeaking = false;
+    if (!hasOfficialRecording) renderSummaryButton();
+    if (!hasOfficialRecording) { audioStatus.textContent = ''; audioStatus.hidden = true; }
+  };
+  // Keep voice guidance near the risk heading, above the long hazard and route cards.
+  $('risk-level').insertAdjacentElement('afterend', listen);
   const audioStatus = document.createElement('p');
   audioStatus.className = 'note'; audioStatus.id = 'resident-audio-status'; audioStatus.setAttribute('role', 'status');
   listen.insertAdjacentElement('afterend', audioStatus);
   listen.hidden = true;
   const residentAudio = createResidentAudio(state => {
-    listen.hidden = !state.visible;
+    hasOfficialRecording = state.visible;
+    if (!state.visible) {
+      renderSummaryButton();
+      audioStatus.textContent = '';
+      audioStatus.hidden = true;
+      return;
+    }
+    listen.hidden = false;
     listen.textContent = state.phase === 'playing' ? '■ Stop' : state.phase === 'loading' ? '■ Cancel audio' : `🔊 Listen · Gemini${state.language ? ` (${state.language.toUpperCase()})` : ''}`;
     listen.setAttribute('aria-pressed', String(state.phase === 'playing' || state.phase === 'loading'));
     audioStatus.textContent = state.message;
     audioStatus.hidden = !state.message;
   });
   const stopSpeaking = () => {
+    stopSummary();
     residentAudio.stop();
     document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
   };
   listen.addEventListener('click', () => {
     document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
-    void residentAudio.toggle();
+    if (hasOfficialRecording) { stopSummary(); void residentAudio.toggle(); return; }
+    if (summarySpeaking) { stopSummary(); return; }
+    if (!current) return;
+    if (!('speechSynthesis' in window)) {
+      audioStatus.textContent = 'Read-aloud is unavailable in this browser. Open this page in Chrome or Safari.';
+      audioStatus.hidden = false;
+      return;
+    }
+    const words = [$('place-name').textContent, current.level, ...current.lines, current.when,
+      $('journey').hidden ? current.action : $('journey').innerText,
+      'Historical replay model estimate. Follow official instructions.'].filter(Boolean).join('. ');
+    const utterance = new SpeechSynthesisUtterance(words);
+    const revision = ++summaryRevision;
+    utterance.lang = 'en-GB';
+    utterance.onend = () => { if (revision !== summaryRevision) return; summarySpeaking = false; if (!hasOfficialRecording) renderSummaryButton(); audioStatus.hidden = true; };
+    utterance.onerror = () => {
+      if (revision !== summaryRevision) return;
+      summarySpeaking = false;
+      if (!hasOfficialRecording) renderSummaryButton();
+      audioStatus.textContent = 'Could not play the summary. Tap Listen to retry.';
+      audioStatus.hidden = false;
+    };
+    summarySpeaking = true;
+    renderSummaryButton();
+    audioStatus.textContent = 'Reading the model summary using your device voice.';
+    audioStatus.hidden = false;
+    window.speechSynthesis.speak(utterance);
   });
-  $('official-audio').addEventListener('play', () => residentAudio.stop(), true);
+  $('official-audio').addEventListener('play', () => { stopSummary(); residentAudio.stop(); }, true);
 
   // Static copy.
   for (const el of document.querySelectorAll<HTMLElement>('[data-copy]')) el.textContent = t(el.dataset.copy as never);
@@ -294,6 +345,7 @@ export function createResidentUi(
     showResult(v: ResultView) {
       stopSpeaking(); residentAudio.set(null);
       current = describe(v);
+      renderSummaryButton();
       // A new place: the previous place's journey no longer applies (the new one arrives separately).
       $('journey').hidden = true;
       $('journey').replaceChildren();
@@ -375,6 +427,7 @@ export function createResidentUi(
     },
     /** The loop closed: an alert a duty officer approved for this place, shown above the model estimate. */
     setOfficial(a: OfficialAlertView | null) {
+      stopSummary();
       const box = $('official');
       box.hidden = !a;
       residentAudio.set(a ? { id: a.id, languages: a.languages, status: a.status } : null);
