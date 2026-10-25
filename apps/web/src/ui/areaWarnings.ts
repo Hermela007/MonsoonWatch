@@ -60,7 +60,7 @@ export function areaWarningView(a: AreaWarning): AreaWarningView {
  * District warnings in the control room: one card per warning, each approved or rejected on its own.
  * Deliberately no "approve all" — every approval makes two spoken-version (TTS) calls.
  */
-export function createAreaWarningsUi(root: HTMLElement, h: { onDecide: (id: string, d: 'approve' | 'reject') => void }) {
+export function createAreaWarningsUi(root: HTMLElement, h: { onDecide: (id: string, d: 'approve' | 'reject') => void; formatText?: (text: string) => string }) {
   const items = new Map<string, AreaWarning>();
   const busy = new Set<string>();
   let enabled = false;
@@ -68,7 +68,7 @@ export function createAreaWarningsUi(root: HTMLElement, h: { onDecide: (id: stri
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
+    if (text !== undefined) e.textContent = h.formatText?.(text) ?? text;
     return e;
   };
 

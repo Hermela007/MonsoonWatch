@@ -807,9 +807,17 @@ async function main() {
       updateGaugeCaption();
     });
     // Prefer the API's copies (same source, maintained by C) when it's running.
-    void fetchVillages(KELANTAN.id).then((v) => { if (v) { villageLocations = v; ui!.setPlaces([...allPlaces, ...v]); refreshOfficial(); } });
+    void fetchVillages(KELANTAN.id).then((v) => {
+      if (!v) return;
+      villageLocations = v;
+      control.setVillageNames(new Map(v.filter(p => p.id).map(p => [p.id!, p.name])));
+      ui!.setPlaces([...allPlaces, ...v]);
+      refreshOfficial();
+    });
     void fetchEvacCentres(KELANTAN.id).then((c: EvacCentre[] | null) => {
-      if (c?.length) centres = c.map((x) => ({ name: x.name, lngLat: x.location.coordinates }));
+      if (!c?.length) return;
+      centres = c.map((x) => ({ name: x.name, lngLat: x.location.coordinates }));
+      control.setCentres(c);
     });
   };
   const updateGaugeCaption = () => {
@@ -926,7 +934,21 @@ async function main() {
         if (!screening && landslideModel === 'screening') void loadScreening(KELANTAN.id).then((r) => r && applyScreening(r));
         // A home chosen before the API connected (e.g. opened from a link) gets its route now.
         if (homeLngLat && !journey && !routeFixture) void requestJourney();
-        void fetchSaintTasks().then((tasks) => tasks?.forEach((task) => control.task(task)));
+        void fetchSaintTasks().then(async (tasks) => {
+          tasks?.forEach((task) => control.task(task));
+          // Recover the approved plans behind persisted tasks after a page reload. These are the
+          // existing planner ID formats: run:village:group and area/advisory:run:basis:district:hazard.
+          const runIds = new Set(tasks?.map(task => task.target === 'area_warning'
+            ? /^(?:area|advisory):([^:]+):/.exec(task.alertId)?.[1]
+            : /^([^:]+):/.exec(task.alertId)?.[1]).filter((id): id is string => !!id));
+          const targetIds = new Set(tasks?.map(task => task.alertId));
+          // Historical runs can contain thousands of records; avoid parallel bulk downloads.
+          for (const id of runIds) {
+            const detail = await fetchAgentRun(id, 30000);
+            detail?.alerts.filter(alert => targetIds.has(alert._id)).forEach(alert => control.alert(alert));
+            detail?.areaWarnings?.filter(warning => targetIds.has(warning._id)).forEach(warning => control.areaWarning(warning));
+          }
+        });
         void fetchReplayStatus().then((status) => status && applyReplay(status));
       }
     },
