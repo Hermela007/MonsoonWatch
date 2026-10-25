@@ -1,6 +1,8 @@
 import * as THREE from 'three';
-import type { House } from '../data/buildings';
 import { THEME } from '../theme';
+import type { House } from '../data/buildings';
+
+type WaterHouse = House & { heightM?: number };
 
 const SIZE_M = 900;
 const SEGMENTS = 220; // ~4 m vertex spacing: enough for the shortest wave below
@@ -14,52 +16,28 @@ float noise(vec2 p) {
 }
 `;
 
-// Sum of Gerstner waves (crests sharpen, troughs flatten) with analytic normals.
+// Small advected disturbances: river current, not open-ocean waves. Depth remains model-driven.
 const vertexShader = /* glsl */ `
 uniform float uTime;
-uniform float uCalm; // 0 = full waves, 1 = flat
-uniform float uStage; // main-river rise (m)
-uniform sampler2D uGround; // ground height, local metres
-uniform sampler2D uHand; // r: height above nearest drainage (m), g: share of the river rise reaching here
+uniform float uStage;
+uniform sampler2D uGround;
+uniform sampler2D uHand;
+uniform sampler2D uFlow;
 uniform float uSize;
 uniform vec3 uOrigin;
 varying vec3 vWorld;
-varying vec3 vNormalW;
-varying float vHeight;
 varying float vDepth;
-
-vec3 gerstner(vec2 p, vec2 dir, float steep, float wl, inout vec3 tangent, inout vec3 binormal) {
-  float k = 6.28318 / wl;
-  float c = sqrt(9.8 / k);
-  vec2 d = normalize(dir);
-  float f = k * (dot(d, p) - c * uTime);
-  float a = steep / k;
-  tangent += vec3(-d.x * d.x * steep * sin(f), d.x * steep * cos(f), -d.x * d.y * steep * sin(f));
-  binormal += vec3(-d.x * d.y * steep * sin(f), d.y * steep * cos(f), -d.y * d.y * steep * sin(f));
-  return vec3(d.x * a * cos(f), a * sin(f), d.y * a * cos(f));
-}
-
 void main() {
   vec4 world = modelMatrix * vec4(position, 1.0);
-  vec2 p = world.xz;
-  vec2 guv = vec2((p.x - uOrigin.x) / uSize + 0.5, 0.5 - (p.y - uOrigin.z) / uSize);
-  // Same model as the map and the card: depth = river rise × share − height above the river.
-  vec2 hs = texture2D(uHand, guv).rg;
-  float ground = texture2D(uGround, guv).r;
+  vec2 uv = vec2((world.x - uOrigin.x) / uSize + 0.5, 0.5 - (world.z - uOrigin.z) / uSize);
+  vec2 hs = texture2D(uHand, uv).rg;
   vDepth = uStage * hs.g - hs.r;
-  world.y = ground + max(vDepth, 0.0) + (vDepth > 0.0 ? 0.0 : -0.6);
-  // Waves die out in shallow water instead of poking through the ground.
-  float s = (1.0 - uCalm) * smoothstep(0.0, 2.5, vDepth);
-  vec3 tangent = vec3(1.0, 0.0, 0.0);
-  vec3 binormal = vec3(0.0, 0.0, 1.0);
-  vec3 offset = vec3(0.0);
-  offset += gerstner(p, vec2(1.0, 0.6), 0.20 * s, 16.0, tangent, binormal);
-  offset += gerstner(p, vec2(-0.4, 1.0), 0.16 * s, 10.0, tangent, binormal);
-  offset += gerstner(p, vec2(0.7, -0.8), 0.12 * s, 6.5, tangent, binormal);
-  offset += gerstner(p, vec2(0.2, 1.0), 0.08 * s, 9.0, tangent, binormal);
-  world.xyz += offset;
-  vHeight = offset.y;
-  vNormalW = normalize(cross(binormal, tangent));
+  vec2 flow = texture2D(uFlow, uv).rg;
+  float wet = smoothstep(0.0, 0.45, vDepth);
+  vec2 p = world.xz;
+  float chop = sin(p.x * 1.1 + p.y * .6 - uTime * 2.1) * .035
+    + sin(p.x * .8 - p.y * 1.7 + uTime * 1.8) * .018;
+  world.y = texture2D(uGround, uv).r + max(vDepth, 0.0) + chop * wet + (vDepth > 0.0 ? .015 : -.1);
   vWorld = world.xyz;
   gl_Position = projectionMatrix * viewMatrix * world;
 }
@@ -73,53 +51,73 @@ uniform vec3 uSky;
 uniform vec3 uFoam;
 uniform vec3 uSunDir;
 uniform sampler2D uWallFoam;
+uniform sampler2D uFlow;
+uniform sampler2D uHand;
+uniform float uStage;
 uniform float uSize;
 uniform vec3 uOrigin;
 uniform float uFogNear;
 uniform float uFogFar;
 varying vec3 vWorld;
-varying vec3 vNormalW;
-varying float vHeight;
 varying float vDepth;
 ${NOISE}
-
+float advectedNoise(vec2 p, vec2 flow, float phase, vec2 scale) {
+  vec2 q = p - flow * phase * 7.0;
+  return noise(q * scale);
+}
+float surface(vec2 p, vec2 flow) {
+  // Crossfade two short advection phases. Long-running offsets or a spatially rotating
+  // coordinate basis fold into fingerprint-like patterns, so neither is used here.
+  float a = fract(uTime * .17), b = fract(uTime * .17 + .5);
+  float blend = abs(a-.5)*2.0;
+  float first = advectedNoise(p,flow,a,vec2(.55,1.1));
+  float second = advectedNoise(p,flow,b,vec2(.55,1.1));
+  return mix(first,second,blend);
+}
 void main() {
-  if (vDepth < 0.0) discard;
-  vec3 n = normalize(vNormalW);
-  // Small moving ripples on top of the big waves.
-  // (faded with distance: at grazing angles noisy normals turn into camouflage blotches)
+  vec2 uv = vec2((vWorld.x - uOrigin.x) / uSize + .5, .5 - (vWorld.z - uOrigin.z) / uSize);
+  vec2 hs = texture2D(uHand,uv).rg;
+  float depth = uStage*hs.g-hs.r;
+  if(depth <= 0.0) discard;
+  vec2 flow = texture2D(uFlow, uv).rg;
+  float wall = texture2D(uWallFoam, uv).r;
+  float texel = 1.0 / 1024.0;
+  vec2 edge = vec2(texture2D(uWallFoam, uv + vec2(texel,0)).r - texture2D(uWallFoam, uv - vec2(texel,0)).r,
+    texture2D(uWallFoam, uv + vec2(0,texel)).r - texture2D(uWallFoam, uv - vec2(0,texel)).r);
+  // Slip around obstacles, with eddies where the stream meets a wall.
+  flow = normalize(flow + vec2(edge.y, edge.x) * 1.6 + vec2(.0001));
+  vec2 p = vWorld.xz;
+  float height = surface(p, flow);
+  float dx = surface(p + vec2(.12,0), flow) - height;
+  float dz = surface(p + vec2(0,.12), flow) - height;
   float dist = length(cameraPosition - vWorld);
-  vec2 rp = vWorld.xz * 0.5;
-  float r1 = noise(rp + vec2(uTime * 0.6, uTime * 0.3));
-  float r2 = noise(rp * 2.1 - vec2(uTime * 0.4, -uTime * 0.7));
-  n = normalize(n + vec3(r1 - 0.5, 0.0, r2 - 0.5) * 0.08 * (1.0 - smoothstep(20.0, 120.0, dist)));
-
+  float detail = 1.0 - smoothstep(180.0, 700.0, dist);
+  vec3 n = normalize(vec3(-dx * 1.2 * detail, 1.0, -dz * 1.2 * detail));
   vec3 viewDir = normalize(cameraPosition - vWorld);
-  float fres = 0.2 * pow(1.0 - max(dot(n, viewDir), 0.0), 5.0);
-  float spec = pow(max(dot(reflect(-uSunDir, n), viewDir), 0.0), 70.0);
-
-  // Clear water: barely tinted when shallow, the flood blue deepening with depth; sky reflection at grazing angles.
-  float depthK = 1.0 - exp(-max(vDepth, 0.0) / 3.5);
-  vec3 col = mix(uShallow, uDeep, depthK * 0.85) * (0.92 + 0.12 * smoothstep(-0.4, 0.5, vHeight));
-  col = mix(col, uSky, fres * 2.5) + spec * 0.6;
-
-  // Foam: on wave crests, and where water laps against walls.
-  // Streaky foam: stretched noise along the main wave direction, only near crests.
-  vec2 fp = vec2(dot(vWorld.xz, vec2(0.86, 0.51)) * 0.25, dot(vWorld.xz, vec2(-0.51, 0.86)) * 1.6);
-  float crest = smoothstep(0.75, 0.95, vHeight) * smoothstep(0.65, 0.85, noise(fp + uTime * 0.3));
-  vec2 fuv = vec2((vWorld.x - uOrigin.x) / uSize + 0.5, 0.5 - (vWorld.z - uOrigin.z) / uSize);
-  float wall = texture2D(uWallFoam, fuv).r;
-  // Only while walls still stick out of the water (single storey ≈ 3.4 m).
-  float lap = smoothstep(0.6, 0.95, wall) * smoothstep(0.15, 1.0, vDepth) * (1.0 - smoothstep(2.5, 3.4, vDepth)) * smoothstep(0.4, 0.8, noise(vWorld.xz * 1.5 - uTime * 1.2) + 0.25 * sin(uTime * 3.0 + wall * 6.0));
-  // Shoreline: a thin foam line where the water meets dry ground.
-  float shore = 1.0 - smoothstep(0.0, 0.08, vDepth);
-  // A crisp waterline at the shore and a whisper of white on the biggest crests.
-  col = mix(col, uDeep, shore * 0.8);
-  col = mix(col, vec3(1.0), clamp(crest * 0.25 + lap * 0.2, 0.0, 1.0));
-
-  float fog = smoothstep(uFogNear, uFogFar, dist);
-  float alpha = 0.28 + 0.5 * depthK + 0.4 * fres + shore * 0.5;
-  gl_FragColor = vec4(mix(col, uSky, fog), clamp(alpha, 0.0, 0.95));
+  float fresnel = pow(1.0 - max(dot(n,viewDir),0.0), 4.0);
+  float spec = pow(max(dot(reflect(-uSunDir,n),viewDir),0.0), 90.0);
+  float depthK = 1.0 - exp(-depth / 1.7);
+  vec3 col = mix(uShallow, uDeep, depthK) * (.96 + height * .065);
+  col = mix(col, uSky * .82, fresnel * .46) + spec * .2;
+  // Uneven ribbons of foam follow the current.
+  float phase = fract(uTime*.17), phaseB = fract(uTime*.17+.5);
+  float blend = abs(phase-.5)*2.0;
+  float ribbons = mix(advectedNoise(p,flow,phase,vec2(.4,.08)),advectedNoise(p,flow,phaseB,vec2(.4,.08)),blend);
+  float broken = surface(p*1.3,flow);
+  float streak = smoothstep(.72,.9,ribbons) * smoothstep(.45,.8,broken);
+  float shallow = 1.0 - smoothstep(.04,.35,depth);
+  float contact = smoothstep(.08,.65,wall) * smoothstep(.04,.25,depth) * (1.0-smoothstep(2.5,3.5,depth));
+  float pulse = .45 + .55 * sin(uTime * 4.5 + height * 8.0 + p.x * .7);
+  float foam = streak * .13 + contact * smoothstep(.25,.75,broken + pulse * .22) * .65;
+  foam += shallow * smoothstep(.35,.8,broken) * .34;
+  col = mix(col, uFoam, clamp(foam,0.0,.72));
+  // A wet, feathered leading edge. No solid vertical wall around the water square.
+  float wetEdge = smoothstep(0.0,.09,depth);
+  float fog = smoothstep(uFogNear,uFogFar,dist);
+  float edgeDistance = max(abs((vWorld.x-uOrigin.x)/uSize),abs((vWorld.z-uOrigin.z)/uSize));
+  float edgeFade = 1.0-smoothstep(.42,.5,edgeDistance);
+  float alpha = (.38 + depthK * .42 + fresnel * .12 + foam * .15) * wetEdge * edgeFade;
+  gl_FragColor = vec4(mix(col,uSky,fog), clamp(alpha,0.0,.9) * (1.0-fog));
 }
 `;
 
@@ -176,32 +174,130 @@ function groundTexture(groundY: (x: number, z: number) => number) {
   return tex;
 }
 
-/** Animated floodwater for the street view: Gerstner waves, ripples, crest/wall/shore foam. */
+/** Hours per animation second. Preserve the model's depths, but give first inundation time to read. */
+export function streetReplayRate(depthNow: number, depthAhead: number) {
+  if (!Number.isFinite(depthNow) || !Number.isFinite(depthAhead) || depthNow < -.35 || depthNow > 3.8) return 6;
+  const metresPerHour = Math.max(0, (depthAhead - depthNow) / .25);
+  return Math.min(6, .14 / Math.max(.02, metresPerHour));
+}
+
+/** Local downhill/road-aligned direction for texture advection, not a hydrodynamic velocity estimate. */
+export function streetFlow(ground: (x: number, z: number) => number, roads: { pts: { x: number; z: number }[] }[]) {
+  const segments = roads.flatMap(r => r.pts.slice(1).map((b, i) => ({ a: r.pts[i], b }))).filter(({a,b}) => Math.hypot(b.x-a.x,b.z-a.z) > .1);
+  return (x: number, z: number): [number,number] => {
+    let dx = (ground(x-4,z)-ground(x+4,z)) * .3 + .25;
+    let dz = (ground(x,z-4)-ground(x,z+4)) * .3 - .95;
+    let nearest = 18 * 18;
+    for (const {a,b} of segments) {
+      if (x < Math.min(a.x,b.x)-18 || x > Math.max(a.x,b.x)+18 || z < Math.min(a.z,b.z)-18 || z > Math.max(a.z,b.z)+18) continue;
+      const vx=b.x-a.x,vz=b.z-a.z, len=Math.hypot(vx,vz);
+      const t=Math.max(0,Math.min(1,((x-a.x)*vx+(z-a.z)*vz)/(len*len)));
+      const distance=(x-a.x-t*vx)**2+(z-a.z-t*vz)**2;
+      if (distance >= nearest) continue;
+      nearest=distance;
+      const sign=vx*dx+vz*dz < 0 ? -1 : 1;
+      const blend=(1-Math.sqrt(distance)/18)*.85;
+      const norm=Math.hypot(dx,dz)||1;
+      dx=dx/norm*(1-blend)+vx/len*sign*blend;
+      dz=dz/norm*(1-blend)+vz/len*sign*blend;
+    }
+    const norm=Math.hypot(dx,dz)||1;
+    return [dx/norm,dz/norm];
+  };
+}
+
+/** Small GPU-driven droplets where the current contacts exposed building edges. */
+function contactSpray(houses: WaterHouse[], ground: (x: number,z: number) => number, hand: (x: number,z: number) => [number,number], flow: (x: number,z: number) => [number,number], sky: THREE.Color) {
+  const positions: number[] = [], data: number[] = [], directions: number[] = [];
+  for (const h of houses.filter(h => Math.hypot(h.x,h.z)<260).sort((a,b) => Math.hypot(a.x,a.z)-Math.hypot(b.x,b.z)).slice(0,140)) {
+    const c=Math.cos(h.angle), s=Math.sin(h.angle), f=flow(h.x,h.z);
+    const corners=[[-h.w/2,-h.d/2],[h.w/2,-h.d/2],[h.w/2,h.d/2],[-h.w/2,h.d/2]];
+    for (let side=0;side<4;side++) {
+      const a=corners[side],b=corners[(side+1)%4];
+      for (let k=0;k<4;k++) {
+        const t=(k+.5)/4, lx=a[0]+(b[0]-a[0])*t, lz=a[1]+(b[1]-a[1])*t;
+        const mx=(a[0]+b[0])*.5,mz=(a[1]+b[1])*.5,mn=Math.hypot(mx,mz)||1;
+        const nx=c*mx/mn+s*mz/mn,nz=-s*mx/mn+c*mz/mn;
+        const x=h.x+c*lx+s*lz+nx*.22, z=h.z-s*lx+c*lz+nz*.22;
+        const impact=Math.min(0,f[0]*nx+f[1]*nz);
+        const vx=f[0]-1.3*impact*nx,vz=f[1]-1.3*impact*nz,vn=Math.hypot(vx,vz)||1;
+        const [hh,share]=hand(x,z), seed=((positions.length+1)*.61803398875)%1;
+        positions.push(x,ground(x,z),z); data.push(hh,share,seed,h.heightM ?? h.storeys*3.3); directions.push(vx/vn,vz/vn);
+      }
+    }
+  }
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('aData',new THREE.Float32BufferAttribute(data,4));
+  geometry.setAttribute('aFlow',new THREE.Float32BufferAttribute(directions,2));
+  const material=new THREE.ShaderMaterial({
+    transparent:true, depthWrite:false,
+    uniforms:{uTime:{value:0},uStage:{value:0},uSky:{value:sky}},
+    vertexShader: /* glsl */ `
+      uniform float uTime; uniform float uStage;
+      attribute vec4 aData; attribute vec2 aFlow;
+      varying float vAlpha; varying float vDistance;
+      void main(){
+        float depth=uStage*aData.y-aData.x;
+        float wet=smoothstep(.03,.3,depth)*(1.0-smoothstep(aData.w-.4,aData.w,depth));
+        float age=fract(uTime*(.7+aData.z*.8)+aData.z*13.0);
+        float flight=age/.55;
+        float visible=1.0-step(.55,age);
+        float strength=.22+.48*aData.z;
+        vec3 p=position;
+        p.xz+=aFlow*(flight*.65)+vec2(-aFlow.y,aFlow.x)*sin(aData.z*70.0)*flight*.32;
+        p.y+=max(0.0,depth)+4.0*strength*flight*(1.0-flight);
+        vec4 mv=modelViewMatrix*vec4(p,1.0);
+        vDistance=length(mv.xyz);
+        gl_PointSize=clamp(280.0/max(1.0,-mv.z),.9,5.0);
+        vAlpha=wet*visible*(1.0-age/.55)*.55;
+        gl_Position=projectionMatrix*mv;
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uSky; varying float vAlpha; varying float vDistance;
+      void main(){
+        float r=length((gl_PointCoord-.5)*vec2(1.0,.72));
+        float alpha=(1.0-smoothstep(.12,.49,r))*vAlpha*(1.0-smoothstep(180.0,430.0,vDistance));
+        if(alpha<.015) discard;
+        gl_FragColor=vec4(mix(vec3(.88,.94,.97),uSky,.15),alpha);
+      }`,
+  });
+  const points=new THREE.Points(geometry,material); points.frustumCulled=false; points.renderOrder=3;
+  return {points,update(stage:number,time:number){material.uniforms.uStage.value=stage;material.uniforms.uTime.value=time;},dispose(){geometry.dispose();material.dispose();}};
+}
+
+/** Illustrative moving floodwater: model-driven depth, advected ripples, contact foam and spray. */
 export function createStreetWater(
-  houses: House[],
+  houses: WaterHouse[],
   sky: THREE.Color,
   fog: { near: number; far: number },
   groundY: (x: number, z: number) => number,
   handScale: (x: number, z: number) => [number, number],
+  roads: { pts: { x: number; z: number }[] }[] = [],
 ) {
   const geometry = new THREE.PlaneGeometry(SIZE_M, SIZE_M, SEGMENTS, SEGMENTS).rotateX(-Math.PI / 2);
   const foamTex = wallFoamTexture(houses);
   const groundTex = groundTexture(groundY);
   const handTex = fieldTexture(handScale);
+  const flowAt = streetFlow(groundY, roads);
+  const flowTex = fieldTexture(flowAt);
+  const spray = contactSpray(houses, groundY, handScale, flowAt, sky);
+
   const material = new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     transparent: true,
+    depthWrite: false,
     uniforms: {
       uTime: { value: 0 },
-      uCalm: { value: 0 },
       uStage: { value: 0 },
       uGround: { value: groundTex },
       uHand: { value: handTex },
+      uFlow: { value: flowTex },
       uDeep: { value: THEME.flood },
       uShallow: { value: THEME.floodLight },
       uSky: { value: sky },
-      uFoam: { value: new THREE.Color(0xeee6d2) },
+      uFoam: { value: new THREE.Color(0xeaf4f8) },
       uSunDir: { value: new THREE.Vector3(-0.5, 0.8, 0.35).normalize() },
       uWallFoam: { value: foamTex },
       uSize: { value: SIZE_M },
@@ -213,18 +309,18 @@ export function createStreetWater(
   const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 2;
   // The textures it samples are exposed so the underwater tint uses the very same water.
+  mesh.add(spray.points);
   const textures = { ground: groundTex, hand: handTex };
   mesh.frustumCulled = false;
 
   return {
     mesh,
     textures,
-    /** `stageM` = main-river rise; `depthAtHome` scales wave height. */
-    update(stageM: number, depthAtHome: number, timeS: number) {
+    /** `stageM` stays the modelled main-river rise; motion uses the animation clock only. */
+    update(stageM: number, timeS: number) {
       material.uniforms.uStage.value = stageM;
       material.uniforms.uTime.value = timeS;
-      // Flowing floodwater always has some chop; deeper water gets the full waves.
-      material.uniforms.uCalm.value = 0.45 * (1 - THREE.MathUtils.smoothstep(depthAtHome, 0.3, 2));
+      spray.update(stageM, timeS);
     },
     dispose() {
       geometry.dispose();
@@ -232,6 +328,8 @@ export function createStreetWater(
       foamTex.dispose();
       groundTex.dispose();
       handTex.dispose();
+      flowTex.dispose();
+      spray.dispose();
     },
   };
 }

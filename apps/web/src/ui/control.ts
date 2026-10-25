@@ -33,6 +33,9 @@ export function createControlUi(h: {
   let t0 = 0;
   let current: Alert | null = null;
   const alerts = new Map<string, Alert>();
+  // Village ids from the API are OSM ids ("osm-node-136…"): show their names once the village list is loaded.
+  let villageNames = new Map<string, string>();
+  const vName = (id: string) => villageNames.get(id) ?? id;
   let deciding = false;
   let connected = false;
   let readOnly = false;
@@ -68,12 +71,12 @@ export function createControlUi(h: {
     if (!a) return;
     $('alert-box').dataset.alertId = a._id;
     const picker = $<HTMLSelectElement>('alert-picker');
-    picker.innerHTML = [...alerts.values()].map((x) => `<option value="${esc(x._id)}">${esc(x.villageId)} · ${esc(x.status)} · ${x.people} people</option>`).join('');
+    picker.innerHTML = [...alerts.values()].map((x) => `<option value="${esc(x._id)}">${esc(vName(x.villageId))} · ${esc(x.status)} · ${x.people} people</option>`).join('');
     picker.value = a._id;
     $('alert-picker-row').hidden = alerts.size < 2;
     const checks = a.verification;
     const pending = ['threshold', 'route', 'capacity', 'freshness', 'language', 'vulnerable'].filter((c) => !checks.some((v) => v.check === c));
-    $('alert-title').textContent = `${a.hazard === 'flood' ? 'Flood' : 'Landslide'} alert · ${a.villageId}`;
+    $('alert-title').textContent = `${a.hazard === 'flood' ? 'Flood' : 'Landslide'} alert · ${vName(a.villageId)}`;
     // Who planned it: the deterministic rules planner or Gemini.
     if (a.plannedBy) {
       const badge = document.createElement('span');
@@ -159,6 +162,10 @@ export function createControlUi(h: {
       renderAlert();
     },
     get currentAlert() { return current; },
+    setVillageNames(names: Map<string, string>) {
+      villageNames = names;
+      renderAlert();
+    },
     /** A district warning (B): villages without an individual plan, decided one by one. */
     areaWarning(w: AreaWarning) {
       setStage(w.status === 'approved' || w.status === 'sent' ? 4 : 3);

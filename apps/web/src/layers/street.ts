@@ -10,7 +10,7 @@ import { localFrame, type House, type Lane } from '../data/buildings';
 import type { AreaData } from '../data/areas';
 import { staffGaugeTexture } from '../data/textures';
 import { REPLAY_HOURS, rainAccumulated, stageM } from '../data/replay2014';
-import { createStreetWater } from './streetWater';
+import { createStreetWater, streetReplayRate } from './streetWater';
 import { createRealBuildings, type Footprint } from './realBuildings';
 import { addSlideGround, createStreetSlide, slideGroundUniforms } from './streetSlide';
 import { addUnderwater, waterUniforms } from './underwater';
@@ -198,7 +198,7 @@ export function createStreet(opts: {
       return { ring, box, heightM, base: groundY(box.x, box.z) };
     })
     .filter((p) => Math.hypot(p.box.x, p.box.z) < CLIP_M && p.box.w < 120);
-  const houses: House[] = prints.map((p) => ({ x: p.box.x, z: p.box.z, w: Math.max(p.box.w, p.box.d), d: Math.min(p.box.w, p.box.d), angle: p.box.angle, storeys: 1, source: 'osm', kind: 'modern' }));
+  const houses: House[] = prints.map((p) => ({ x: p.box.x, z: p.box.z, w: Math.max(p.box.w, p.box.d), d: Math.min(p.box.w, p.box.d), angle: p.box.angle, storeys: 1, heightM: p.heightM, source: 'osm', kind: 'modern' }));
   const roads = (opts.area?.roads ?? []).map((r) => ({ kind: r.kind, pts: r.line.map(toLoc) }));
 
   let ref = -1;
@@ -244,7 +244,7 @@ export function createStreet(opts: {
   disposables.push(built);
 
   // Water.
-  const water = createStreetWater(houses, sky, { near: 250, far: 1100 }, groundY, handScale);
+  const water = createStreetWater(houses, sky, { near: 250, far: 1100 }, groundY, handScale, roads);
   waterUniforms.uWaterGround.value = water.textures.ground;
   waterUniforms.uWaterHand.value = water.textures.hand;
   scene.add(water.mesh);
@@ -349,6 +349,13 @@ export function createStreet(opts: {
       }
       return null;
     },
+    /** Slow the visual replay at first inundation so metres of rise do not flash past in one second.
+     * This changes playback speed only; each displayed depth still comes from stageM at that time. */
+    replayRate(hour: number) {
+      const before = depthAtLocal(homeHouse.x, homeHouse.z, stageM(hour));
+      const after = depthAtLocal(homeHouse.x, homeHouse.z, stageM(hour + .25));
+      return streetReplayRate(before, after);
+    },
     /** Ground height (local m) — to keep the camera out of hillsides. */
     groundAt: groundY,
     get buried() {
@@ -400,7 +407,7 @@ export function createStreet(opts: {
         });
         if (buriedCount === 0 && r === 0) lastHour = NaN;
       }
-      water.update(stageNow, homeDepthNow, timeS);
+      water.update(stageNow, timeS);
     },
     /** When the replay hour changes: water level and roof tints. */
     update(hour: number) {
@@ -410,7 +417,7 @@ export function createStreet(opts: {
       let wet = 0;
       houses.forEach((h, i) => {
         const depth = stageNow * bHS[i][1] - bHS[i][0];
-        // No whole-building tint: buildings turn blue only below the real waterline (underwater
+        // No whole-building tint: buildings get a silt tint only below the real waterline (underwater
         // shader), so the water is seen climbing the walls — smooth, and physically right.
         void bands;
         if (depth > 0.05) wet++;

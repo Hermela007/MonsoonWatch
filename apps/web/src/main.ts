@@ -807,7 +807,7 @@ async function main() {
       updateGaugeCaption();
     });
     // Prefer the API's copies (same source, maintained by C) when it's running.
-    void fetchVillages(KELANTAN.id).then((v) => { if (v) { villageLocations = v; ui!.setPlaces([...allPlaces, ...v]); refreshOfficial(); } });
+    void fetchVillages(KELANTAN.id).then((v) => { if (v) { villageLocations = v; ui!.setPlaces([...allPlaces, ...v]); refreshOfficial(); control.setVillageNames(new Map(v.flatMap((x) => (x.id ? [[x.id, x.name] as [string, string]] : [])))); } });
     void fetchEvacCentres(KELANTAN.id).then((c: EvacCentre[] | null) => {
       if (c?.length) centres = c.map((x) => ({ name: x.name, lngLat: x.location.coordinates }));
     });
@@ -1175,11 +1175,7 @@ async function main() {
   const GUCHIL: { lngLat: LngLat; label: string } = { lngLat: [102.21628, 5.54085], label: 'Jalan Guchil Jaya, Kuala Krai' };
   if (params.has('demo')) {
     // Warm everything a recording touches (road graph, landslide screening, building outlines) before the first
-    // take, and say when it's ready, so nothing pauses on camera.
-    const chip = document.createElement('div');
-    chip.className = 'demo-chip';
-    chip.textContent = 'Demo · warming up…';
-    document.body.append(chip);
+    // take so nothing pauses on camera.
     const ts = replayDate(NOW_HOUR).toISOString();
     const warm = async () => {
       const slidePlace = () => realByName(hillPlaces[0]?.name ?? 'Kampung Jabir') ?? realByName('Kampung Jabir');
@@ -1192,9 +1188,6 @@ async function main() {
       await Promise.allSettled(jobs);
       const sp = slidePlace();
       if (sp) await loadAreaFor(sp.lngLat).catch(() => null);
-      chip.textContent = 'Demo ready · 1 landing · 2 card · 3 flood street · 4 landslide street · 5 control room · 6 approve · 7 route · 8 address';
-      chip.classList.add('ready');
-      window.setTimeout(() => chip.classList.add('quiet'), 6000);
       // Arrived from the other page's key: play that scene now.
       const sceneKey = params.get('key');
       if (sceneKey) {
@@ -1271,7 +1264,7 @@ async function main() {
     wasLanding = landing;
     // Replay time eases towards its target: forward slowly, back quickly.
     // Slow the replay right down while a landslide surges, so it can be seen.
-    const rate = targetHour > hour ? (inStreet ? (street?.slideSurging ? 0.15 : 6) : 10) : 40;
+    const rate = targetHour > hour ? (inStreet ? (street?.slideSurging ? 0.15 : street?.replayRate(hour) ?? 6) : 10) : 40;
     hour = targetHour > hour ? Math.min(targetHour, hour + dt * rate) : Math.max(targetHour, hour - dt * rate);
     focus.amount += (focusTarget - focus.amount) * Math.min(1, dt * 2.5);
     // Scripted demo only. Real runs are triggered by B's backend risk-event listener.

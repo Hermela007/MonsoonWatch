@@ -49,8 +49,8 @@ const GRID = /* glsl */ `
 `;
 
 /**
- * Patch a standard material so anything below the water level takes a clear-water tint that
- * deepens with depth, plus moving caustics. `grid` also draws the drafting grid (ground only).
+ * Patch a standard material so anything below the water level takes a blue-water tint that
+ * deepens with depth, with a faint shallow-water glint. `grid` also draws the drafting grid (ground only).
  */
 export function addUnderwater<T extends THREE.MeshStandardMaterial>(mat: T, grid = false): T {
   mat.onBeforeCompile = (shader) => {
@@ -81,7 +81,7 @@ export function addUnderwater<T extends THREE.MeshStandardMaterial>(mat: T, grid
           if (wd > 0.0) {
             float k = 1.0 - exp(-wd / 2.5);
             gl_FragColor.rgb = mix(gl_FragColor.rgb * mix(vec3(1.0), uWaterTint, 0.75), uWaterDeep * 0.9, k * 0.7);
-            gl_FragColor.rgb += causticAt(vWPos.xz * 0.12, uWaterTime * 0.6) * 0.35 * exp(-wd / 3.0);
+            gl_FragColor.rgb += causticAt(vWPos.xz * 0.12, uWaterTime * 0.6) * 0.035 * exp(-wd / 0.5);
             // Thin dark waterline where surfaces meet the surface.
             gl_FragColor.rgb = mix(gl_FragColor.rgb, uWaterDeep * 0.7, (1.0 - smoothstep(0.0, 0.08, wd)) * 0.8);
           }
