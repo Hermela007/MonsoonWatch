@@ -108,5 +108,15 @@
   ],
   "buildings": 261,
   "roads": 20
+ },
+ {
+  "name": "Jalan Guchil Jaya",
+  "slug": "jalan-guchil-jaya",
+  "center": [
+   102.21628,
+   5.54085
+  ],
+  "buildings": 561,
+  "roads": 191
  }
 ]

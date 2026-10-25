@@ -565,10 +565,16 @@ async function main() {
 
   const enterStreet = async () => {
     if (!homeLngLat || !housesFor || inStreet) return;
+    const selectedHome = homeLngLat;
     slideShots = null;
     ui!.setStreet('loading');
     const area = await housesFor;
-    if (!homeLngLat) return;
+    if (homeLngLat !== selectedHome) return;
+    if (!area || (!area.buildings.length && !area.roads.length)) {
+      ui!.setStreet('off');
+      document.getElementById('journey-status')!.textContent = 'Street detail is unavailable at this starting point. Choose a nearby mapped location to explore the neighbourhood.';
+      return;
+    }
     if (!street) {
       street = createStreet({
         renderer: stage.renderer,
