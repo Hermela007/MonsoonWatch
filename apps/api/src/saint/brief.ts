@@ -23,13 +23,20 @@ function routeLine(alert: Pick<Alert, "messages" | "routeMode">): string {
   return km ? `Route: ${km} km by road, as in the message (verified by MonsoonWatch)` : "Route: see app";
 }
 
-/** What Thea asks the leader, so every check-in number comes from a person (Thea's own feedback). */
-const FOLLOW_UP =
-  "Please: 1) WhatsApp the message above, exactly as written, to the ketua kampung of {v}; " +
-  "2) ask them to confirm they received it, how many people are moving now, and to tell you when they arrive and how many; " +
-  "3) when I ask, chase if there's no reply; " +
-  "4) after each reply, report back to me and end the report with this one line, filled in from what the leader said " +
-  "(leave people= empty for acknowledged; never fill in a number the leader didn't give):";
+/**
+ * Thea's job for one alert. Redesigned after two live tests (docs/saint-log.md): Thea could not
+ * reliably carry the leader's replies from the leader's chat into the officer's chat, so she no
+ * longer relays numbers. She checks the brief, sends it, helps the village head in THEIR chat, and
+ * writes the check-in line there for the leader to forward to the duty officer. Every number
+ * starts with the person who counted, in the same conversation.
+ */
+export const CHECK_THEN_SEND =
+  "Please: 1) check this brief first and tell me if anything looks wrong (a missing language, numbers that disagree, a full centre); " +
+  "2) if it's fine, WhatsApp the message above, exactly as written, to the ketua kampung of {v}; ";
+export const HELP_THE_LEADER =
+  "3) in that chat, help the leader: answer their questions using this brief only (centre, route, pickups), help them plan who to collect first, and say plainly what you don't know; " +
+  "4) each time the leader gives you news, write this line for them, filled in from what they said, and ask them to forward it to the duty officer " +
+  "(leave people= empty for acknowledged; never fill in a number yourself";
 
 export function buildBrief(input: {
   taskId: string;
@@ -65,7 +72,7 @@ export function buildBrief(input: {
     `Message for the ketua kampung of ${villageName}:`,
     ...messages,
     ``,
-    FOLLOW_UP.replace("{v}", villageName),
+    CHECK_THEN_SEND.replace("{v}", villageName) + HELP_THE_LEADER + "):",
     `MW CHECKIN alert=${alert._id} centre=${centreName} people=<number> status=<acknowledged|moving|arrived>`,
   ].join("\n");
 }
@@ -107,11 +114,7 @@ export function buildAreaBrief(input: { taskId: string; warning: AreaWarning; vi
     `Message for the ketua kampung of each village above:`,
     ...messages,
     ``,
-    `Please: 1) WhatsApp the message above, exactly as written, to the ketua kampung you are cleared to contact; ` +
-      `2) ask them to confirm they received it, how many people are moving and to which centre, and to tell you when they arrive and how many; ` +
-      `3) when I ask, chase if there's no reply; ` +
-      `4) after each reply, report back to me and end the report with this one line, filled in from what the leader said ` +
-      `(centre = where the leader says people are going; leave people= empty for acknowledged; never fill in a number the leader didn't give):`,
+    CHECK_THEN_SEND.replace("of {v}", "you are cleared to contact") + HELP_THE_LEADER + "; centre = where the leader says people are going):",
     `MW CHECKIN alert=${w._id} centre=<centre name> people=<number> status=<acknowledged|moving|arrived>`,
   ].join("\n");
 }

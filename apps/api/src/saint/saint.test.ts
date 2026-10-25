@@ -57,9 +57,12 @@ test("brief includes alert, village, centre, pickups, both languages (Malay firs
   assert.match(brief, /MW CHECKIN alert=alert-1 centre=SK Dabong people=<number>/);
   // The brief's distance is the one in the approved message, never a separately measured line.
   assert.match(brief, /Route: 4\.6 km by road, as in the message/);
-  // Thea is told to collect receipt + numbers from the leader and never to invent one.
-  assert.match(brief, /ask them to confirm they received it, how many people are moving now/);
-  assert.match(brief, /leave people= empty for acknowledged; never fill in a number the leader didn't give/);
+  // Thea checks the brief first, then helps the leader in their chat and writes the line for the
+  // LEADER to forward (no relay of numbers between conversations), never inventing a number.
+  assert.match(brief, /1\) check this brief first and tell me if anything looks wrong/);
+  assert.match(brief, /to the ketua kampung of Kuala Gris/);
+  assert.match(brief, /write this line for them, filled in from what they said, and ask them to forward it to the duty officer/);
+  assert.match(brief, /leave people= empty for acknowledged; never fill in a number yourself\):/);
 });
 
 test("pickup categories read as words, boat routes say so, missing distance falls back", () => {
