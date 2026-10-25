@@ -1,6 +1,6 @@
 # MonsoonWatch
 
-A 3D early-warning control room for monsoon floods and landslides, demoed on the Kelantan valley in Malaysia during the December 2014 floods.
+A flood and landslide early-warning app for monsoon regions, demoed on the Kelantan valley in Malaysia during the December 2014 floods. Residents find their evacuation route on a 3D model of the valley; officials review and approve warnings in a separate console.
 
 River and rain readings stream into MongoDB. Risk is detected as the data arrives. A Gemini agent turns the risk into an alert for each village at risk, with the nearest usable relief centre, a dry road route (or "boat only"), and a message in Malay and English. Deterministic checks verify every alert. A human approves it before anything is sent. Saint's agent, Thea, then checks the brief, sends the approved message to the village head on WhatsApp, and helps the village head act on it and report back.
 
@@ -10,11 +10,11 @@ All code in this repository was written during Encode London 2026.
 
 ## What you see
 
-- **Control room** ([`apps/web`](apps/web)): a Three.js model of the Kelantan valley. It shows river stations, rain, flood extent, landslide-prone slopes, villages, relief centres and the road network. Roads cut by water turn red.
+- **Resident page** (`/`, [`apps/web`](apps/web)): asks "Where are you leaving from?" A resident enters an address or uses their location, and a Three.js model of Kelantan shows their flood and landslide risk, their street, and an evacuation route to a relief centre with room, with checkpoints along the way. Once an official approves a warning, it can be played aloud in Malay and English.
+- **Officials' console** (`/control/`): the same 3D model with river stations, rain, flood extent, landslide-prone slopes, villages, relief centres and the road network. Roads cut by water turn red.
 - **The 2014 replay:** 18 Dec 2014 → 10 Jan 2015, played back as live events. On 24 Dec the road from Kampung Wakaf Bata to its relief centre floods. The agent's first route fails the route check, it replans, and the 10.3 km detour passes.
 - **Alerts panel:** each alert shows its six checks (red ticks turn green as the agent replans), the people to pick up, and the Approve button.
-- **Tech HUD:** every step of the pipeline (Stream Processing event, change stream, Gemini call, check, approval, Saint check-in) appears as it happens.
-- **Resident page:** the approved alert as a resident sees it, in Malay and English, with a read-aloud button.
+- **Under the hood (Tech HUD):** every step of the pipeline (Stream Processing event, change stream, Gemini call, check, approval, Saint check-in) appears as it happens.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ flowchart LR
   V[6 deterministic checks]
   H[Human approval]
   S[Saint / Thea<br/>WhatsApp]
-  UI[Three.js control room]
+  UI[Three.js resident page<br/>+ officials' console]
 
   JPS & G --> RR & RE
   RE --> SP --> RK
@@ -52,7 +52,7 @@ flowchart LR
 
 | Path | What |
 |---|---|
-| [`apps/web`](apps/web) | Vite + Three.js control room and resident page |
+| [`apps/web`](apps/web) | Vite + Three.js resident page (`/`) and officials' console (`/control/`) |
 | [`apps/api`](apps/api) | Fastify API: data, hazards model, live events (SSE), agent, alerts, Saint |
 | [`packages/shared`](packages/shared) | Shared types, API contract and live event names |
 | [`scripts`](scripts) | Data loaders: JPS, 2014 replay, OSM, terrain, places, knowledge |
@@ -80,7 +80,7 @@ Calls go through the Interactions API ([`gemini.ts`](apps/api/src/agent/gemini.t
 | **Time series collection** | `raw_readings` ([`setup.ts`](apps/api/src/db/setup.ts)) | Every river and rain reading |
 | **Atlas Stream Processing** | [`risk.js`](apps/api/src/db/stream-processors/risk.js), [`stream.ts`](apps/api/src/db/stream.ts) | Processors `riskRiver` and `riskRain` compare each reading with its thresholds and write `risk_events`. A plain `reading_events` collection (TTL 7 days) feeds them, because time series collections can't be a change stream source. |
 | **Change streams** | [`change-streams.ts`](apps/api/src/events/change-streams.ts) | New readings, risk events, alerts and Saint updates are pushed to the browser over SSE (`/api/stream`). |
-| **Geospatial (2dsphere)** | villages, centres, roads, stations | Nearest centres, villages near a station, flood-extent lookups |
+| **Geospatial (2dsphere)** | villages, centres, roads, stations ([`setup.ts`](apps/api/src/db/setup.ts)) | GeoJSON `[lon, lat]` locations with 2dsphere indexes. Nearest-centre and road-hazard lookups run in our routing code on these documents. |
 | **Atlas Search** | [`places.ts`](apps/api/src/search/places.ts) | Typo-tolerant search over village and centre names (`GET /api/search?type=place`) |
 | **Vector Search + automated embedding** (Voyage `voyage-4`) | [`knowledge.ts`](apps/api/src/search/knowledge.ts), [indexes](apps/api/src/db/indexes) | Search over 22 sourced passages about the 2014 floods ([`kelantan-2014.csv`](scripts/data/knowledge/kelantan-2014.csv)) and the Deep Research report, in English and Malay |
 | **Hybrid search (`$rankFusion`) + native `$rerank`** (`rerank-2.5`) | [`knowledge.ts`](apps/api/src/search/knowledge.ts) | Text and vector results fused, then reranked (`GET /api/search?type=hybrid`). In the app's search box, "Knowledge" ([`knowledge.ts`](apps/web/src/ui/knowledge.ts)) shows the reranked results. |
@@ -94,7 +94,7 @@ Saint's agent, Thea, works after an alert is approved, on WhatsApp with cleared 
 1. An official approves an alert. The **Send to Saint** button ([`saint.ts`](apps/web/src/ui/saint.ts)) opens WhatsApp with a brief for Thea ([`brief.ts`](apps/api/src/saint/brief.ts)): the village, the centre, the route, the people to pick up, both messages, and the check-in format. Alerts without both Malay and English are refused.
 2. **Thea checks the brief** before anything goes out. In testing she refused an alert with no Malay text and flagged a distance mismatch and a centre with no spare places.
 3. Thea sends the approved message, verbatim, to the village head, then **helps the village head in their own chat**: answers questions from the brief, helps plan who to collect first, and turns their updates into a line like `MW CHECKIN alert=… centre=… people=37 status=moving`.
-4. **The village head forwards that line** to the duty officer, who pastes it into the control room (`POST /api/saint/updates`, parser in [`checkin.ts`](apps/api/src/saint/checkin.ts)). Bad lines are rejected, repeats are ignored, and "arrived" updates the centre headcount and the HUD.
+4. **The village head forwards that line** to the duty officer, who pastes it into the officials' console (`POST /api/saint/updates`, parser in [`checkin.ts`](apps/api/src/saint/checkin.ts)). Bad lines are rejected, repeats are ignored, and "arrived" updates the centre headcount and the HUD.
 
 Why the village head forwards the line: in two live tests Thea could not reliably carry the leader's replies from the leader's chat into the officer's chat. So the numbers now start with the person who counted, in the same conversation. With a WhatsApp Business number, the same lines could reach the app automatically.
 
