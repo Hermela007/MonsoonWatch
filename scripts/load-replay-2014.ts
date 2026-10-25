@@ -1,19 +1,27 @@
 // `pnpm load:replay` — loads the reconstructed Dec 2014 Kelantan flood into raw_readings (mode "replay").
 //   - River: GloFAS daily discharge (m³/s) via the Open-Meteo Flood API, for main-channel cells
-//   - Rain:  Open-Meteo archive (reanalysis) daily precipitation, per JPS rain station, sampled at the
-//            station's district centre (JPS has no coordinates; the reanalysis grid is coarse anyway)
+//   - Rain:  Open-Meteo archive (ERA5 reanalysis) daily precipitation, per JPS rain station, sampled at the
+//            station's district centre (JPS has no coordinates; the reanalysis grid is coarse anyway),
+//            CALIBRATED by default: per district, 20–25 Dec scaled to the published JPS station totals
+//            (scripts/data/replay-2014/rain-calibration-2014.json, lib/rain-calibration.ts). Label
+//            "Calibrated reanalysis, approximate" — a scaling to published totals, not observed station data.
 // Everything here is RECONSTRUCTED data and must be labelled so in the UI (GUIDELINES §2).
 // Safe to re-run: replaces previous replay readings. Raw API responses are cached in
 // scripts/data/replay-2014/ so it also works offline:   pnpm load:replay --from-cache
+//   --no-calibrate   raw ERA5 rain (no scaling)
+//   --dry-run        print raw vs calibrated rain per district from the cache; no network, no MongoDB
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { COLLECTIONS } from "@monsoonwatch/shared";
 import { closeDb, getDb } from "@monsoonwatch/api/db";
+import { calibrateSeries, loadRainCalibration, rain6dAt, windowTotal } from "./lib/rain-calibration";
 
 const START = "2014-12-10";
 const END = "2015-01-10";
 const cacheDir = fileURLToPath(new URL("./data/replay-2014/", import.meta.url));
-const fromCache = process.argv.includes("--from-cache");
+const dryRun = process.argv.includes("--dry-run");
+const fromCache = dryRun || process.argv.includes("--from-cache"); // a dry run never fetches (or rewrites the cache)
+const calibrate = !process.argv.includes("--no-calibrate");
 
 // Main Kelantan channel, upstream → downstream. The river bends east towards the coast, so for each
 // latitude we probe a few longitudes and keep the cell with the highest discharge (off-channel GloFAS
@@ -69,11 +77,15 @@ interface ReadingDoc {
   meta: { stationId: string; kind: "rain" | "glofas"; source: "glofas" | "openmeteo"; mode: "replay" };
   value: number;
   rain6d?: (number | null)[];
+  // Extra fields on replay rain docs (not in the shared Reading type):
+  calibrated?: boolean;
+  calibrationLabel?: string;
+  calibrationFactor?: number | null;
 }
 
+const RAW_LABEL = "Reanalysis (ERA5), not calibrated";
+
 try {
-  const db = await getDb();
-  const readings = db.collection<ReadingDoc>(COLLECTIONS.rawReadings);
   const docs: ReadingDoc[] = [];
 
   // 1. River discharge (GloFAS) — probe candidate cells, keep the on-channel one per latitude
@@ -103,12 +115,7 @@ try {
       `  [other lons: ${options.slice(1).map((o) => `${o.lon}→${o.peak.toFixed(0)}`).join(", ")}]`);
   }
 
-  // 2. Rainfall (reanalysis) per JPS rain station, via its district centre
-  const rainStations = await db
-    .collection<{ _id: string; district: string }>(COLLECTIONS.stations)
-    .find({ kind: "rain" }, { projection: { district: 1 } })
-    .toArray();
-  if (rainStations.length === 0) throw new Error("No rain stations in the database yet — run `pnpm ingest:jps` first.");
+  // 2. Rainfall (ERA5 reanalysis, calibrated per district) per JPS rain station, via its district centre
   const districts = Object.keys(DISTRICT_CENTRES);
   const rain = await getJson(
     "openmeteo-rain",
@@ -116,35 +123,62 @@ try {
       `&longitude=${districts.map((k) => DISTRICT_CENTRES[k]!.lon).join(",")}` +
       `&start_date=${START}&end_date=${END}&daily=precipitation_sum&timezone=Asia%2FKuala_Lumpur`,
   );
-  const byDistrict = new Map(districts.map((k, i) => [k, rain[i]?.daily]));
+  const cal = loadRainCalibration();
+  const series = new Map<string, { time: string[]; raw: (number | null)[]; mm: (number | null)[]; factor: number | null; label: string }>();
+  districts.forEach((k, i) => {
+    const d = rain[i]?.daily;
+    if (!d) return;
+    const raw = d.precipitation_sum as (number | null)[];
+    const f = calibrate ? (cal.districts.find((c) => c.district === k)?.factor ?? null) : null;
+    const label = f === null ? (calibrate ? `${RAW_LABEL} (no published station for ${k})` : RAW_LABEL) : cal.label;
+    series.set(k, { time: d.time, raw, mm: f === null ? raw : calibrateSeries(d.time, raw, f, cal.window), factor: f, label });
+  });
+  const peak = (t: string[], mm: (number | null)[]) => {
+    const vals = mm.map((v) => v ?? -1);
+    const m = Math.max(...vals);
+    return `${m.toFixed(1)} (${t[vals.indexOf(m)]?.slice(5)})`;
+  };
+  console.log(`\n  Rain ${calibrate ? `calibrated per district, window ${cal.window.start} → ${cal.window.end}` : "RAW ERA5 (--no-calibrate)"}:`);
+  console.log(`  ${"district".padEnd(12)} ${"factor".padStart(7)}  ${"peak mm/day raw → calibrated (date)".padEnd(40)} window total raw → calibrated`);
+  for (const [k, sr] of series) {
+    console.log(`  ${k.padEnd(12)} ${(sr.factor === null ? "—" : sr.factor.toFixed(3)).padStart(7)}  ${`${peak(sr.time, sr.raw)} → ${peak(sr.time, sr.mm)}`.padEnd(40)} ${windowTotal(sr.time, sr.raw, cal.window).toFixed(1)} → ${windowTotal(sr.time, sr.mm, cal.window).toFixed(1)} mm`);
+  }
+  if (dryRun) {
+    console.log(`\n(dry run: ${docs.length} GloFAS readings and the rain above were computed from the cache; nothing written)`);
+    process.exit(0);
+  }
+
+  const db = await getDb();
+  const readings = db.collection<ReadingDoc>(COLLECTIONS.rawReadings);
+  const rainStations = await db
+    .collection<{ _id: string; district: string }>(COLLECTIONS.stations)
+    .find({ kind: "rain" }, { projection: { district: 1 } })
+    .toArray();
+  if (rainStations.length === 0) throw new Error("No rain stations in the database yet — run `pnpm ingest:jps` first.");
   const skipped = new Set<string>();
   for (const station of rainStations) {
-    const d = byDistrict.get(station.district);
-    if (!d) { skipped.add(station.district); continue; }
-    const mm = d.precipitation_sum as (number | null)[];
-    d.time.forEach((date, j) => {
-      const v = mm[j];
+    const sr = series.get(station.district);
+    if (!sr) { skipped.add(station.district); continue; }
+    sr.time.forEach((date, j) => {
+      const v = sr.mm[j];
       if (v === null || v === undefined) return;
       docs.push({
         ts: endOfDayMyt(date),
         meta: { stationId: station._id, kind: "rain", source: "openmeteo", mode: "replay" },
         value: v, // that day's total (= "since midnight" at end of day, same meaning as live)
-        rain6d: Array.from({ length: 6 }, (_, k) => (j - 6 + k >= 0 ? (mm[j - 6 + k] ?? null) : null)), // 6 days before, oldest first
+        rain6d: rain6dAt(sr.mm, j), // 6 days before, oldest first — same (calibrated) series as value
+        calibrated: sr.factor !== null,
+        calibrationLabel: sr.label,
+        calibrationFactor: sr.factor,
       });
     });
-  }
-  for (const [district, d] of byDistrict) {
-    if (!d) continue;
-    const mm = d.precipitation_sum as (number | null)[];
-    const peak = Math.max(...mm.filter((v): v is number => v !== null));
-    console.log(`  Rain ${district}: peak ${peak.toFixed(0)} mm/day on ${d.time[mm.indexOf(peak)]}`);
   }
   if (skipped.size) console.warn(`⚠️  rain stations skipped (unknown district): ${[...skipped].join(", ")}`);
 
   // 3. Replace previous replay readings
   const del = await readings.deleteMany({ "meta.mode": "replay", "meta.source": { $in: ["glofas", "openmeteo"] } });
   if (docs.length) await readings.insertMany(docs, { ordered: false });
-  console.log(`✅ Replay ${START} → ${END}: ${docs.length} readings loaded (${del.deletedCount} old replay readings replaced). Label: "Reconstructed (GloFAS / reanalysis)".`);
+  console.log(`✅ Replay ${START} → ${END}: ${docs.length} readings loaded (${del.deletedCount} old replay readings replaced). Label: "Reconstructed (GloFAS / ${calibrate ? "calibrated reanalysis, approximate" : "reanalysis"})".`);
 } catch (err) {
   console.error(`❌ ${err instanceof Error ? err.message : err}`);
   process.exitCode = 1;

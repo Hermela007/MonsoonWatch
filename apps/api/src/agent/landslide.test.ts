@@ -57,3 +57,11 @@ test("villages near a runout get a landslide_screen event the threshold check ca
   assert.equal(ev[0]!.type, "landslide_screen");
   assert.match(ev[0]!.message, /not a site survey/);
 });
+
+test("a cell uses its own nearest rain station, not a wetter one further away", () => {
+  const g = hill();
+  const dryHere = { stationId: "dry", lngLat: centre, value: 0, rain6d: [0, 0, 0, 0, 0, 0] };
+  const wetFar = { stationId: "wet", lngLat: [102.15, 5.02] as [number, number], value: 300 }; // ≈ 14 km away
+  assert.equal(screenLandslides(g, [dryHere, wetFar], OPTION_A, { cellPx: 4 }).landslide.cells.length, 0);
+  assert.ok(screenLandslides(g, [wetFar], OPTION_A, { cellPx: 4 }).landslide.cells.length > 0); // alone, the wet one still counts
+});

@@ -130,6 +130,31 @@ Rules in [`apps/api/src/hazards/status.ts`](../apps/api/src/hazards/status.ts) (
 
 Centres, replay 24 Dec: 233 usable, 81 at_risk (46 likely, 35 margin only), 20 unknown (12 Dec: 299 / 15 / 20).
 
+## Replay rainfall calibration (landslide screening input)
+ERA5 reanalysis (Open-Meteo Archive, sampled at district centres) smooths the Dec 2014 peaks: about 93 mm/day at most up to
+23 Dec, so the landslide screen (warning 100 mm/1 day, danger 240 mm/1 day) never went above alert. The replay rain is
+therefore **scaled to published station totals** — like the river-level calibration, and labelled **"Calibrated reanalysis,
+approximate"**. It is a scaling, **not observed station data**.
+
+- **Source:** the per-station daily table "DATA HUJAN" (JPS rain stations, 20–25 Dec 2014) in
+  <https://cgss.usm.my/images/Air_-_Prof._Ir._Mohd_Nordin_Adlan.pdf>; 13 stations, each station's district from the JPS
+  station list. Every figure is in [`scripts/data/replay-2014/rain-calibration-2014.json`](../scripts/data/replay-2014/rain-calibration-2014.json),
+  and `scripts/lib/rain-calibration.test.ts` re-derives every total, mean and factor from the table and the ERA5 cache.
+- **Method (chosen before looking at landslide results):** per district, factor = mean of the published station totals
+  20–25 Dec ÷ ERA5 total 20–25 Dec at the district centre. Every daily value in the window is multiplied by it (value and
+  `rain6d` come from the same scaled series), so ERA5's day-to-day shape is kept. Days outside the window and districts
+  without a published station (Machang, Tumpat, Bachok) are not scaled. No per-day tuning. Fallback, not used: one
+  Kelantan-wide factor from JPS's ~944 mm over 15–24 Dec (parliamentary reply).
+- **Factors:** Gua Musang 4.698 (mean includes Gunung Gagau, a 1,376 m mountain station with 1,522 mm), Kuala Krai 1.726,
+  Jeli 1.553, Tanah Merah 1.780, Pasir Mas 0.979, Kota Bharu 0.718, Pasir Puteh 0.642 (below 1: ERA5 had more rain than the
+  stations there).
+- **Peaks (mm/day, raw → calibrated):** Gua Musang 47.9 → 225.0 (23 Dec), Kuala Krai 92.7 → 160.0 (23 Dec), Jeli 106.3 →
+  165.0 (24 Dec), Tanah Merah 77.7 → 138.3 (24 Dec), Pasir Mas 76.7 → 75.1, Kota Bharu 76.7 → 55.1, Pasir Puteh 75.2 → 48.3.
+- **Limits:** station daily totals are point measurements; a district mean of 1–4 stations stands in for the whole district;
+  ERA5's timing is kept, so the replay's daily peaks need not fall on the stations' peak days (e.g. Gunung Gagau peaked on
+  23 Dec, Kusial on 24 Dec). Loader flags: `--no-calibrate` (raw ERA5), `--dry-run` (print, no writes). Replay rain docs carry
+  extra fields `calibrated`, `calibrationLabel`, `calibrationFactor`.
+
 ## Landslide
 Owned by B (B5 `computeLandslide`, registered with `setLandslideProvider(fn)` from `apps/api/src/hazards`). Every response has the
 extra field **`landslideLabel`: "Screening tool. Shows where to check first. Does not replace an on-site engineer."**; the same

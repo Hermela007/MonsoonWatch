@@ -1,6 +1,8 @@
 // Builds apps/web/public/data/kelantan.json from Workstream C's committed data (scripts/data/**):
 //   - villages / towns and candidate evacuation centres (OpenStreetMap, via C's load-places cache)
-//   - Dec 2014 daily rainfall (Open-Meteo historical) and river discharge (GloFAS)
+//   - Dec 2014 daily rainfall (ERA5 via Open-Meteo, CALIBRATED per district to published JPS station totals
+//     with C's scripts/data/replay-2014/rain-calibration-2014.json — calibrated reanalysis, approximate)
+//     and river discharge (GloFAS)
 // Run: node apps/web/scripts/build-real-data.mjs   (no network, no database)
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
@@ -30,10 +32,20 @@ for (const e of places) {
 const rank = { city: 0, town: 1, village: 2, hamlet: 3 };
 villages.sort((a, b) => rank[a.kind] - rank[b.kind] || a.name.localeCompare(b.name));
 
-const rain = data('replay-2014/openmeteo-rain.json').map((p) => ({
-  lngLat: [r6(p.longitude), r6(p.latitude)],
-  dailyMm: p.daily.precipitation_sum.map((x) => x ?? 0),
-}));
+// Same calibration as C's load-replay-2014.ts (scripts/lib/rain-calibration.ts): per district, days inside the
+// window × factor (rounded to 0.1 mm); other days and uncalibrated districts unchanged. Matched by grid point.
+const rainCal = data('replay-2014/rain-calibration-2014.json');
+const rain = data('replay-2014/openmeteo-rain.json').map((p) => {
+  const c = rainCal.districts.find((d) => d.gridLat === p.latitude && d.gridLon === p.longitude);
+  return {
+    lngLat: [r6(p.longitude), r6(p.latitude)],
+    dailyMm: p.daily.precipitation_sum.map((x, i) => {
+      const t = p.daily.time[i];
+      const v = x ?? 0;
+      return c && t >= rainCal.window.start && t <= rainCal.window.end ? Math.round(v * c.factor * 10) / 10 : v;
+    }),
+  };
+});
 const rainStart = data('replay-2014/openmeteo-rain.json')[0].daily.time[0];
 const discharge = data('replay-2014/glofas-discharge.json').map((p) => ({
   lngLat: [r6(p.longitude), r6(p.latitude)],
@@ -66,7 +78,7 @@ const peak = { m3s: Math.round(mainCell.dailyM3s[peakIdx]), date: new Date(Date.
 const out = {
   source: {
     places: 'OpenStreetMap contributors (ODbL), via Workstream C scripts/data/osm/places.kelantan.json',
-    rain: 'Open-Meteo historical weather API (daily precipitation), via scripts/data/replay-2014/openmeteo-rain.json',
+    rain: 'Calibrated reanalysis, approximate: ERA5 daily precipitation (Open-Meteo), scaled per district for 20–25 Dec 2014 to published JPS rain-station totals (scripts/data/replay-2014/rain-calibration-2014.json). Not observed station data.',
     discharge: 'GloFAS river discharge (Copernicus), via scripts/data/replay-2014/glofas-discharge.json',
   },
   villages,
@@ -77,7 +89,7 @@ const out = {
   peak,
 };
 writeFileSync(fileURLToPath(new URL('../public/data/kelantan.json', import.meta.url)), JSON.stringify(out));
-console.log(`villages ${villages.length}, centres ${centres.length}, rain points ${rain.length}, discharge cells ${discharge.length}, rivers ${rivers.map((r) => r.name + ' ' + r.km + 'km').join(', ')}, peak ${peak.m3s} m3/s on ${peak.date}`);
+console.log(`villages ${villages.length}, centres ${centres.length}, rain points ${rain.length} (${rainCal.districts.length} calibrated), discharge cells ${discharge.length}, rivers ${rivers.map((r) => r.name + ' ' + r.km + 'km').join(', ')}, peak ${peak.m3s} m3/s on ${peak.date}`);
 
 // Peninsular Malaysia state outlines (geoBoundaries gbOpen MYS ADM1, CC BY 4.0) for the opening zoom
 // and locator map. Pass the downloaded file: node build-real-data.mjs <geoBoundaries-MYS-ADM1_simplified.geojson>
