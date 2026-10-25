@@ -21,11 +21,8 @@
     </div>
 
     <header class="topbar ui">
-      <div class="brand">Monsoon<span>Watch</span></div>
-      <nav class="modes" aria-label="View">
-        <button id="mode-resident" type="button" class="on">Residents</button>
-        <button id="mode-control" type="button">Control room</button>
-      </nav>
+      <div class="brand">Monsoon<span>Watch</span><b class="brand-console">Control</b></div>
+      <div class="console-meta"><span class="console-badge">Kelantan district · Officials only</span><a class="console-link" href="/" target="_blank" rel="noopener">Resident app ↗</a></div>
       <div class="clock"><b id="clock-tag">Now</b><span id="clock-time"></span></div>
     </header>
 
@@ -34,6 +31,8 @@
       <div class="risk-level">Flood response, step by step</div>
       <p class="sub">A dry run on the real December 2014 flood. The system detects danger and drafts the warning; nothing is sent until a person approves it.</p>
       <p id="public-demo-note" class="note" hidden>Public demo · operator actions are restricted. <a href="?mock=1">Try the scripted walkthrough</a>.</p>
+
+      <p id="control-landslide-rain-note" class="note" hidden>Landslide layer: reanalysis rain — levels likely under-estimated</p>
 
       <ol class="ctl-steps">
         <li class="ctl-step" data-n="1">
@@ -118,7 +117,7 @@
       <span id="live-gauges" class="live" hidden></span>
       <span><i class="sw flood"></i>Flood</span>
       <span class="forecast-key"><i class="sw forecast"></i>Expected flood area</span>
-      <span><i class="sw slide"></i>Landslide risk</span>
+      <span class="landslide-legend"><i class="sw slide"></i>Landslide risk<small id="landslide-rain-note" data-copy="slideReplayRain"></small></span>
       <span class="grid-note">Grid 1 km</span>
     </div>
 

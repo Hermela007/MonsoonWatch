@@ -65,6 +65,7 @@ export function describe(v: ResultView) {
     }
   } else if (risk.slideLevel === 'medium') slide.push(t('slideMedium', { d: fmtDistance(risk.slideDistM / 1000) }));
   else slide.push(t('slideLow'));
+  if (v.screening) slide.push(t('slideReplayRain'));
   // Say which landslide model this is (the agent's screening, or the offline terrain estimate).
   if (v.screening !== undefined && risk.slideLevel !== 'low') slide.push(v.illustrative ? t('slideIllustrative') : v.screening ? t('slideScreen') : t('slideEstimate'));
   if (v.upstreamSlopes > 0) slide.push(v.upstreamSlopes === 1 ? t('slideUpstreamOne') : t('slideUpstream', { n: v.upstreamSlopes }));

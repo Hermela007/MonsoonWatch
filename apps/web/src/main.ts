@@ -48,6 +48,9 @@ import { createStations } from './layers/stations';
 import { FOG } from './theme';
 
 const params = new URLSearchParams(location.search);
+// /control/ is the officials' console. An old #control link is moved there.
+if (location.hash === '#control' && !location.pathname.startsWith('/control')) location.replace(`/control/${location.search}`);
+const isControlPage = location.pathname.replace(/\/+$/, '') === '/control';
 const isPhone = matchMedia('(max-width: 767px), (pointer: coarse)').matches;
 const EXAG = Number(params.get('exag')) || 3;
 // Same analysis grid on every device: a safety answer must not depend on screen size.
@@ -247,7 +250,7 @@ async function main() {
       // Keep a readable name (e.g. the address picked) so a shared link shows it, not just "Near …".
       if (home.place) u.searchParams.set('label', home.place);
     }
-    u.hash = document.body.dataset.mode === 'control' ? 'control' : '';
+    u.hash = '';
     history.replaceState(null, '', u);
   };
   let focusTarget = 0;
@@ -840,7 +843,7 @@ async function main() {
     lastScenarioVersion = data.version;
     const counts = data.roadStatusCounts;
     hazardStatus.textContent = `${data.mode === 'replay' ? 'Reconstructed replay' : 'Live readings'} · ${new Date(data.assessedAt).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' })} MYT · Approximate. Roads: ${counts.flooded} flooded, ${counts.unknown} unknown, ${counts.clear} assessed clear, ${counts.outsideFloodplain} outside floodplain. ${data.gauges.filter(g => g.stale).length + data.gaugesWithoutReading.length} gauges without fresh readings.`;
-    document.getElementById('hazard-limitations')!.textContent = [data.landslideLabel, ...data.limitations].join(' ');
+    document.getElementById('hazard-limitations')!.textContent = [data.landslideLabel, ...(data.mode === 'replay' ? [t('slideReplayRain')] : []), ...data.limitations].join(' ');
   });
   const refreshHazards = (force = false) => {
     if (hub.mode !== 'live') return;
@@ -1135,10 +1138,11 @@ async function main() {
   };
 
   // ---- Modes ---------------------------------------------------------------------------
+  // Two products, two addresses: residents at /, the officials' console at /control/ (no switch between them
+  // in the resident app). Older #control links still open the console.
   const setMode = (m: 'resident' | 'control') => {
     document.body.dataset.mode = m;
-    document.getElementById('mode-resident')!.classList.toggle('on', m === 'resident');
-    document.getElementById('mode-control')!.classList.toggle('on', m === 'control');
+    document.title = m === 'control' ? 'MonsoonWatch Control · Kelantan' : 'MonsoonWatch · Is my home safe?';
     if (m === 'control') {
       closeRoute(false);
       leaveStreet();
@@ -1159,8 +1163,6 @@ async function main() {
       backToLanding();
     }
   };
-  document.getElementById('mode-resident')!.addEventListener('click', () => setMode('resident'));
-  document.getElementById('mode-control')!.addEventListener('click', () => setMode('control'));
 
   document.body.classList.toggle('recording', params.has('demo'));
   // ---- Recording presets (?demo=1, keys 1–8) -------------------------------------------
@@ -1193,6 +1195,14 @@ async function main() {
       chip.textContent = 'Demo ready · 1 landing · 2 card · 3 flood street · 4 landslide street · 5 control room · 6 approve · 7 route · 8 address';
       chip.classList.add('ready');
       window.setTimeout(() => chip.classList.add('quiet'), 6000);
+      // Arrived from the other page's key: play that scene now.
+      const sceneKey = params.get('key');
+      if (sceneKey) {
+        const u = new URL(location.href);
+        u.searchParams.delete('key');
+        history.replaceState(null, '', u);
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: sceneKey }));
+      }
     };
     // Start once the API is connected (or the scripted demo is running); give up waiting after 30 s.
     const started = performance.now();
@@ -1206,13 +1216,22 @@ async function main() {
   window.addEventListener('keydown', (e) => {
     if (!params.has('demo') || (e.target instanceof HTMLElement && (e.target.matches('input, textarea, select, button') || e.target.isContentEditable))) return;
     const k = e.key;
+    // Keys for the other product's scenes open its address (same query, e.g. ?demo=1&mock=1).
+    const goto = (path: string, key: string) => {
+      const q = new URLSearchParams(location.search);
+      for (const drop of ['key', 'place', 'at', 'label', 'view']) q.delete(drop);
+      q.set('key', key);
+      location.assign(`${path}?${q}`);
+    };
+    if (isControlPage && ['1', '2', '3', '4', '7', '8'].includes(k)) return goto('/', k);
+    if (!isControlPage && k === '5') return goto('/control/', k);
     if (k === '1') setMode('resident');
     if (k === '2') (setMode('resident'), pick('Kuala Krai'));
     if (k === '3') (setMode('resident'), pick('Kuala Krai'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
     if (k === '4') (setMode('resident'), pick(hillPlaces[0]?.name ?? 'Kampung Jabir'), window.setTimeout(() => void enterStreet().then(() => document.getElementById('btn-whatif')!.click()), 2800));
     if (k === '7') document.getElementById('btn-way')!.click();
     if (k === '8') (setMode('resident'), (homePrecision = 'address'), selectHome(GUCHIL.lngLat, GUCHIL.label, false));
-    if (k === '5') (setMode('control'), window.setTimeout(() => void startAgent(), 2400));
+    if (k === '5') void startAgent();
     if (k === '6' && control.currentAlert?.status === 'verified') void decide(control.currentAlert._id, 'approve');
   });
   // A short settle-in from high above the state.
@@ -1225,7 +1244,7 @@ async function main() {
     const linked = params.get('place');
     const at = params.get('at')?.split(',').map(Number);
     const openStreet = () => params.get('view') === 'street' && window.setTimeout(() => void enterStreet(), 2800);
-    if (location.hash === '#control') setMode('control');
+    if (isControlPage) setMode('control');
     else if (linked) {
       const p = allPlaces.find((x) => x.name.toLowerCase() === linked.toLowerCase()) ?? matchPlaces(linked, allPlaces)[0];
       if (p) ((homePrecision = 'place'), selectHome(p.lngLat, p.name), openStreet());
@@ -1269,6 +1288,9 @@ async function main() {
     const s = stageM(Math.min(hour, REPLAY_HOURS));
     valley.update(rainAccumulated(hour), time, focus);
     // Around a chosen home, outline where the water is expected to reach at the peak.
+    const replayLandslides = document.body.dataset.mode !== 'control' || hub.mode === 'mock' || !!(selectedHazardTs || replayTs);
+    document.getElementById('landslide-rain-note')!.hidden = !replayLandslides;
+    document.getElementById('control-landslide-rain-note')!.hidden = !replayLandslides;
     const apiControl = document.body.dataset.mode === 'control' && hub.mode !== 'mock';
     flood.mesh.visible = !apiControl;
     hotspots.group.visible = !apiControl;

@@ -38,6 +38,7 @@ const COPY = {
   slideHighWhenDays: 'Rain on that slope may reach the danger point in about {d} days.',
   slideMedium: 'Steep slopes {d} away could slide. Avoid hillside roads.',
   slideLow: 'No unstable slopes near your home.',
+  slideReplayRain: 'reanalysis rain — levels likely under-estimated',
   slideScreen: 'Landslide screening on cited rain thresholds: shows where to check first, not an on-site survey.',
   slideEstimate: 'Terrain estimate (the landslide screening is offline): illustrative thresholds.',
   slideIllustrative: 'Illustrative terrain estimate for this demo, not the agent\'s landslide screening.',
