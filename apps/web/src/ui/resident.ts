@@ -252,14 +252,19 @@ export function createResidentUi(
   let hasOfficialRecording = false;
   let summarySpeaking = false;
   let summaryRevision = 0;
+  let summaryPlayer: HTMLAudioElement | null = null;
+  let summaryRequest: AbortController | null = null;
+  let summaryUrl: string | null = null;
   const renderSummaryButton = () => {
     listen.hidden = !current;
-    listen.textContent = summarySpeaking ? '■ Stop reading' : '🔊 Listen to summary';
+    listen.textContent = summarySpeaking ? '■ Stop audio' : '🔊 Listen · Gemini';
     listen.setAttribute('aria-pressed', String(summarySpeaking));
   };
   const stopSummary = () => {
     summaryRevision++;
-    window.speechSynthesis?.cancel();
+    summaryRequest?.abort(); summaryRequest = null;
+    if (summaryPlayer) { summaryPlayer.onended = summaryPlayer.onerror = null; summaryPlayer.pause(); summaryPlayer.removeAttribute('src'); summaryPlayer.load(); summaryPlayer = null; }
+    if (summaryUrl) { URL.revokeObjectURL(summaryUrl); summaryUrl = null; }
     summarySpeaking = false;
     if (!hasOfficialRecording) renderSummaryButton();
     if (!hasOfficialRecording) { audioStatus.textContent = ''; audioStatus.hidden = true; }
@@ -289,35 +294,41 @@ export function createResidentUi(
     residentAudio.stop();
     document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
   };
-  listen.addEventListener('click', () => {
+  listen.addEventListener('click', async () => {
     document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
     if (hasOfficialRecording) { stopSummary(); void residentAudio.toggle(); return; }
     if (summarySpeaking) { stopSummary(); return; }
     if (!current) return;
-    if (!('speechSynthesis' in window)) {
-      audioStatus.textContent = 'Read-aloud is unavailable in this browser. Open this page in Chrome or Safari.';
-      audioStatus.hidden = false;
-      return;
-    }
     const words = [$('place-name').textContent, current.level, ...current.lines, current.when,
-      $('journey').hidden ? current.action : $('journey').innerText,
-      'Historical replay model estimate. Follow official instructions.'].filter(Boolean).join('. ');
-    const utterance = new SpeechSynthesisUtterance(words);
+      $('journey').hidden ? current.action : $('journey').innerText].filter(Boolean).join('. ');
     const revision = ++summaryRevision;
-    utterance.lang = 'en-GB';
-    utterance.onend = () => { if (revision !== summaryRevision) return; summarySpeaking = false; if (!hasOfficialRecording) renderSummaryButton(); audioStatus.hidden = true; };
-    utterance.onerror = () => {
-      if (revision !== summaryRevision) return;
-      summarySpeaking = false;
-      if (!hasOfficialRecording) renderSummaryButton();
-      audioStatus.textContent = 'Could not play the summary. Tap Listen to retry.';
-      audioStatus.hidden = false;
-    };
     summarySpeaking = true;
     renderSummaryButton();
-    audioStatus.textContent = 'Reading the model summary using your device voice.';
+    audioStatus.textContent = 'Loading Gemini’s Kore voice…';
     audioStatus.hidden = false;
-    window.speechSynthesis.speak(utterance);
+    const controller = new AbortController(); summaryRequest = controller;
+    // Keep one media element for this request and attach the generated recording when ready.
+    const player = new Audio(); summaryPlayer = player;
+    try {
+      const response = await fetch('/api/resident-summary/audio', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: words }), signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Gemini recording unavailable (HTTP ${response.status}). Tap Listen to retry.`);
+      const blob = await response.blob();
+      if (revision !== summaryRevision) return;
+      summaryUrl = URL.createObjectURL(blob); player.src = summaryUrl;
+      player.onended = () => { if (revision === summaryRevision) stopSummary(); };
+      player.onerror = () => {
+        if (revision !== summaryRevision) return;
+        stopSummary(); audioStatus.textContent = 'Gemini recording could not play. Tap Listen to retry.'; audioStatus.hidden = false;
+      };
+      await player.play();
+      if (revision === summaryRevision) audioStatus.textContent = 'Gemini · Kore voice · replay summary';
+    } catch (error) {
+      if (revision !== summaryRevision) return;
+      stopSummary(); audioStatus.textContent = error instanceof Error ? error.message : 'Gemini recording unavailable. Tap Listen to retry.'; audioStatus.hidden = false;
+    }
   });
   $('official-audio').addEventListener('play', () => { stopSummary(); residentAudio.stop(); }, true);
 
