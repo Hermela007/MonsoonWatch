@@ -167,6 +167,8 @@ export function renderJourney(
   for (const line of v.hazardLines) add(hz, 'div', 'j-hazard-line', line);
 
   if (v.steps.length) {
+    add(el, 'div', 'j-checkpoint-head', 'Route checkpoints');
+    add(el, 'p', 'j-checkpoint-help', 'Select a step to highlight it on the map.');
     const ol = add(el, 'ol', 'j-turns');
     v.steps.forEach((s, i) => {
       const li = add(ol, 'li');

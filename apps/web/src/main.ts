@@ -20,6 +20,7 @@ import { createRain } from './layers/rain';
 import { createLandslides } from './layers/landslides';
 import { createHomeLayer } from './layers/home';
 import { residentNotice } from './ui/residentNotice';
+import { withRouteCheckpoints } from './ui/routeCheckpoints';
 import { createResidentUi } from './ui/resident';
 import { createStreet } from './layers/street';
 import { loadAreaFor, type AreaData } from './data/areas';
@@ -331,7 +332,7 @@ async function main() {
       return ui!.setJourney(null);
     }
     ui!.setJourneyStatus('');
-    const route = res.route;
+    const route = withRouteCheckpoints(res.route);
     const view = journeyView(route);
     const lift = (ll: LngLat) => frame.lngLatToWorld(ll, elevAt(ll)).add(new THREE.Vector3(0, 0.03, 0));
     const pts = route.status === 'ok' && route.geometry ? drape(route.geometry.coordinates) : [];

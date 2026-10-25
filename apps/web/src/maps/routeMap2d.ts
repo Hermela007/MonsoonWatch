@@ -52,10 +52,13 @@ export async function createRouteMap2d(container: HTMLElement): Promise<RouteMap
   const lineLayout = { 'line-cap': 'round', 'line-join': 'round' } as const;
   map.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: lineLayout, paint: { 'line-color': '#fbfaf8', 'line-width': 11 } });
   map.addLayer({ id: 'route-core', type: 'line', source: 'route', layout: lineLayout, paint: { 'line-color': '#1d1d1b', 'line-width': 6 } });
+  map.addSource('route-active', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'route-active-line', type: 'line', source: 'route-active', layout: lineLayout, paint: { 'line-color': '#398fbc', 'line-width': 7 } });
 
   let markers: maplibregl.Marker[] = [];
   let turnEls: HTMLElement[] = [];
   let turnPts: LngLat[] = [];
+  let sections: LngLat[][] = [];
   let lastPadding: Padding = { top: 0, right: 0, bottom: 0, left: 0 };
 
   const clear = () => {
@@ -63,6 +66,8 @@ export async function createRouteMap2d(container: HTMLElement): Promise<RouteMap
     markers = [];
     turnEls = [];
     turnPts = [];
+    sections = [];
+    (map.getSource('route-active') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
     (map.getSource('route') as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: [] });
   };
 
@@ -84,6 +89,7 @@ export async function createRouteMap2d(container: HTMLElement): Promise<RouteMap
         (map.getSource('route') as maplibregl.GeoJSONSource).setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
         coords.forEach((c) => bounds.extend(c));
         turnPts = route.steps.map((s) => coords[Math.min(s.startIndex, coords.length - 1)]);
+        sections = route.steps.map(s => coords.slice(s.startIndex, s.endIndex + 1));
         turnPts.forEach((p, i) => {
           const el = marker('m2d-turn', String(i + 1));
           el.addEventListener('click', (e) => {
@@ -106,6 +112,10 @@ export async function createRouteMap2d(container: HTMLElement): Promise<RouteMap
     selectTurn(i: number) {
       turnEls.forEach((el, k) => el.classList.toggle('on', k === i));
       const p = turnPts[i];
+      const section = sections[i];
+      (map.getSource('route-active') as maplibregl.GeoJSONSource).setData(section?.length > 1
+        ? { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: section } }
+        : { type: 'FeatureCollection', features: [] });
       // Centre it in the visible part of the map (clear of the panel), not behind it.
       if (p) map.easeTo({ center: p, zoom: Math.max(map.getZoom(), 17), padding: lastPadding, duration: 700 });
     },
