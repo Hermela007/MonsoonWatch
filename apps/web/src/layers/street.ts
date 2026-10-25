@@ -302,9 +302,11 @@ export function createStreet(opts: {
     const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p.x, 0, p.z)), false, 'centripetal');
     const dense = curve.getSpacedPoints(Math.max(8, Math.round(curve.getLength() / 25))).map((v) => ({ x: v.x, z: v.z }));
     const d = Math.min(...dense.map((p) => Math.hypot(p.x, p.z)));
-    // Only the stretch of the runout that comes down into the neighbourhood.
-    const first = dense.findIndex((p) => Math.hypot(p.x, p.z) <= SLIDE_CLIP_M);
-    const near = first < 0 ? [] : dense.slice(first).filter((p) => Math.hypot(p.x, p.z) <= SLIDE_CLIP_M + 50);
+    // Only the stretch of the runout that comes down into the neighbourhood — reaching a little past its
+    // closest point, so a slope ~1 km out (still within the screening's 1 km rule) is drawn too.
+    const clip = Math.max(SLIDE_CLIP_M, d + 350);
+    const first = dense.findIndex((p) => Math.hypot(p.x, p.z) <= clip);
+    const near = first < 0 ? [] : dense.slice(first).filter((p) => Math.hypot(p.x, p.z) <= clip + 50);
     if (d < SLIDE_MAX_M && near.length >= 6 && (!best || d < best.d)) best = { s, d, pts: near };
   }
   if (best && best.pts.length >= 3) {

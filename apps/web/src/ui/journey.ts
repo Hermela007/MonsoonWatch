@@ -146,7 +146,9 @@ export function renderJourney(
   const modes = add(el, 'div', 'travel-modes');
   modes.setAttribute('role', 'group');
   modes.setAttribute('aria-label', 'How you will travel');
-  for (const [t, label] of [['car', 'Car'], ['walk', 'Walk'], ['boat', 'Boat']] as const) {
+  // No Boat option: there is no navigable-water data, so the routing service never has a boat route
+  // (rescue boats are coordinated by officials — boat alerts show "boat pickup → centre" in the console).
+  for (const [t, label] of [['car', 'Car'], ['walk', 'Walk']] as const) {
     const b = add(modes, 'button', t === v.travel ? 'on' : '', label);
     b.type = 'button';
     b.setAttribute('aria-pressed', String(t === v.travel));
