@@ -2,7 +2,7 @@
 // hazards model (setLandslideProvider) so GET /api/regions/:id/hazards includes landslide cells and
 // runouts for the 3D layer. Results are cached briefly per region/mode/time.
 
-import { COLLECTIONS, type Hazards, type Station } from "@monsoonwatch/shared";
+import { COLLECTIONS, type Hazards, type LngLat, type Station, type Village } from "@monsoonwatch/shared";
 import { getDb } from "../db/client";
 import { setLandslideProvider, type HazardMode } from "../hazards";
 import { loadElevationGrid } from "../hazards/terrain";
@@ -36,6 +36,22 @@ export async function rainAt(regionId: string, ts: Date, mode: HazardMode): Prom
   return rows.filter((r) => loc.has(r._id) && typeof r.value === "number").map((r) => ({ stationId: r._id, lngLat: loc.get(r._id)!, value: r.value, rain6d: r.rain6d }));
 }
 
+const villageCache = new Map<string, Promise<LngLat[]>>();
+/** Village locations (populated places): slopes within 3 km of them are screened too. */
+function villagePoints(regionId: string): Promise<LngLat[]> {
+  let hit = villageCache.get(regionId);
+  if (!hit) {
+    hit = (async () => {
+      const db = await getDb();
+      const vs = await db.collection<Village>(COLLECTIONS.villages).find({ regionId, population: { $gt: 0 } }, { projection: { location: 1 } }).toArray();
+      return vs.map((v) => v.location.coordinates);
+    })();
+    hit.catch(() => villageCache.delete(regionId));
+    villageCache.set(regionId, hit);
+  }
+  return hit;
+}
+
 export function computeLandslideDetailed(regionId: string, ts: Date, mode: HazardMode): Promise<LandslideDetail> {
   // Replay data is daily → cache per day; live per minute.
   const slot = mode === "replay" ? ts.toISOString().slice(0, 10) : String(Math.floor(ts.getTime() / CACHE_MS));
@@ -45,8 +61,8 @@ export function computeLandslideDetailed(regionId: string, ts: Date, mode: Hazar
   const value = (async () => {
     const grid = loadElevationGrid(regionId);
     const cfg = loadLandslideConfig(regionId);
-    const rain = await rainAt(regionId, ts, mode);
-    const { landslide, sources } = screenLandslides(grid, rain, cfg);
+    const [rain, focus] = await Promise.all([rainAt(regionId, ts, mode), villagePoints(regionId)]);
+    const { landslide, sources } = screenLandslides(grid, rain, cfg, { focus });
     return { landslide, sources, configSource: cfg.source };
   })();
   value.catch(() => cache.delete(key));

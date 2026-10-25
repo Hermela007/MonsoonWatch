@@ -132,6 +132,15 @@ export interface ScreenOptions {
   maxRunouts?: number;
   /** Rain stations further than this from a cell are not used for it. */
   maxStationKm?: number;
+  /**
+   * Populated places (village locations). Besides the statewide top runouts, the highest-risk
+   * slope within `focusKm` of each place also gets a runout, so slopes ABOVE villages are
+   * screened, not only the steepest remote hills.
+   */
+  focus?: LngLat[];
+  focusKm?: number;
+  /** Cap on the extra per-village runouts. */
+  maxFocusRunouts?: number;
 }
 
 /** The screening itself. Pure: grid + rain + config in, cells + runouts (+ their sources) out. */
@@ -174,14 +183,43 @@ export function screenLandslides(
   const runouts: Hazards["landslide"]["runouts"] = [];
   const sources: RunoutSource[] = [];
   const starts: LngLat[] = [];
-  for (const c of cells) {
-    if (runouts.length >= maxRunouts) break;
-    if (starts.some((s) => haversineKm(s, c.lngLat) < 1.5)) continue; // spread runouts out
+  const tryRunout = (c: (typeof cells)[number], spreadKm: number): boolean => {
+    if (starts.some((s) => haversineKm(s, c.lngLat) < spreadKm)) return false; // spread runouts out
     const path = runoutPath(g, c.x, c.y);
-    if (path.length < 3) continue;
+    if (path.length < 3) return false;
     starts.push(c.lngLat);
     runouts.push({ type: "LineString", coordinates: path, risk: c.risk });
     sources.push(c.src);
+    return true;
+  };
+  for (const c of cells) {
+    if (runouts.length >= maxRunouts) break;
+    tryRunout(c, 1.5);
+  }
+
+  // Slopes near villages: per place, its highest-risk cells within focusKm (cells sorted by risk).
+  if (opts.focus?.length) {
+    const focusKm = opts.focusKm ?? 3;
+    const cap = opts.maxFocusRunouts ?? 300;
+    const cellDeg = 0.03; // ≈ 3.3 km buckets
+    const bucket = new Map<string, (typeof cells)[number][]>();
+    for (const c of cells) {
+      const k = `${Math.floor(c.lngLat[0] / cellDeg)},${Math.floor(c.lngLat[1] / cellDeg)}`;
+      const list = bucket.get(k);
+      if (list) list.push(c);
+      else bucket.set(k, [c]);
+    }
+    let added = 0;
+    for (const p of opts.focus) {
+      if (added >= cap) break;
+      const bx = Math.floor(p[0] / cellDeg), by = Math.floor(p[1] / cellDeg);
+      const near: (typeof cells)[number][] = [];
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        for (const c of bucket.get(`${bx + dx},${by + dy}`) ?? []) if (haversineKm(p, c.lngLat) <= focusKm) near.push(c);
+      }
+      near.sort((a, b) => b.risk - a.risk);
+      for (const c of near.slice(0, 5)) if (tryRunout(c, 0.5)) { added++; break; } // the riskiest slope that yields a runout
+    }
   }
   return { landslide: { cells: cells.slice(0, maxCells).map(({ lngLat, risk }) => ({ lngLat, risk })), runouts }, sources };
 }
