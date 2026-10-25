@@ -7,14 +7,16 @@ let link: string | null = null;
 let marked = 0;
 let opened = '';
 let fail = false;
+let refuse = false;
 window.open = (() => ({ opener: null, closed: false, close() {}, location: { set href(value: string) { opened = value; } } })) as typeof window.open;
 window.fetch = async (input, init) => {
+  if (String(input).endsWith('/handoff') && refuse) return Response.json({ error: { message: 'Approved alert needs Malay and English text.' } }, { status: 409 });
   if (String(input).endsWith('/handoff')) return Response.json({ taskId: task._id, alertId: task.alertId, brief: 'APPROVED ALERT: test only', whatsappUrl: link });
   if (String(input).endsWith('/handed-off')) { marked++; return Response.json({ ...task, status: 'in_progress' }); }
   if (String(input).endsWith('/updates')) {
     if (fail) return Response.json({ error: { message: 'No MW CHECKIN line found' } }, { status: 400 });
     if (JSON.parse(String(init?.body)).by !== 'Test officer') throw new Error('Officer missing');
-    return Response.json({ applied: [{ people: 30, centre: 'SK Dabong', status: 'arrived' }], skipped: [{ line: 'duplicate', reason: 'already applied' }], errors: [{ line: 'bad', reason: 'unknown centre' }] });
+    return Response.json({ applied: [{ people: null, centre: 'SK Dabong', status: 'acknowledged' }], skipped: [{ line: 'duplicate', reason: 'already applied' }], errors: [{ line: 'bad', reason: 'unknown centre' }] });
   }
   throw new Error(`Unexpected request ${input}`);
 };
@@ -30,13 +32,18 @@ document.querySelector('#run')!.addEventListener('click', () => {
     check(root.querySelector<HTMLTextAreaElement>('.saint-brief')?.value.includes('APPROVED ALERT'), 'Null URL displays the copyable brief');
     check(marked === 0, 'Manual fallback does not mark an unsent brief handed off');
     click('I sent the brief on WhatsApp'); await settle();
-    check(marked === 1 && root.textContent?.includes('in progress'), 'Manual confirmation records handoff');
-    panel.task(task); link = 'https://wa.me/0000000000?text=test';
+    check(marked === 1 && root.textContent?.includes('Waiting for the village head’s check-in · sent'), 'Manual confirmation records handoff');
+    panel.task(task); refuse = true; opened = '';
+    click('Send to Saint'); await settle();
+    check(root.querySelector('.task .note')?.textContent?.includes('Approved alert needs Malay and English text.') && opened === '' && marked === 1, '409 stays on the task card and never navigates to WhatsApp');
+    refuse = false;
+    panel.task(task); link = 'https://wa.me/' + '0'.repeat(10) + '?text=test';
     click('Send to Saint'); await settle();
     check(opened === link && marked === 2, 'WhatsApp link opens before handoff is recorded');
     const report = root.querySelector<HTMLTextAreaElement>('#saint-report')!;
-    report.value = 'MW CHECKIN alert=test-alert centre=SK Dabong people=30 status=arrived'; report.dispatchEvent(new Event('input'));
+    report.value = 'MW CHECKIN alert=test-alert centre=SK Dabong people= status=acknowledged'; report.dispatchEvent(new Event('input'));
     click('Apply report'); await settle();
+    check(root.textContent?.includes('Acknowledged → SK Dabong') && !root.textContent?.includes('null people'), 'Empty acknowledgement shows a centre without a headcount');
     check(root.textContent?.includes('Applied: 1 · Skipped: 1 · Errors: 1'), 'All report result groups are visible');
     fail = true; click('Apply report'); await settle();
     check(root.textContent?.includes('Report not applied: No MW CHECKIN'), 'Backend errors remain visible and pasted text is retained');

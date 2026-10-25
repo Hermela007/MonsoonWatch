@@ -1,4 +1,5 @@
 import { createSaintUi } from './saint';
+import { emptySaintContext, PICKUP_CATEGORY, saintText } from './saintPresentation';
 import { createAreaWarningsUi } from './areaWarnings';
 import type { ConnectionMode } from '../api/stream';
 import type { AgentStep, Alert, AreaWarning, RiskEvent, SaintTask } from '@monsoonwatch/shared';
@@ -27,15 +28,16 @@ export function createControlUi(h: {
   onDecideArea: (id: string, d: 'approve' | 'reject') => void;
 }) {
   const steps = new Map<string, HTMLElement>();
-  const saint = createSaintUi($('saint-box'));
-  const areas = createAreaWarningsUi($('area-warnings'), { onDecide: (id, d) => h.onDecideArea(id, d) });
+  const context = emptySaintContext();
+  const safe = (text: string) => saintText(text, context);
+  const vName = (id: string) => safe(context.villages.get(id) ?? 'Village name unavailable');
+  const cName = (id: string) => safe(context.centres.get(id) ?? 'Centre name unavailable');
+  const saint = createSaintUi($('saint-box'), context);
+  const areas = createAreaWarningsUi($('area-warnings'), { onDecide: (id, d) => h.onDecideArea(id, d), formatText: safe });
   const list = $('hud-list');
   let t0 = 0;
   let current: Alert | null = null;
-  const alerts = new Map<string, Alert>();
-  // Village ids from the API are OSM ids ("osm-node-136…"): show their names once the village list is loaded.
-  let villageNames = new Map<string, string>();
-  const vName = (id: string) => villageNames.get(id) ?? id;
+  const alerts = context.alerts;
   let deciding = false;
   let connected = false;
   let readOnly = false;
@@ -90,17 +92,17 @@ export function createControlUi(h: {
       a.etaHours != null ? `water in ~${Math.round(a.etaHours)} h` : null,
       `${a.people.toLocaleString('en-GB')} people`,
       // Boat evacuations have no navigable-water path: name the pickup, draw no line.
-      a.routeMode === 'boat' ? `boat pickup → ${a.evacCentreId}` : null,
+      a.routeMode === 'boat' ? `boat pickup → ${cName(a.evacCentreId)}` : null,
     ]
       .filter(Boolean)
       .join(' · ');
-    $('alert-msg').textContent = a.messages.map((m) => `[${m.lang}] ${m.text}`).join('\n\n');
+    $('alert-msg').textContent = a.messages.map((m) => `[${m.lang}] ${safe(m.text)}`).join('\n\n');
     $('alert-pickups').textContent = a.pickups?.length
-      ? 'Priority pickups: ' + [...a.pickups].sort((a, b) => a.order - b.order).map((p) => `${p.order}. ${p.people} ${p.category} by ${p.vehicle}`).join(' · ')
+      ? 'Priority pickups: ' + [...a.pickups].sort((a, b) => a.order - b.order).map((p) => `${p.order}. ${p.people} ${PICKUP_CATEGORY[p.category]} by ${p.vehicle}`).join(' · ')
       : '';
     $('alert-checks').innerHTML =
       checks
-        .map((c) => `<li class="${c.passed ? 'pass' : 'fail'}"><span class="mark">${c.passed ? '✓' : '✕'}</span><b>${esc(CHECK_LABEL[c.check] ?? c.check)}</b><small>${esc(c.detail)}</small></li>`)
+        .map((c) => `<li class="${c.passed ? 'pass' : 'fail'}"><span class="mark">${c.passed ? '✓' : '✕'}</span><b>${esc(CHECK_LABEL[c.check] ?? c.check)}</b><small>${esc(safe(c.detail))}</small></li>`)
         .join('') + pending.map((c) => `<li class="pending"><span class="mark">·</span><b>${CHECK_LABEL[c]}</b><small>Checking…</small></li>`).join('');
     const canDecide = connected && !readOnly && !deciding && a.status === 'verified' && checks.length > 0 && checks.every((c) => c.passed);
     $<HTMLButtonElement>('btn-approve').disabled = !canDecide;
@@ -113,7 +115,7 @@ export function createControlUi(h: {
         : a.status === 'verified'
           ? 'All checks passed — needs a human decision. Nothing is sent until you approve.'
           : a.status === 'approved' || a.status === 'sent'
-            ? `Approved by ${a.approvedBy ?? 'operator'}${a.approvedAt ? ' · ' + new Date(a.approvedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}`
+            ? `Approved by ${safe(a.approvedBy ?? 'operator')}${a.approvedAt ? ' · ' + new Date(a.approvedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''}`
             : 'Rejected — nothing was sent.';
     $('decide-row').hidden = a.status === 'approved' || a.status === 'sent' || a.status === 'rejected';
   };
@@ -158,18 +160,25 @@ export function createControlUi(h: {
     alert(a: Alert) {
       setStage(a.status === 'approved' || a.status === 'sent' ? 4 : 3);
       alerts.set(a._id, a);
+      saint.refresh();
       if (!current || current._id === a._id) current = a;
       renderAlert();
     },
     get currentAlert() { return current; },
     setVillageNames(names: Map<string, string>) {
-      villageNames = names;
-      renderAlert();
+      context.villages = names;
+      renderAlert(); saint.refresh();
+    },
+    setCentres(centres: import('@monsoonwatch/shared').EvacCentre[]) {
+      for (const centre of centres) context.centres.set(centre._id, centre.name);
+      renderAlert(); saint.refresh();
     },
     /** A district warning (B): villages without an individual plan, decided one by one. */
     areaWarning(w: AreaWarning) {
       setStage(w.status === 'approved' || w.status === 'sent' ? 4 : 3);
+      context.warnings.set(w._id, w);
       areas.upsert(w);
+      saint.refresh();
     },
     getAreaWarning(id: string) { return areas.get(id); },
     setAreaBusy(id: string, on: boolean) { areas.setBusy(id, on); },
@@ -189,12 +198,13 @@ export function createControlUi(h: {
       setStage(4);
       saint.task(t);
     },
-    evac(c: import('@monsoonwatch/shared').EvacCentre) { saint.evac(c); },
+    evac(c: import('@monsoonwatch/shared').EvacCentre) { saint.evac(c); renderAlert(); },
     note(text: string) {
       this.step({ _id: `note-${Date.now()}`, runId: '', ts: new Date().toISOString(), actor: 'MonsoonWatch', kind: 'info', summary: text, status: 'ok' });
     },
     reset() {
       alerts.clear();
+      context.warnings.clear();
       deciding = false;
       steps.clear();
       saint.reset();

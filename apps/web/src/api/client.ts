@@ -68,7 +68,7 @@ async function postJson<T>(path: string, body: unknown, timeoutMs = 8000): Promi
 /** POST /agent/run (Workstream B). */
 export const runAgent = (regionId: string, opts: { mode?: 'live' | 'replay'; at?: string } = {}) =>
   postJson<AgentRunStarted>('/agent/run', { regionId, ...opts }, 30000);
-export const fetchAgentRun = (id: string) => getJson<AgentRunDetail>(`/agent/runs/${encodeURIComponent(id)}`, 6000);
+export const fetchAgentRun = (id: string, timeoutMs = 6000) => getJson<AgentRunDetail>(`/agent/runs/${encodeURIComponent(id)}`, timeoutMs);
 
 // C's replay status is kept local to the web client; shared contracts are unchanged.
 export interface ReplayStatus {
