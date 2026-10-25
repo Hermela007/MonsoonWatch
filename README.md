@@ -2,7 +2,7 @@
 
 A 3D early-warning control room for monsoon floods and landslides, demoed on the Kelantan valley in Malaysia during the December 2014 floods.
 
-River and rain readings stream into MongoDB. Risk is detected as the data arrives. A Gemini agent turns the risk into an alert for each village at risk, with the nearest usable relief centre, a dry road route (or "boat only"), and a message in Malay and English. Deterministic checks verify every alert. A human approves it before anything is sent. Saint's agent, Thea, then coordinates the follow-up with the village head on WhatsApp and reports headcounts back.
+River and rain readings stream into MongoDB. Risk is detected as the data arrives. A Gemini agent turns the risk into an alert for each village at risk, with the nearest usable relief centre, a dry road route (or "boat only"), and a message in Malay and English. Deterministic checks verify every alert. A human approves it before anything is sent. Saint's agent, Thea, then checks the brief, sends the approved message to the village head on WhatsApp, and helps the village head act on it and report back.
 
 All code in this repository was written during Encode London 2026.
 
@@ -68,7 +68,7 @@ The agent run is in [`orchestrator.ts`](apps/api/src/agent/orchestrator.ts). Eve
 4. **Gemini per village**: Gemini plans the villages the rules couldn't plan, plus the top five for tailored messages. Attempt 1 is a quick Flash-Lite draft. Attempts 2–4 use Flash with function calling (`list_evac_centres`, `plan_route`, `suggest_pickups`, `submit_plan`; [`tool-loop.ts`](apps/api/src/agent/tool-loop.ts), [`route.ts`](apps/api/src/agent/route.ts)), and each attempt is given the reasons the last one failed.
 5. **Verification** ([`verify.ts`](apps/api/src/agent/verify.ts), [`vulnerable.ts`](apps/api/src/agent/vulnerable.ts)): six deterministic checks with no LLM: threshold, route, capacity (including the village split across centres), data freshness, language (each message starts with its level word) and vulnerable-people pickups. A failure feeds the replan prompt.
 6. **Nobody left out** ([`coverage.ts`](apps/api/src/agent/coverage.ts)): at-risk villages with no verified plan get a district evacuate warning, and watch or unknown villages get a district advisory. Both are templates, and an official approves them like alerts (`/api/area-warnings`).
-7. **Spoken alerts** ([`speech.ts`](apps/api/src/agent/speech.ts)): Gemini TTS generates audio of the approved alert in Malay and English (`GET /api/alerts/:id/audio/:lang`). The resident page currently uses the browser's own speech.
+7. **Spoken alerts** ([`speech.ts`](apps/api/src/agent/speech.ts)): Gemini TTS generates audio of the approved alert in Malay and English (`GET /api/alerts/:id/audio/:lang`). The resident page plays it ([`residentAudio.ts`](apps/web/src/ui/residentAudio.ts)), Malay first.
 8. **Landslide thresholds from Gemini Deep Research** ([`research/`](apps/api/src/agent/research)): Deep Research collected published rainfall thresholds for Kelantan. The committed result ([`landslide-thresholds.kelantan.json`](apps/api/src/agent/research/output/landslide-thresholds.kelantan.json)) drives the landslide screen ([`landslide.ts`](apps/api/src/agent/landslide.ts)), and the report is saved to the `knowledge` collection for search.
 
 Calls go through the Interactions API ([`gemini.ts`](apps/api/src/agent/gemini.ts)); model IDs are in [`models.ts`](apps/api/src/agent/models.ts).
@@ -83,17 +83,20 @@ Calls go through the Interactions API ([`gemini.ts`](apps/api/src/agent/gemini.t
 | **Geospatial (2dsphere)** | villages, centres, roads, stations | Nearest centres, villages near a station, flood-extent lookups |
 | **Atlas Search** | [`places.ts`](apps/api/src/search/places.ts) | Typo-tolerant search over village and centre names (`GET /api/search?type=place`) |
 | **Vector Search + automated embedding** (Voyage `voyage-4`) | [`knowledge.ts`](apps/api/src/search/knowledge.ts), [indexes](apps/api/src/db/indexes) | Search over 22 sourced passages about the 2014 floods ([`kelantan-2014.csv`](scripts/data/knowledge/kelantan-2014.csv)) and the Deep Research report, in English and Malay |
-| **Hybrid search (`$rankFusion`) + native `$rerank`** (`rerank-2.5`) | [`knowledge.ts`](apps/api/src/search/knowledge.ts) | Text and vector results fused, then reranked (`GET /api/search?type=hybrid`) |
+| **Hybrid search (`$rankFusion`) + native `$rerank`** (`rerank-2.5`) | [`knowledge.ts`](apps/api/src/search/knowledge.ts) | Text and vector results fused, then reranked (`GET /api/search?type=hybrid`). In the app's search box, "Knowledge" ([`knowledge.ts`](apps/web/src/ui/knowledge.ts)) shows the reranked results. |
 
 Set up with `pnpm db:setup` (collections and indexes) and `pnpm db:stream` (processors).
 
 ## How we use Saint
 
-Saint's agent, Thea, is the human coordinator after an alert is approved. Thea works on WhatsApp with cleared contacts. In our demo the cleared contact is the ketua kampung (village head) of Kampung Manik Urai.
+Saint's agent, Thea, works after an alert is approved, on WhatsApp with cleared contacts (her guest access has no web, email or API). In our demo a teammate plays the ketua kampung (village head).
 
-1. An official approves an alert. The **Send to Saint** button ([`saint.ts`](apps/web/src/ui/saint.ts)) opens a brief for Thea ([`brief.ts`](apps/api/src/saint/brief.ts)): the village, the centre, the route, the people to pick up, and the exact reply format.
-2. Thea messages the village head and coordinates the move.
-3. Thea reports back with lines like `MW CHECKIN alert=… centre=… people=12 status=arrived`. These are pasted into the control room (`POST /api/saint/updates`, parser in [`checkin.ts`](apps/api/src/saint/checkin.ts)). Each line updates the centre headcount and appears on the HUD. Repeated lines are ignored.
+1. An official approves an alert. The **Send to Saint** button ([`saint.ts`](apps/web/src/ui/saint.ts)) opens WhatsApp with a brief for Thea ([`brief.ts`](apps/api/src/saint/brief.ts)): the village, the centre, the route, the people to pick up, both messages, and the check-in format. Alerts without both Malay and English are refused.
+2. **Thea checks the brief** before anything goes out. In testing she refused an alert with no Malay text and flagged a distance mismatch and a centre with no spare places.
+3. Thea sends the approved message, verbatim, to the village head, then **helps the village head in their own chat**: answers questions from the brief, helps plan who to collect first, and turns their updates into a line like `MW CHECKIN alert=… centre=… people=37 status=moving`.
+4. **The village head forwards that line** to the duty officer, who pastes it into the control room (`POST /api/saint/updates`, parser in [`checkin.ts`](apps/api/src/saint/checkin.ts)). Bad lines are rejected, repeats are ignored, and "arrived" updates the centre headcount and the HUD.
+
+Why the village head forwards the line: in two live tests Thea could not reliably carry the leader's replies from the leader's chat into the officer's chat. So the numbers now start with the person who counted, in the same conversation. With a WhatsApp Business number, the same lines could reach the app automatically.
 
 Routes: [`routes/saint.ts`](apps/api/src/routes/saint.ts). Brief and log: [`docs/saint-brief.md`](docs/saint-brief.md), [`docs/saint-log.md`](docs/saint-log.md).
 
