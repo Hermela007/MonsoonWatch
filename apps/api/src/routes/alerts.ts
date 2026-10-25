@@ -15,30 +15,12 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { Alert, AreaWarning, SaintTask } from "@monsoonwatch/shared";
-import { audioUrl, generateSpokenAlert, readSpokenAlert, speakText } from "../agent/speech";
+import { audioUrl, generateSpokenAlert, readSpokenAlert } from "../agent/speech";
 import { emitStep } from "../agent/steps";
 import { defaultStore } from "../agent/store";
 import { HttpError } from "../errors";
 
-export async function alertRoutes(app: FastifyInstance, opts: { summarySpeaker?: typeof speakText } = {}) {
-  // Resident-requested replay narration is separate from approved official alert recordings.
-  const summaries = new Map<string, Promise<Buffer>>();
-  app.post<{ Body: { text?: unknown } }>("/resident-summary/audio", async (req, reply) => {
-    const text = req.body?.text;
-    if (typeof text !== 'string' || !text.trim() || text.length > 2400) {
-      throw new HttpError(400, 'bad_request', 'Summary text must contain 1–2400 characters');
-    }
-    const transcript = `Historical replay model estimate. ${text.trim()}. Follow official instructions.`;
-    let audio = summaries.get(transcript);
-    if (!audio) {
-      if (summaries.size >= 32) summaries.delete(summaries.keys().next().value!);
-      audio = (opts.summarySpeaker ?? speakText)(`resident-voice-${randomUUID()}`, transcript, 'resident replay summary (en)');
-      summaries.set(transcript, audio);
-      audio.catch(() => { if (summaries.get(transcript) === audio) summaries.delete(transcript); });
-    }
-    return reply.type('audio/wav').header('cache-control', 'no-store').send(await audio);
-  });
-
+export async function alertRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { approvedBy?: string } }>("/alerts/:id/approve", async (req): Promise<Alert> => {
     const approvedBy = req.body?.approvedBy?.trim();
     if (!approvedBy) throw new HttpError(400, "bad_request", `"approvedBy" is required: who is approving this alert`);

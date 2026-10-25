@@ -248,89 +248,29 @@ export function createResidentUi(
   $('btn-street').addEventListener('click', h.onStreet);
   $('btn-route-back').addEventListener('click', h.onRouteBack);
 
-  const officialAudio = createAlertAudio($('official-audio'));
-  let hasOfficialRecording = false;
-  let summarySpeaking = false;
-  let summaryRevision = 0;
-  let summaryPlayer: HTMLAudioElement | null = null;
-  let summaryRequest: AbortController | null = null;
-  let summaryUrl: string | null = null;
-  const renderSummaryButton = () => {
-    listen.hidden = !current;
-    listen.textContent = summarySpeaking ? '■ Stop audio' : '🔊 Listen · Gemini';
-    listen.setAttribute('aria-pressed', String(summarySpeaking));
-  };
-  const stopSummary = () => {
-    summaryRevision++;
-    summaryRequest?.abort(); summaryRequest = null;
-    if (summaryPlayer) { summaryPlayer.onended = summaryPlayer.onerror = null; summaryPlayer.pause(); summaryPlayer.removeAttribute('src'); summaryPlayer.load(); summaryPlayer = null; }
-    if (summaryUrl) { URL.revokeObjectURL(summaryUrl); summaryUrl = null; }
-    summarySpeaking = false;
-    if (!hasOfficialRecording) renderSummaryButton();
-    if (!hasOfficialRecording) { audioStatus.textContent = ''; audioStatus.hidden = true; }
-  };
-  // Keep voice guidance near the risk heading, above the long hazard and route cards.
+  // Keep approved Gemini audio visible above the long risk and route cards.
   $('risk-level').insertAdjacentElement('afterend', listen);
+  const officialAudio = createAlertAudio($('official-audio'));
   const audioStatus = document.createElement('p');
   audioStatus.className = 'note'; audioStatus.id = 'resident-audio-status'; audioStatus.setAttribute('role', 'status');
   listen.insertAdjacentElement('afterend', audioStatus);
   listen.hidden = true;
   const residentAudio = createResidentAudio(state => {
-    hasOfficialRecording = state.visible;
-    if (!state.visible) {
-      renderSummaryButton();
-      audioStatus.textContent = '';
-      audioStatus.hidden = true;
-      return;
-    }
-    listen.hidden = false;
+    listen.hidden = !state.visible;
     listen.textContent = state.phase === 'playing' ? '■ Stop' : state.phase === 'loading' ? '■ Cancel audio' : `🔊 Listen · Gemini${state.language ? ` (${state.language.toUpperCase()})` : ''}`;
     listen.setAttribute('aria-pressed', String(state.phase === 'playing' || state.phase === 'loading'));
     audioStatus.textContent = state.message;
     audioStatus.hidden = !state.message;
   });
   const stopSpeaking = () => {
-    stopSummary();
     residentAudio.stop();
     document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
   };
-  listen.addEventListener('click', async () => {
+  listen.addEventListener('click', () => {
     document.querySelectorAll<HTMLAudioElement>('#official-audio audio').forEach(audio => audio.pause());
-    if (hasOfficialRecording) { stopSummary(); void residentAudio.toggle(); return; }
-    if (summarySpeaking) { stopSummary(); return; }
-    if (!current) return;
-    const words = [$('place-name').textContent, current.level, ...current.lines, current.when,
-      $('journey').hidden ? current.action : $('journey').innerText].filter(Boolean).join('. ');
-    const revision = ++summaryRevision;
-    summarySpeaking = true;
-    renderSummaryButton();
-    audioStatus.textContent = 'Loading Gemini’s Kore voice…';
-    audioStatus.hidden = false;
-    const controller = new AbortController(); summaryRequest = controller;
-    // Keep one media element for this request and attach the generated recording when ready.
-    const player = new Audio(); summaryPlayer = player;
-    try {
-      const response = await fetch('/api/resident-summary/audio', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: words }), signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(`Gemini recording unavailable (HTTP ${response.status}). Tap Listen to retry.`);
-      const blob = await response.blob();
-      if (revision !== summaryRevision) return;
-      summaryUrl = URL.createObjectURL(blob); player.src = summaryUrl;
-      player.onended = () => { if (revision === summaryRevision) stopSummary(); };
-      player.onerror = () => {
-        if (revision !== summaryRevision) return;
-        stopSummary(); audioStatus.textContent = 'Gemini recording could not play. Tap Listen to retry.'; audioStatus.hidden = false;
-      };
-      await player.play();
-      if (revision === summaryRevision) audioStatus.textContent = 'Gemini · Kore voice · replay summary';
-    } catch (error) {
-      if (revision !== summaryRevision) return;
-      stopSummary(); audioStatus.textContent = error instanceof Error ? error.message : 'Gemini recording unavailable. Tap Listen to retry.'; audioStatus.hidden = false;
-    }
+    void residentAudio.toggle();
   });
-  $('official-audio').addEventListener('play', () => { stopSummary(); residentAudio.stop(); }, true);
+  $('official-audio').addEventListener('play', () => residentAudio.stop(), true);
 
   // Static copy.
   for (const el of document.querySelectorAll<HTMLElement>('[data-copy]')) el.textContent = t(el.dataset.copy as never);
@@ -356,7 +296,6 @@ export function createResidentUi(
     showResult(v: ResultView) {
       stopSpeaking(); residentAudio.set(null);
       current = describe(v);
-      renderSummaryButton();
       // A new place: the previous place's journey no longer applies (the new one arrives separately).
       $('journey').hidden = true;
       $('journey').replaceChildren();
@@ -438,7 +377,6 @@ export function createResidentUi(
     },
     /** The loop closed: an alert a duty officer approved for this place, shown above the model estimate. */
     setOfficial(a: OfficialAlertView | null) {
-      stopSummary();
       const box = $('official');
       box.hidden = !a;
       residentAudio.set(a ? { id: a.id, languages: a.languages, status: a.status } : null);

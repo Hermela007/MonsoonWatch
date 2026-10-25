@@ -30,6 +30,19 @@ test('404 generation delay retries the approved audio, then plays Malay', async 
   assert.equal(h.waits, 1); assert.equal(h.plays, 1); assert.equal(h.states.at(-1)?.language, 'ms');
 });
 
+test('approved district warning uses its own ID and falls back from Malay to English', async () => {
+  const urls: string[] = [];
+  const h = harness((async (url: string) => {
+    urls.push(url);
+    return url.endsWith('/ms') ? new Response('', { status: 404 }) : new Response('approved English audio');
+  }) as typeof fetch);
+  h.player.set({ id: 'area:run/Kuala Krai', status: 'approved', languages: ['en', 'ms'] });
+  await h.player.toggle();
+  assert.deepEqual(urls, ['/api/alerts/area%3Arun%2FKuala%20Krai/audio/ms', '/api/alerts/area%3Arun%2FKuala%20Krai/audio/en']);
+  assert.equal(h.plays, 1);
+  assert.equal(h.states.at(-1)?.language, 'en');
+});
+
 test('no approved message means no requests or playback, and button stays hidden', async () => {
   const h = harness((async () => { throw new Error('must not request'); }) as typeof fetch);
   h.player.set({ ...approved, status: 'draft' }); await h.player.toggle();
